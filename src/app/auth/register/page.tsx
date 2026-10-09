@@ -388,7 +388,7 @@ export default function RegisterPage() {
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => markTouched('name')}
                     placeholder="e.g. K. L. Perera"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
                       touched.name && errors.name
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -421,7 +421,7 @@ export default function RegisterPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     onBlur={() => markTouched('email')}
                     placeholder="e.g. perera.k@spid.gov.lk"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
                       touched.email && errors.email
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -456,7 +456,7 @@ export default function RegisterPage() {
                     value={division}
                     onChange={(e) => setDivision(e.target.value)}
                     onBlur={() => markTouched('division')}
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-8 text-sm text-slate-800 dark:text-white border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none appearance-none cursor-pointer ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-8 text-sm text-slate-800 dark:text-white border transition duration-150 focus:outline-none appearance-none cursor-pointer ${
                       touched.division && errors.division
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -501,7 +501,7 @@ export default function RegisterPage() {
                     onChange={(e) => setNic(e.target.value.toUpperCase())}
                     onBlur={() => markTouched('nic')}
                     placeholder="e.g. 198524103421 / 852410342V"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent uppercase tracking-wide border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent uppercase tracking-wide border transition duration-150 focus:outline-none ${
                       touched.nic && errors.nic
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -530,20 +530,20 @@ export default function RegisterPage() {
                   </span>
                 </div>
                 <div
-                  className={`flex items-center rounded-xl bg-[#f4f7fe] dark:bg-navy-900 overflow-hidden border transition duration-150 focus-within:bg-white dark:focus-within:bg-navy-900 ${
+                  className={`flex items-center rounded-xl bg-[#f4f7fe] dark:bg-navy-900 overflow-hidden border transition duration-150 ${
                     touched.phone && errors.phone
                       ? 'border-red-400 focus-within:border-red-500'
                       : 'border-transparent focus-within:border-[#4318FF]'
                   }`}
                 >
                   {/* +94 Prefix Pill */}
-                  <div className="flex items-center gap-1.5 bg-slate-200/70 dark:bg-navy-700 px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 border-r border-slate-300 dark:border-navy-600 select-none shrink-0">
+                  <div className="flex items-center gap-1.5 bg-slate-200/80 dark:bg-navy-800 px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 border-r border-slate-300 dark:border-navy-700 select-none shrink-0">
                     <span>🇱🇰</span>
                     <span>+94</span>
                   </div>
 
-                  <div className="relative flex w-full items-center">
-                    <FiPhone className="absolute left-3 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <div className="relative flex w-full items-center bg-[#f4f7fe] dark:bg-navy-900">
+                    <FiPhone className="absolute left-3 h-4 w-4 text-slate-400 dark:text-slate-500 pointer-events-none z-10" />
                     <input
                       id="reg-phone"
                       type="tel"
@@ -552,8 +552,9 @@ export default function RegisterPage() {
                       onChange={handlePhoneChange}
                       onBlur={() => markTouched('phone')}
                       placeholder="77 123 4567"
-                      maxLength={11} // With spaces "77 123 4567" is 11 chars
-                      className="w-full bg-transparent py-3 pl-9 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent focus:outline-none"
+                      maxLength={11}
+                      autoComplete="off"
+                      className="w-full bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-9 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -583,7 +584,7 @@ export default function RegisterPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     onBlur={() => markTouched('password')}
                     placeholder="••••••••••••"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
                       touched.password && errors.password
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -643,7 +644,7 @@ export default function RegisterPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     onBlur={() => markTouched('confirmPassword')}
                     placeholder="••••••••••••"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border transition duration-150 focus:bg-white dark:focus:bg-navy-900 focus:outline-none ${
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
                       touched.confirmPassword && errors.confirmPassword
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'

@@ -1,36 +1,41 @@
 import React from 'react';
 
-// Admin Imports
-
 // Icon Imports
 import {
   MdHome,
-  MdOutlineShoppingCart,
+  MdFolder,
   MdBarChart,
   MdPerson,
   MdLock,
+  MdPeopleAlt,
+  MdArchive,
 } from 'react-icons/md';
 
 const routes = [
   {
-    name: 'Main Dashboard',
+    name: 'Dashboard',
     layout: '/admin',
     path: 'default',
     icon: <MdHome className="h-6 w-6" />,
   },
   {
-    name: 'NFT Marketplace',
+    name: 'File Repository',
     layout: '/admin',
     path: 'nft-marketplace',
-    icon: <MdOutlineShoppingCart className="h-6 w-6" />,
-
+    icon: <MdFolder className="h-6 w-6" />,
     secondary: true,
   },
   {
-    name: 'Data Tables',
+    name: 'File Records',
     layout: '/admin',
     icon: <MdBarChart className="h-6 w-6" />,
     path: 'data-tables',
+  },
+  {
+    name: 'User Management',
+    layout: '/admin',
+    icon: <MdPeopleAlt className="h-6 w-6" />,
+    path: 'users',
   },
   {
     name: 'Profile',
@@ -43,12 +48,6 @@ const routes = [
     layout: '/auth',
     path: 'sign-in',
     icon: <MdLock className="h-6 w-6" />,
-  },
-  {
-    name: 'RTL Admin',
-    layout: '/rtl',
-    path: 'rtl-default',
-    icon: <MdHome className="h-6 w-6" />,
   },
 ];
 export default routes;
