@@ -1,7 +1,15 @@
 import React, { ReactNode } from 'react';
 import AppWrappers from './AppWrappers';
-// import '@asseinfo/react-kanban/dist/styles.css';
-// import '/public/styles/Plugins.css';
+
+export const metadata = {
+  title: 'Southern Provincial Irrigation Department File Management System',
+  description:
+    'Southern Provincial Irrigation Department File Management System - Official Document & Archive Portal',
+  icons: {
+    icon: '/img/spid/spid-logo.png',
+    apple: '/img/spid/spid-logo.png',
+  },
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

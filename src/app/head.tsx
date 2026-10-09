@@ -1,17 +1,17 @@
-import React from "react";
+import React from 'react';
 
 export default function RootHead() {
-	return <>
-			<link rel="apple-touch-icon" href="/logo192.png" />
-			<link rel="manifest" href="/manifest.json" />
-			<link
-				rel="shortcut icon"
-				type="image/x-icon"
-				href={process.env.NEXT_PUBLIC_BASE_PATH || '' + '/favicon.ico'}
-			/>
-
-		  <title>Horizon UI PRO NextJS</title>
+  return (
+    <>
+      <link rel="apple-touch-icon" href="/img/spid/spid-logo.png" />
+      <link rel="shortcut icon" type="image/png" href="/img/spid/spid-logo.png" />
+      <title>Southern Provincial Irrigation Department File Management System</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta name="theme-color" content="#000000" />
-	</>
+      <meta
+        name="description"
+        content="Southern Provincial Irrigation Department File Management System - Official Document & Archive Portal"
+      />
+      <meta name="theme-color" content="#4318FF" />
+    </>
+  );
 }
