@@ -21,24 +21,36 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
         <HiX />
       </span>
 
-      <div className={`mx-[56px] mt-[50px] flex items-center`}>
-        <div className="ml-1 mt-1 h-2.5 font-poppins text-[26px] font-bold uppercase text-navy-700 dark:text-white">
-          Horizon <span className="font-medium">FREE</span>
+      {/* SPID Official Branding Header */}
+      <div className="mx-[28px] mt-[36px] flex items-center gap-3">
+        <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0">
+          <img
+            src="/img/spid/spid-logo.png"
+            alt="SPID Logo"
+            className="h-full w-full object-contain select-none"
+          />
+        </div>
+        <div className="flex flex-col">
+          <div className="font-poppins text-[15px] font-black uppercase text-navy-700 dark:text-white tracking-tight leading-tight">
+            SPID <span className="text-[#4318FF] font-extrabold">SYSTEM</span>
+          </div>
+          <span className="text-[9px] font-bold uppercase text-sky-600 dark:text-sky-400 tracking-wider">
+            Irrigation Dept.
+          </span>
         </div>
       </div>
-      <div className="mb-7 mt-[58px] h-px bg-gray-300 dark:bg-white/30" />
-      {/* Nav item */}
 
+      <div className="mb-6 mt-6 h-px bg-gray-200 dark:bg-white/20" />
+
+      {/* Nav items */}
       <ul className="mb-auto pt-1">
         <Links routes={routes} />
       </ul>
 
-      {/* Free Horizon Card */}
-      <div className="flex justify-center">
+      {/* Department System Badge Card */}
+      <div className="flex justify-center px-4">
         <SidebarCard />
       </div>
-
-      {/* Nav item end */}
     </div>
   );
 }

@@ -1,44 +1,35 @@
 const Footer = () => {
   return (
     <div className="flex w-full flex-col items-center justify-between px-1 pb-8 pt-3 lg:px-8 xl:flex-row">
-      <p className="mb-4 text-center text-sm font-medium text-gray-600 sm:!mb-0 md:text-lg">
-        <span className="mb-4 text-center text-sm text-gray-600 sm:!mb-0 md:text-base">
-          ©{new Date().getFullYear()} Horizon UI. All Rights Reserved by <a href="https://github.com/horizon-ui" className="text-green-600 hover:text-green-700 font-semibold" target="_blank" rel="noopener noreferrer">Horizon UI</a> • Distributed by <a href="https://themewagon.com" className="text-green-600 hover:text-green-700 font-semibold" target="_blank" rel="noopener noreferrer">ThemeWagon</a>
+      <p className="mb-4 text-center text-sm font-medium text-gray-600 dark:text-gray-400 sm:!mb-0 md:text-sm">
+        <span>
+          ©{new Date().getFullYear()} Southern Provincial Irrigation Department. All rights reserved. • Secure Archival Portal
         </span>
       </p>
       <div>
-        <ul className="flex flex-wrap items-center gap-3 sm:flex-nowrap md:gap-10">
+        <ul className="flex flex-wrap items-center gap-3 sm:flex-nowrap md:gap-6 text-xs text-gray-500 dark:text-gray-400">
           <li>
             <a
-              target="blank"
-              href="mailto:hello@simmmple.com"
-              className="text-base font-medium text-gray-600 hover:text-gray-600"
+              href="mailto:info@spid.gov.lk"
+              className="font-medium hover:text-[#4318FF] transition"
             >
-              Support
+              SPID Helpdesk
             </a>
           </li>
           <li>
             <a
               href="#!"
-              className="text-base font-medium text-gray-600 hover:text-gray-600"
+              className="font-medium hover:text-[#4318FF] transition"
             >
-              License
+              Archival Protocols
             </a>
           </li>
           <li>
             <a
               href="#!"
-              className="text-base font-medium text-gray-600 hover:text-gray-600"
+              className="font-medium hover:text-[#4318FF] transition"
             >
-              Terms of Use
-            </a>
-          </li>
-          <li>
-            <a
-              href="#!"
-              className="text-base font-medium text-gray-600 hover:text-gray-600"
-            >
-              Blog
+              Security Policy
             </a>
           </li>
         </ul>

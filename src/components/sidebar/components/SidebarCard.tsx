@@ -1,48 +1,28 @@
-const FreeCard = () => {
+import React from 'react';
+import { FiShield, FiFileText } from 'react-icons/fi';
+
+const DepartmentBadgeCard = () => {
   return (
-    <div className="relative mt-14 flex w-[256px] justify-center rounded-[20px] bg-gradient-to-br from-[#868CFF] via-[#432CF3] to-brand-500 pb-4">
-      <div className="absolute -top-12 flex h-24 w-24 items-center justify-center rounded-full border-[4px] border-white bg-gradient-to-b from-[#868CFF] to-brand-500 dark:!border-navy-800">
-        <svg
-          width="41"
-          height="41"
-          viewBox="0 0 41 41"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M10.0923 27.3033H30.8176V36.3143H10.0923V27.3033Z"
-            fill="white"
-          />
-          <path
-            d="M31.5385 29.1956C31.5385 26.2322 30.3707 23.3901 28.2922 21.2947C26.2136 19.1992 23.3945 18.022 20.4549 18.022C17.5154 18.022 14.6963 19.1992 12.6177 21.2947C10.5392 23.3901 9.37143 26.2322 9.37143 29.1956L20.4549 29.1956H31.5385Z"
-            fill="white"
-          />
-          <path
-            fillRule="evenodd"
-            clipRule="evenodd"
-            d="M20.5 31.989C26.8452 31.989 31.989 26.8452 31.989 20.5C31.989 14.1548 26.8452 9.01099 20.5 9.01099C14.1548 9.01099 9.01099 14.1548 9.01099 20.5C9.01099 26.8452 14.1548 31.989 20.5 31.989ZM20.5 41C31.8218 41 41 31.8218 41 20.5C41 9.17816 31.8218 0 20.5 0C9.17816 0 0 9.17816 0 20.5C0 31.8218 9.17816 41 20.5 41Z"
-            fill="white"
-          />
-        </svg>
+    <div className="relative mt-10 flex w-[256px] flex-col items-center justify-center rounded-[20px] bg-gradient-to-br from-[#4318FF] via-[#3311db] to-[#1e0a8a] p-5 pb-6 text-white shadow-xl shadow-indigo-600/20">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md border border-white/20">
+        <FiShield className="h-6 w-6 text-white" />
       </div>
 
-      <div className="mt-16 flex h-fit flex-col items-center">
-        <p className="text-lg font-bold text-white">Download now</p>
-        <p className="mt-1 px-4 text-center text-sm text-white">
-          Improve your development process and start doing more with Horizon UI
-          PRO!
+      <div className="text-center">
+        <p className="text-sm font-bold tracking-tight text-white">
+          SPID File Management
         </p>
+        <p className="mt-1 text-[11px] font-medium leading-relaxed text-indigo-100/90">
+          Southern Provincial Irrigation Department Central Registry &amp; Dossiers
+        </p>
+      </div>
 
-        <a
-          target="blank"
-          className="text-medium mt-7 block rounded-full bg-gradient-to-b from-white/50 to-white/10 px-11 py-[12px] text-center text-base text-white hover:bg-gradient-to-b hover:from-white/40 hover:to-white/5 "
-          href="https://themewagon.com/themes/horizon-next/"
-        >
-          Download now
-        </a>
+      <div className="mt-4 flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[10px] font-semibold text-white backdrop-blur-sm border border-white/10">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+        <span>Secure Archival System</span>
       </div>
     </div>
   );
 };
 
-export default FreeCard;
+export default DepartmentBadgeCard;

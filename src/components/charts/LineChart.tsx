@@ -9,7 +9,7 @@ const LineChart = (props) => {
   const { chartData, chartOptions } = props;
 
   return (
-    // @ts-expect-error
+    // @ts-ignore
     <Chart
       options={chartOptions}
       type="line"
