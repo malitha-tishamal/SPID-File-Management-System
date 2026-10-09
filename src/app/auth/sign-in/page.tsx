@@ -81,19 +81,6 @@ export default function SignInPage() {
     }
   };
 
-  // Quick fill helper for testing
-  const handleQuickFillDemo = () => {
-    setEmail('officer@spid.gov.lk');
-    setPassword('spid@admin2026');
-    setErrorBanner(null);
-    showToast({
-      type: 'info',
-      title: 'Demo Credentials Loaded',
-      message: 'Officer Administrator credentials prefilled for testing.',
-      duration: 3000,
-    });
-  };
-
   return (
     <div className="w-full flex flex-col items-center px-4 sm:px-6">
       {/* Brand Header */}
@@ -107,25 +94,13 @@ export default function SignInPage() {
         <div className="relative z-10">
           {/* Card Header */}
           <div className="mb-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
-                  <HiOutlineIdentification className="h-5 w-5" />
-                </span>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-                  Sign In
-                </h2>
-              </div>
-
-              {/* Demo auto-fill chip */}
-              <button
-                type="button"
-                onClick={handleQuickFillDemo}
-                className="text-[10px] font-semibold text-[#4318FF] dark:text-brand-400 bg-indigo-50/70 dark:bg-navy-700/60 hover:bg-indigo-100 px-2.5 py-1 rounded-full transition"
-                title="Click to fill official demo credentials"
-              >
-                Auto-fill Demo
-              </button>
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
+                <HiOutlineIdentification className="h-5 w-5" />
+              </span>
+              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                Sign In
+              </h2>
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Enter your credentials to access the record room portal.
