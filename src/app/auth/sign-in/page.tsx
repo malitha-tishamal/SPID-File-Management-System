@@ -7,77 +7,146 @@ import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiShield } from 'react-i
 import { HiOutlineIdentification } from 'react-icons/hi';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
-import { loginUser } from 'utils/auth';
+import { loginUser, AuthError } from 'utils/auth';
+import { useToast } from 'components/toast/ToastContext';
 
 export default function SignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/admin/default';
+  const { showToast } = useToast();
 
-  const [email, setEmail] = useState('officer@spid.gov.lk');
-  const [password, setPassword] = useState('spid@admin2026');
+  // Inputs are empty by default so placeholders appear like watermarks
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; text: string } | null>(null);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
+    setErrorBanner(null);
 
-    if (!email.trim()) {
-      setErrorMsg('Please enter your official email address.');
+    const inputEmail = email.trim();
+    if (!inputEmail) {
+      const msg = 'Please enter your official email address.';
+      setErrorBanner({ type: 'error', text: msg });
+      showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
     }
 
     if (!password) {
-      setErrorMsg('Please enter your password.');
+      const msg = 'Please enter your password.';
+      setErrorBanner({ type: 'error', text: msg });
+      showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Set persistent session (persists until explicit logout)
-      loginUser(email, password, rememberDevice);
+      const session = loginUser(inputEmail, password, rememberDevice);
 
-      // Force route navigation to admin default or callbackUrl
-      window.location.href = callbackUrl;
+      showToast({
+        type: 'success',
+        title: 'Authentication Successful',
+        message: `Welcome, ${session.name} (${session.role}). Loading portal...`,
+      });
+
+      // Redirect to dashboard after brief delay for toast visibility
+      setTimeout(() => {
+        window.location.href = callbackUrl;
+      }, 500);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Authentication failed. Please verify credentials.');
       setIsLoading(false);
+      if (err instanceof AuthError && err.code === 'ACCOUNT_PENDING') {
+        const msg = err.message;
+        setErrorBanner({ type: 'warning', text: msg });
+        showToast({
+          type: 'warning',
+          title: 'Account Status: PENDING',
+          message: msg,
+          duration: 6000,
+        });
+      } else {
+        const msg = err?.message || 'Authentication failed. Please verify credentials.';
+        setErrorBanner({ type: 'error', text: msg });
+        showToast({
+          type: 'error',
+          title: 'Sign In Failed',
+          message: msg,
+        });
+      }
     }
   };
 
+  // Quick fill helper for testing
+  const handleQuickFillDemo = () => {
+    setEmail('officer@spid.gov.lk');
+    setPassword('spid@admin2026');
+    setErrorBanner(null);
+    showToast({
+      type: 'info',
+      title: 'Demo Credentials Loaded',
+      message: 'Officer Administrator credentials prefilled for testing.',
+      duration: 3000,
+    });
+  };
+
   return (
-    <div className="w-full flex flex-col items-center">
+    <div className="w-full flex flex-col items-center px-4 sm:px-6">
       {/* Brand Header */}
       <AuthBrandHeader variant="sign-in" />
 
       {/* Main Sign-In Card */}
-      <div className="relative w-full max-w-[460px] rounded-3xl bg-white p-8 sm:p-10 shadow-xl shadow-slate-200/60 dark:bg-navy-800 dark:shadow-navy-950 border border-slate-100 dark:border-navy-700">
+      <div className="relative w-full max-w-[460px] rounded-3xl bg-white p-6 sm:p-10 shadow-xl shadow-slate-200/60 dark:bg-navy-800 dark:shadow-navy-950 border border-slate-100 dark:border-navy-700">
         {/* Subtle decorative curved background effect */}
         <div className="pointer-events-none absolute -top-12 -right-12 h-44 w-44 rounded-full bg-slate-50/80 dark:bg-navy-700/20 -z-0" />
 
         <div className="relative z-10">
           {/* Card Header */}
           <div className="mb-6">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
-                <HiOutlineIdentification className="h-5 w-5" />
-              </span>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Sign In
-              </h2>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
+                  <HiOutlineIdentification className="h-5 w-5" />
+                </span>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                  Sign In
+                </h2>
+              </div>
+
+              {/* Demo auto-fill chip */}
+              <button
+                type="button"
+                onClick={handleQuickFillDemo}
+                className="text-[10px] font-semibold text-[#4318FF] dark:text-brand-400 bg-indigo-50/70 dark:bg-navy-700/60 hover:bg-indigo-100 px-2.5 py-1 rounded-full transition"
+                title="Click to fill official demo credentials"
+              >
+                Auto-fill Demo
+              </button>
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Enter your credentials to access the record room portal.
             </p>
           </div>
 
-          {errorMsg && (
-            <div className="mb-4 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800">
-              {errorMsg}
+          {/* Inline alert banner if error occurs */}
+          {errorBanner && (
+            <div
+              className={`mb-4 rounded-xl p-3 text-xs font-medium border ${
+                errorBanner.type === 'warning'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                  : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                <span className="font-bold">
+                  {errorBanner.type === 'warning' ? '⚠️ PENDING APPROVAL:' : '✕ ERROR:'}
+                </span>
+                <span>{errorBanner.text}</span>
+              </div>
             </div>
           )}
 
@@ -104,7 +173,7 @@ export default function SignInPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="officer@spid.gov.lk"
-                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder-slate-400 border border-transparent focus:border-[#4318FF] focus:bg-white dark:focus:bg-navy-900 focus:outline-none transition duration-150"
+                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:bg-white dark:focus:bg-navy-900 focus:outline-none transition duration-150"
                 />
               </div>
             </div>
@@ -131,18 +200,15 @@ export default function SignInPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder-slate-400 border border-transparent focus:border-[#4318FF] focus:bg-white dark:focus:bg-navy-900 focus:outline-none transition duration-150"
+                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:bg-white dark:focus:bg-navy-900 focus:outline-none transition duration-150"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-label="Toggle password visibility"
                 >
-                  {showPassword ? (
-                    <FiEyeOff className="h-4 w-4" />
-                  ) : (
-                    <FiEye className="h-4 w-4" />
-                  )}
+                  {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -173,7 +239,7 @@ export default function SignInPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
             >
               {isLoading ? (
                 <span>Authenticating...</span>
