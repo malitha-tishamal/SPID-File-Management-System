@@ -117,7 +117,7 @@ export default function UserManagementPage() {
 
   const handleAction = async (email: string, name: string, action: 'approve' | 'reject') => {
     if (!isAdmin) {
-      showToast('error', 'Access Denied', 'Only Administrators can manage user accounts.');
+      showToast({ type: 'error', title: 'Access Denied', message: 'Only Administrators can manage user accounts.' });
       return;
     }
     setConfirmAction({ email, name, action });
@@ -137,20 +137,20 @@ export default function UserManagementPage() {
       if (success) {
         loadAccounts();
         if (action === 'approve') {
-          showToast(
-            'success',
-            'Account Approved',
-            `${name}'s account has been approved. They can now log in.`
-          );
+          showToast({
+            type: 'success',
+            title: 'Account Approved',
+            message: `${name}'s account has been approved. They can now log in.`,
+          });
         } else {
-          showToast(
-            'error',
-            'Account Rejected',
-            `${name}'s account registration has been rejected.`
-          );
+          showToast({
+            type: 'error',
+            title: 'Account Rejected',
+            message: `${name}'s account registration has been rejected.`,
+          });
         }
       } else {
-        showToast('error', 'Action Failed', 'Could not update account status. Please try again.');
+        showToast({ type: 'error', title: 'Action Failed', message: 'Could not update account status. Please try again.' });
       }
     }, 600);
   };
