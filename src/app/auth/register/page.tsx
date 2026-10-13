@@ -152,7 +152,7 @@ export default function RegisterPage() {
     }
 
     if (!division) {
-      errs.division = 'Please select a department or division.';
+      errs.division = 'Please select a section.';
     }
 
     if (!nic.trim()) {
@@ -440,13 +440,13 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {/* 4. Department / Division */}
+              {/* 4. Section */}
               <div>
                 <label
                   htmlFor="reg-division"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Department / Division <span className="text-red-500">*</span>
+                  Section <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiBriefcase className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -463,7 +463,7 @@ export default function RegisterPage() {
                     }`}
                   >
                     <option value="" disabled>
-                      Select Department / Division
+                      Select Section
                     </option>
                     {divisions.map((div) => (
                       <option key={div} value={div}>
