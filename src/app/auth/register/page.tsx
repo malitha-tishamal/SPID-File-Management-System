@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,7 +21,8 @@ import { HiOutlineShieldCheck } from 'react-icons/hi';
 import { RiLockPasswordLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
-import { registerUser, UserRole, AuthError } from 'utils/auth';
+import { validateRegistration } from 'validators/authValidators';
+import type { UserRole } from 'types/auth';
 import { useToast } from 'components/toast/ToastContext';
 
 export default function RegisterPage() {
@@ -49,17 +50,19 @@ export default function RegisterPage() {
     role: string;
   } | null>(null);
 
-  const divisions = [
-    'Administration & Human Resources Division',
-    'Irrigation Planning, Design & Feasibility',
-    'Water Management, Operations & Hydrology',
-    'Engineering Central Registry & Archive Records',
-    'Land Acquisition & Field Surveys',
-    'Finance, Accounts & Procurement',
-    'Galle Regional Engineering Office',
-    'Matara Regional Engineering Office',
-    'Hambantota Regional Engineering Office',
-  ];
+  const [divisions, setDivisions] = useState<string[]>([]);
+
+  // Section list comes from the database (sections table) via the API.
+  useEffect(() => {
+    fetch('/api/sections')
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok && Array.isArray(j.data?.sections)) {
+          setDivisions(j.data.sections.map((s: { name: string }) => s.name));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Real-time Phone Number Formatter & Cleaner (Enforces 9 digits after +94, stripping leading 0)
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,51 +134,29 @@ export default function RegisterPage() {
     };
   }, [password]);
 
-  // Validations
+  // Validations — shared with the server (validators/authValidators)
   const errors = useMemo(() => {
+    const raw = validateRegistration({
+      role,
+      fullName: name,
+      email,
+      section: division,
+      phoneDigits,
+      password,
+      confirmPassword,
+    });
+
     const errs: Record<string, string> = {};
-
-    if (!role) {
-      errs.role = 'User role must be specified.';
-    }
-    if (!name.trim()) {
-      errs.name = 'Full legal name is required.';
-    } else if (name.trim().length < 3) {
-      errs.name = 'Full name must have at least 3 characters.';
-    }
-
-    if (!email.trim()) {
-      errs.email = 'Official work email is required.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      errs.email = 'Please provide a valid email format (e.g. officer@spid.gov.lk).';
-    }
-
-    if (!division) {
-      errs.division = 'Please select a section.';
-    }
-
-    if (!phoneDigits) {
-      errs.phone = 'Mobile phone number is required.';
-    } else if (phoneDigits.length !== 9) {
-      errs.phone = `Please enter exactly 9 digits after +94 (${9 - phoneDigits.length} remaining).`;
-    }
-
-    if (!password) {
-      errs.password = 'Password is required.';
-    } else if (password.length < 8) {
-      errs.password = 'Password must be at least 8 characters.';
-    }
-
-    if (!confirmPassword) {
-      errs.confirmPassword = 'Confirmation password is required.';
-    } else if (password !== confirmPassword) {
-      errs.confirmPassword = 'Passwords do not match.';
-    }
-
+    if (raw.role) errs.role = raw.role;
+    if (raw.fullName) errs.name = raw.fullName;
+    if (raw.email) errs.email = raw.email;
+    if (raw.section) errs.division = raw.section;
+    if (raw.phone) errs.phone = raw.phone;
+    if (raw.password) errs.password = raw.password;
+    if (raw.confirmPassword) errs.confirmPassword = raw.confirmPassword;
     if (!agreeProtocols) {
       errs.agree = 'You must agree to the Department Data Protection & Archival Security Protocols.';
     }
-
     return errs;
   }, [role, name, email, division, phoneDigits, password, confirmPassword, agreeProtocols]);
 
@@ -183,7 +164,7 @@ export default function RegisterPage() {
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Mark all fields as touched for validation inspection
@@ -214,15 +195,33 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      // Register with status: 'pending'
-      const newAccount = registerUser({
-        role,
-        name,
-        email,
-        division,
-        phone: phoneDigits,
-        password,
+      // The requested role is stored for admin review; the server always
+      // creates the account as Staff + pending approval.
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          fullName: name.trim(),
+          email: email.trim(),
+          section: division,
+          phoneDigits,
+          password,
+          confirmPassword,
+        }),
       });
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        setIsLoading(false);
+        showToast({
+          type: 'error',
+          title: 'Registration Failed',
+          message: json.message || 'Failed to submit registration.',
+          duration: 6000,
+        });
+        return;
+      }
 
       setIsLoading(false);
 
@@ -237,18 +236,17 @@ export default function RegisterPage() {
 
       // Show on-screen confirmation card
       setRegisteredPendingInfo({
-        id: newAccount.id,
-        email: newAccount.email,
-        name: newAccount.name,
-        role: newAccount.role,
+        id: json.data.userId || 'PENDING',
+        email: email.trim(),
+        name: name.trim(),
+        role,
       });
-    } catch (err: any) {
+    } catch {
       setIsLoading(false);
-      const msg = err?.message || 'Failed to submit registration.';
       showToast({
         type: 'error',
         title: 'Registration Failed',
-        message: msg,
+        message: 'Could not reach the registration service. Please try again.',
         duration: 5000,
       });
     }

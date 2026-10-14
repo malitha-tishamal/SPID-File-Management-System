@@ -10,7 +10,8 @@ import {
 } from 'react-icons/io';
 import avatar from '/public/img/avatars/avatar4.png';
 import Image from 'next/image';
-import { getCurrentUser, logoutUser, UserSession } from 'utils/auth';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
+import type { ProfileDTO } from 'types/auth';
 
 const Navbar = (props: {
   onOpenSidenav: () => void;
@@ -20,18 +21,26 @@ const Navbar = (props: {
 }) => {
   const { onOpenSidenav, brandText } = props;
   const [darkmode, setDarkmode] = useState(false);
-  const [user, setUser] = useState<UserSession | null>(null);
+  const [user, setUser] = useState<ProfileDTO | null>(null);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
       setDarkmode(document.body.classList.contains('dark'));
     }
-    const currentUser = getCurrentUser();
-    setUser(currentUser);
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j?.ok) setUser(j.data.profile);
+      })
+      .catch(() => {});
   }, []);
 
-  const handleLogout = () => {
-    logoutUser();
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      window.location.href = '/auth/sign-in';
+    }
   };
 
   return (
@@ -195,7 +204,7 @@ const Navbar = (props: {
         <Dropdown
           button={
             <div className="h-10 w-10 rounded-full bg-indigo-50 border-2 border-[#4318FF] flex items-center justify-center cursor-pointer text-[#4318FF] font-bold text-sm shadow-sm">
-              {user?.name ? user.name.slice(0, 2).toUpperCase() : 'SP'}
+              {user?.full_name ? user.full_name.slice(0, 2).toUpperCase() : 'SP'}
             </div>
           }
           classNames={'py-2 top-8 -left-[200px] w-max'}
@@ -203,13 +212,13 @@ const Navbar = (props: {
           <div className="flex w-64 flex-col justify-start rounded-[20px] bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none">
             <div className="flex flex-col">
               <p className="text-xs font-bold text-navy-700 dark:text-white">
-                👋 {user?.name || 'Eng. K. L. Perera'}
+                👋 {user?.full_name || 'Eng. K. L. Perera'}
               </p>
               <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
                 {user?.email || 'officer@spid.gov.lk'}
               </p>
               <span className="mt-1 inline-block w-fit rounded bg-indigo-50 dark:bg-navy-800 px-1.5 py-0.5 text-[10px] font-semibold text-[#4318FF] dark:text-brand-400">
-                {user?.division || 'Record Room & Central Registry'}
+                {user?.section_name || 'SPID'}
               </span>
             </div>
 

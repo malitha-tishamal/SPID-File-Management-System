@@ -17,7 +17,7 @@ export default function ForgotPasswordPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleResetRequest = (e: React.FormEvent) => {
+  const handleResetRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -32,17 +32,38 @@ export default function ForgotPasswordPage() {
 
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        setIsLoading(false);
+        const msg = json.message || 'Could not send reset instructions. Please try again.';
+        setErrorMsg(msg);
+        showToast({ type: 'error', title: 'Request Failed', message: msg });
+        return;
+      }
+
       setIsLoading(false);
       setIsSubmitted(true);
 
       showToast({
         type: 'success',
-        title: 'Reset Link Dispatched',
-        message: `A secure password reset link has been sent to ${cleanEmail}.`,
+        title: 'Request Received',
+        message:
+          'If an account exists for this email address, password reset instructions will be sent.',
         duration: 6000,
       });
-    }, 600);
+    } catch {
+      setIsLoading(false);
+      const msg = 'Could not reach the password reset service. Please try again.';
+      setErrorMsg(msg);
+      showToast({ type: 'error', title: 'Request Failed', message: msg });
+    }
   };
 
   return (
@@ -81,8 +102,7 @@ export default function ForgotPasswordPage() {
                   Password Reset Link Dispatched!
                 </p>
                 <p className="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed">
-                  A secure password reset link has been dispatched to{' '}
-                  <span className="font-semibold underline">{email}</span>. Please check your inbox and complete password reset within 15 minutes.
+                  If an account exists for this email address, password reset instructions will be sent. Please complete the reset within 15 minutes.
                 </p>
               </div>
 

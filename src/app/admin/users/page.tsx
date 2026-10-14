@@ -13,32 +13,20 @@ import {
   MdEmail,
   MdVerifiedUser,
   MdBlock,
+  MdLockReset,
+  MdLock,
 } from 'react-icons/md';
 import { FiFilter } from 'react-icons/fi';
-import {
-  getAllAccounts,
-  approveAccount,
-  getCurrentUser,
-  UserAccount,
-  AccountStatus,
-  REGISTERED_USERS_KEY,
-} from 'utils/auth';
 import { useToast } from 'components/toast/ToastContext';
+import type { AccountStatus, AdminUserRow, UserRole } from 'types/auth';
 
-// Extend approveAccount to also support reject
-function updateAccountStatus(email: string, newStatus: AccountStatus): boolean {
-  if (typeof window === 'undefined') return false;
-  const accounts = getAllAccounts();
-  const index = accounts.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
-  if (index !== -1) {
-    accounts[index].status = newStatus;
-    localStorage.setItem(REGISTERED_USERS_KEY, JSON.stringify(accounts));
-    return true;
-  }
-  return false;
-}
-
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<AccountStatus, {
+  label: string;
+  bg: string;
+  text: string;
+  dot: string;
+  icon: any;
+}> = {
   approved: {
     label: 'Approved',
     bg: 'bg-green-100 dark:bg-green-900/30',
@@ -60,6 +48,20 @@ const STATUS_CONFIG = {
     dot: 'bg-red-500',
     icon: MdCancel,
   },
+  disabled: {
+    label: 'Disabled',
+    bg: 'bg-gray-200 dark:bg-gray-900/40',
+    text: 'text-gray-700 dark:text-gray-400',
+    dot: 'bg-gray-500',
+    icon: MdBlock,
+  },
+  locked: {
+    label: 'Locked',
+    bg: 'bg-orange-100 dark:bg-orange-900/30',
+    text: 'text-orange-700 dark:text-orange-400',
+    dot: 'bg-orange-500',
+    icon: MdLock,
+  },
 };
 
 const ROLE_CONFIG = {
@@ -73,86 +75,158 @@ const ROLE_CONFIG = {
   },
 };
 
+const FILTER_STATUSES: ('all' | AccountStatus)[] = [
+  'all',
+  'pending',
+  'approved',
+  'rejected',
+  'disabled',
+  'locked',
+];
+
+const PRIMARY_ADMIN_EMAIL = 'officer@spid.gov.lk';
+
 export default function UserManagementPage() {
   const { showToast } = useToast();
-  const [accounts, setAccounts] = useState<UserAccount[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [accounts, setAccounts] = useState<AdminUserRow[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | AccountStatus>('all');
   const [loading, setLoading] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(true);
   const [confirmAction, setConfirmAction] = useState<{
-    email: string;
+    id: string;
     name: string;
-    action: 'approve' | 'reject';
+    action: 'approve' | 'reject' | 'disable' | 'enable' | 'clear_lockout';
   } | null>(null);
 
-  const loadAccounts = useCallback(() => {
-    const all = getAllAccounts();
-    setAccounts(all);
-  }, []);
+  const loadAccounts = useCallback(async () => {
+    setListLoading(true);
+    try {
+      const res = await fetch('/api/admin/users');
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setAccounts(json.data.users);
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+        if (res.status !== 401) {
+          showToast({
+            type: 'error',
+            title: 'Load Failed',
+            message: json.message || 'Could not load the personnel registry.',
+          });
+        }
+      }
+    } catch {
+      showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
+    } finally {
+      setListLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     loadAccounts();
-    setCurrentUser(getCurrentUser());
   }, [loadAccounts]);
 
-  const isAdmin = currentUser?.role === 'Administrator';
-
   const filtered = accounts.filter((acc) => {
+    const q = search.toLowerCase();
     const matchSearch =
-      acc.name.toLowerCase().includes(search.toLowerCase()) ||
-      acc.email.toLowerCase().includes(search.toLowerCase()) ||
-      acc.division.toLowerCase().includes(search.toLowerCase()) ||
-      acc.nic.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' || acc.status === filterStatus;
+      acc.full_name.toLowerCase().includes(q) ||
+      acc.email.toLowerCase().includes(q) ||
+      (acc.section_name || '').toLowerCase().includes(q) ||
+      (acc.nic || '').toLowerCase().includes(q);
+    const matchStatus = filterStatus === 'all' || acc.account_status === filterStatus;
     return matchSearch && matchStatus;
   });
 
   const stats = {
     total: accounts.length,
-    approved: accounts.filter((a) => a.status === 'approved').length,
-    pending: accounts.filter((a) => a.status === 'pending').length,
-    rejected: accounts.filter((a) => a.status === 'rejected').length,
+    approved: accounts.filter((a) => a.account_status === 'approved').length,
+    pending: accounts.filter((a) => a.account_status === 'pending').length,
+    rejected: accounts.filter((a) => a.account_status === 'rejected').length,
+    disabled: accounts.filter((a) => a.account_status === 'disabled').length,
+    locked: accounts.filter((a) => a.account_status === 'locked').length,
   };
 
-  const handleAction = async (email: string, name: string, action: 'approve' | 'reject') => {
+  const isLockActive = (acc: AdminUserRow) =>
+    !!acc.locked_until && new Date(acc.locked_until).getTime() > Date.now();
+
+  const requestAction = (
+    acc: AdminUserRow,
+    action: 'approve' | 'reject' | 'disable' | 'enable' | 'clear_lockout'
+  ) => {
     if (!isAdmin) {
       showToast({ type: 'error', title: 'Access Denied', message: 'Only Administrators can manage user accounts.' });
       return;
     }
-    setConfirmAction({ email, name, action });
+    setConfirmAction({ id: acc.id, name: acc.full_name, action });
   };
 
-  const executeAction = () => {
+  const executeAction = async () => {
     if (!confirmAction) return;
-    const { email, name, action } = confirmAction;
-    setLoading(email);
+    const { id, name, action } = confirmAction;
+    setLoading(id);
     setConfirmAction(null);
 
-    setTimeout(() => {
-      const newStatus: AccountStatus = action === 'approve' ? 'approved' : 'rejected';
-      const success = updateAccountStatus(email, newStatus);
-      setLoading(null);
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json();
 
-      if (success) {
+      if (res.ok && json.ok) {
         loadAccounts();
-        if (action === 'approve') {
-          showToast({
-            type: 'success',
-            title: 'Account Approved',
-            message: `${name}'s account has been approved. They can now log in.`,
-          });
-        } else {
-          showToast({
-            type: 'error',
-            title: 'Account Rejected',
-            message: `${name}'s account registration has been rejected.`,
-          });
-        }
+        const titles: Record<string, [string, 'success' | 'error' | 'warning']> = {
+          approve: ['Account Approved', 'success'],
+          reject: ['Account Rejected', 'warning'],
+          disable: ['Account Disabled', 'warning'],
+          enable: ['Account Enabled', 'success'],
+          clear_lockout: ['Lockout Cleared', 'success'],
+        };
+        const [title, type] = titles[action];
+        showToast({ type, title, message: json.message || `${name} updated.` });
       } else {
-        showToast({ type: 'error', title: 'Action Failed', message: 'Could not update account status. Please try again.' });
+        showToast({
+          type: 'error',
+          title: 'Action Failed',
+          message: json.message || 'Could not update the account. Please try again.',
+        });
       }
-    }, 600);
+    } catch {
+      showToast({ type: 'error', title: 'Action Failed', message: 'Could not reach the server.' });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleRoleChange = async (acc: AdminUserRow, role: UserRole) => {
+    if (role === acc.role) return;
+    setLoading(acc.id);
+    try {
+      const res = await fetch(`/api/admin/users/${acc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_role', role }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        loadAccounts();
+        showToast({ type: 'success', title: 'Role Updated', message: json.message });
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Role Change Failed',
+          message: json.message || 'Could not update the role.',
+        });
+      }
+    } catch {
+      showToast({ type: 'error', title: 'Role Change Failed', message: 'Could not reach the server.' });
+    } finally {
+      setLoading(null);
+    }
   };
 
   const formatDate = (iso: string) => {
@@ -167,6 +241,68 @@ export default function UserManagementPage() {
     }
   };
 
+  const renderActionButtons = (acc: AdminUserRow) => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {acc.account_status !== 'approved' && (
+        <button
+          onClick={() => requestAction(acc, 'approve')}
+          className="flex items-center gap-1 rounded-lg bg-green-100 dark:bg-green-900/30 px-2.5 py-1 text-[11px] font-semibold text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
+        >
+          <MdCheckCircle className="h-3.5 w-3.5" />
+          Approve
+        </button>
+      )}
+      {acc.account_status !== 'rejected' && (
+        <button
+          onClick={() => requestAction(acc, 'reject')}
+          className="flex items-center gap-1 rounded-lg bg-red-100 dark:bg-red-900/30 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+        >
+          <MdBlock className="h-3.5 w-3.5" />
+          Reject
+        </button>
+      )}
+      {acc.account_status === 'approved' && (
+        <button
+          onClick={() => requestAction(acc, 'disable')}
+          className="flex items-center gap-1 rounded-lg bg-gray-200 dark:bg-gray-900/40 px-2.5 py-1 text-[11px] font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition-colors"
+        >
+          <MdBlock className="h-3.5 w-3.5" />
+          Disable
+        </button>
+      )}
+      {acc.account_status === 'disabled' && (
+        <button
+          onClick={() => requestAction(acc, 'enable')}
+          className="flex items-center gap-1 rounded-lg bg-green-100 dark:bg-green-900/30 px-2.5 py-1 text-[11px] font-semibold text-green-700 dark:text-green-400 hover:bg-green-200 transition-colors"
+        >
+          <MdCheckCircle className="h-3.5 w-3.5" />
+          Enable
+        </button>
+      )}
+      {isLockActive(acc) && (
+        <button
+          onClick={() => requestAction(acc, 'clear_lockout')}
+          className="flex items-center gap-1 rounded-lg bg-orange-100 dark:bg-orange-900/30 px-2.5 py-1 text-[11px] font-semibold text-orange-700 dark:text-orange-400 hover:bg-orange-200 transition-colors"
+          title="Administrator intervention: clear the temporary login lockout"
+        >
+          <MdLockReset className="h-3.5 w-3.5" />
+          Unlock
+        </button>
+      )}
+      {acc.account_status === 'approved' && acc.email.toLowerCase() !== PRIMARY_ADMIN_EMAIL && (
+        <select
+          value={acc.role}
+          onChange={(e) => handleRoleChange(acc, e.target.value as UserRole)}
+          className="rounded-lg border border-slate-200 dark:border-navy-600 bg-white dark:bg-navy-800 px-1.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+          title="Change user role"
+        >
+          <option value="Staff">Staff</option>
+          <option value="Administrator">Administrator</option>
+        </select>
+      )}
+    </div>
+  );
+
   return (
     <div className="mt-3 flex flex-col gap-5">
       {/* Page Header */}
@@ -176,17 +312,19 @@ export default function UserManagementPage() {
           User Account Management
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Manage SPID personnel registrations — approve or reject pending accounts.
+          Manage SPID personnel registrations — approve, reject, disable or re-enable accounts.
         </p>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         {[
           { label: 'Total Users', value: stats.total, color: 'from-[#4318FF] to-brand-500', icon: MdPersonAdd },
           { label: 'Approved', value: stats.approved, color: 'from-green-500 to-emerald-600', icon: MdCheckCircle },
           { label: 'Pending', value: stats.pending, color: 'from-amber-500 to-yellow-600', icon: MdPending },
           { label: 'Rejected', value: stats.rejected, color: 'from-red-500 to-rose-600', icon: MdCancel },
+          { label: 'Disabled', value: stats.disabled, color: 'from-gray-500 to-gray-700', icon: MdBlock },
+          { label: 'Locked', value: stats.locked, color: 'from-orange-500 to-amber-600', icon: MdLock },
         ].map(({ label, value, color, icon: Icon }) => (
           <div
             key={label}
@@ -212,7 +350,7 @@ export default function UserManagementPage() {
             <MdSearch className="h-4 w-4 text-gray-400 dark:text-slate-500 shrink-0" />
             <input
               type="text"
-              placeholder="Search by name, email, NIC..."
+              placeholder="Search by name, email, section..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-full w-full bg-transparent text-sm text-navy-700 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-slate-500"
@@ -222,7 +360,7 @@ export default function UserManagementPage() {
           {/* Filter Tabs */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <FiFilter className="h-3.5 w-3.5 text-gray-400 mr-1" />
-            {(['all', 'pending', 'approved', 'rejected'] as const).map((s) => (
+            {FILTER_STATUSES.map((s) => (
               <button
                 key={s}
                 onClick={() => setFilterStatus(s)}
@@ -232,7 +370,9 @@ export default function UserManagementPage() {
                     : 'bg-[#f4f7fe] dark:bg-navy-900 text-gray-500 dark:text-gray-400 hover:bg-brand-50'
                 }`}
               >
-                {s === 'all' ? `All (${stats.total})` : s === 'pending' ? `Pending (${stats.pending})` : s === 'approved' ? `Approved (${stats.approved})` : `Rejected (${stats.rejected})`}
+                {s === 'all'
+                  ? `All (${stats.total})`
+                  : `${s.charAt(0).toUpperCase()}${s.slice(1)} (${stats[s]})`}
               </button>
             ))}
             <button
@@ -247,11 +387,11 @@ export default function UserManagementPage() {
       </div>
 
       {/* Permission Notice for non-admins */}
-      {!isAdmin && (
+      {!isAdmin && !listLoading && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-3 flex items-center gap-2">
           <MdAdminPanelSettings className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            You have <strong>read-only access</strong>. Only Administrators can approve or reject accounts.
+            Only Administrators can view and manage the personnel registry.
           </p>
         </div>
       )}
@@ -271,15 +411,23 @@ export default function UserManagementPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-[#f4f7fe] dark:bg-navy-800">
-                {['Officer', 'Division', 'NIC', 'Contact', 'Role', 'Registered', 'Status', isAdmin ? 'Actions' : ''].filter(Boolean).map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    {h}
-                  </th>
-                ))}
+                {['Officer', 'Section', 'Contact', 'Role', 'Registered', 'Status', 'Login Security', isAdmin ? 'Actions' : '']
+                  .filter(Boolean)
+                  .map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      {h}
+                    </th>
+                  ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-navy-600">
-              {filtered.length === 0 ? (
+              {listLoading ? (
+                <tr>
+                  <td colSpan={isAdmin ? 8 : 7} className="px-4 py-12 text-center text-sm text-gray-400">
+                    Loading registry...
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 8 : 7} className="px-4 py-12 text-center text-sm text-gray-400 dark:text-gray-500">
                     No accounts match your search/filter criteria.
@@ -287,10 +435,10 @@ export default function UserManagementPage() {
                 </tr>
               ) : (
                 filtered.map((acc) => {
-                  const statusCfg = STATUS_CONFIG[acc.status];
+                  const statusCfg = STATUS_CONFIG[acc.account_status];
                   const roleCfg = ROLE_CONFIG[acc.role];
-                  const isLoading = loading === acc.email;
-                  const isDefaultAdmin = acc.id === 'SPID-ADMIN-001';
+                  const isLoading = loading === acc.id;
+                  const isProtected = acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
 
                   return (
                     <tr key={acc.id} className={`hover:bg-[#f4f7fe] dark:hover:bg-navy-800/50 transition-colors ${isLoading ? 'opacity-50' : ''}`}>
@@ -298,14 +446,14 @@ export default function UserManagementPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           <div className="h-8 w-8 rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                            {acc.name.slice(0, 2).toUpperCase()}
+                            {acc.full_name.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-navy-700 dark:text-white">
-                              {acc.name}
-                              {isDefaultAdmin && (
+                              {acc.full_name}
+                              {isProtected && (
                                 <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-purple-100 dark:bg-purple-900/30 px-1 py-0.5 text-[9px] font-bold text-purple-600 dark:text-purple-400">
-                                  <MdVerifiedUser className="h-2.5 w-2.5" /> DEFAULT
+                                  <MdVerifiedUser className="h-2.5 w-2.5" /> PROTECTED
                                 </span>
                               )}
                             </p>
@@ -317,24 +465,16 @@ export default function UserManagementPage() {
                         </div>
                       </td>
 
-                      {/* Division */}
+                      {/* Section */}
                       <td className="px-4 py-3">
-                        <p className="text-xs text-gray-600 dark:text-gray-300 max-w-[160px]">{acc.division}</p>
-                      </td>
-
-                      {/* NIC */}
-                      <td className="px-4 py-3">
-                        <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
-                          <MdBadge className="h-3.5 w-3.5 text-gray-400" />
-                          {acc.nic}
-                        </span>
+                        <p className="text-xs text-gray-600 dark:text-gray-300 max-w-[160px]">{acc.section_name || '—'}</p>
                       </td>
 
                       {/* Contact */}
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
                           <MdPhone className="h-3.5 w-3.5 text-gray-400" />
-                          {acc.phone}
+                          {acc.mobile_phone || '—'}
                         </span>
                       </td>
 
@@ -344,11 +484,14 @@ export default function UserManagementPage() {
                           {acc.role === 'Administrator' ? <MdAdminPanelSettings className="h-3 w-3" /> : <MdBadge className="h-3 w-3" />}
                           {acc.role}
                         </span>
+                        {acc.requested_role && acc.requested_role !== acc.role && (
+                          <p className="mt-1 text-[10px] text-gray-400">requested: {acc.requested_role}</p>
+                        )}
                       </td>
 
                       {/* Registered */}
                       <td className="px-4 py-3">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{formatDate(acc.registeredAt)}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{formatDate(acc.created_at)}</p>
                       </td>
 
                       {/* Status */}
@@ -359,34 +502,29 @@ export default function UserManagementPage() {
                         </span>
                       </td>
 
+                      {/* Login Security */}
+                      <td className="px-4 py-3">
+                        {isLockActive(acc) ? (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-orange-100 dark:bg-orange-900/30 px-2 py-1 text-[11px] font-semibold text-orange-700 dark:text-orange-400">
+                            <MdLock className="h-3 w-3" />
+                            {Math.max(0, Math.ceil((new Date(acc.locked_until!).getTime() - Date.now()) / 1000))}s left
+                          </span>
+                        ) : acc.failed_attempts > 0 ? (
+                          <span className="text-[11px] text-gray-400">{acc.failed_attempts} failed</span>
+                        ) : (
+                          <span className="text-[11px] text-gray-300 dark:text-gray-600">—</span>
+                        )}
+                      </td>
+
                       {/* Actions (Admin only) */}
                       {isAdmin && (
                         <td className="px-4 py-3">
-                          {isDefaultAdmin ? (
+                          {isProtected ? (
                             <span className="text-[11px] text-gray-400 dark:text-gray-500">Protected</span>
                           ) : isLoading ? (
                             <span className="text-xs text-gray-400">Updating...</span>
                           ) : (
-                            <div className="flex items-center gap-1.5">
-                              {acc.status !== 'approved' && (
-                                <button
-                                  onClick={() => handleAction(acc.email, acc.name, 'approve')}
-                                  className="flex items-center gap-1 rounded-lg bg-green-100 dark:bg-green-900/30 px-2.5 py-1 text-[11px] font-semibold text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
-                                >
-                                  <MdCheckCircle className="h-3.5 w-3.5" />
-                                  Approve
-                                </button>
-                              )}
-                              {acc.status !== 'rejected' && !isDefaultAdmin && (
-                                <button
-                                  onClick={() => handleAction(acc.email, acc.name, 'reject')}
-                                  className="flex items-center gap-1 rounded-lg bg-red-100 dark:bg-red-900/30 px-2.5 py-1 text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
-                                >
-                                  <MdBlock className="h-3.5 w-3.5" />
-                                  Reject
-                                </button>
-                              )}
-                            </div>
+                            renderActionButtons(acc)
                           )}
                         </td>
                       )}
@@ -400,26 +538,28 @@ export default function UserManagementPage() {
 
         {/* Mobile Cards */}
         <div className="block md:hidden divide-y divide-gray-50 dark:divide-navy-600">
-          {filtered.length === 0 ? (
+          {listLoading ? (
+            <div className="px-5 py-10 text-center text-sm text-gray-400">Loading registry...</div>
+          ) : filtered.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-gray-400">
               No accounts found.
             </div>
           ) : (
             filtered.map((acc) => {
-              const statusCfg = STATUS_CONFIG[acc.status];
+              const statusCfg = STATUS_CONFIG[acc.account_status];
               const roleCfg = ROLE_CONFIG[acc.role];
-              const isLoading = loading === acc.email;
-              const isDefaultAdmin = acc.id === 'SPID-ADMIN-001';
+              const isLoading = loading === acc.id;
+              const isProtected = acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
 
               return (
                 <div key={acc.id} className={`p-4 flex flex-col gap-3 ${isLoading ? 'opacity-50' : ''}`}>
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="h-10 w-10 rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                        {acc.name.slice(0, 2).toUpperCase()}
+                        {acc.full_name.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-navy-700 dark:text-white">{acc.name}</p>
+                        <p className="text-sm font-bold text-navy-700 dark:text-white">{acc.full_name}</p>
                         <p className="text-xs text-gray-400">{acc.email}</p>
                       </div>
                     </div>
@@ -430,38 +570,17 @@ export default function UserManagementPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <span><strong>Division:</strong> {acc.division}</span>
-                    <span><strong>NIC:</strong> {acc.nic}</span>
-                    <span><strong>Phone:</strong> {acc.phone}</span>
-                    <span><strong>Joined:</strong> {formatDate(acc.registeredAt)}</span>
+                    <span><strong>Section:</strong> {acc.section_name || '—'}</span>
+                    <span><strong>Phone:</strong> {acc.mobile_phone || '—'}</span>
+                    <span><strong>Joined:</strong> {formatDate(acc.created_at)}</span>
+                    <span><strong>Failed attempts:</strong> {acc.failed_attempts}</span>
                   </div>
 
                   <div className="flex items-center justify-between">
                     <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold ${roleCfg.bg} ${roleCfg.text}`}>
                       {acc.role}
                     </span>
-                    {isAdmin && !isDefaultAdmin && (
-                      <div className="flex gap-2">
-                        {acc.status !== 'approved' && (
-                          <button
-                            onClick={() => handleAction(acc.email, acc.name, 'approve')}
-                            disabled={!!isLoading}
-                            className="rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-semibold text-green-700 dark:text-green-400"
-                          >
-                            ✓ Approve
-                          </button>
-                        )}
-                        {acc.status !== 'rejected' && (
-                          <button
-                            onClick={() => handleAction(acc.email, acc.name, 'reject')}
-                            disabled={!!isLoading}
-                            className="rounded-lg bg-red-100 dark:bg-red-900/30 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-400"
-                          >
-                            ✗ Reject
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {isAdmin && !isProtected && renderActionButtons(acc)}
                   </div>
                 </div>
               );
@@ -475,24 +594,34 @@ export default function UserManagementPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-navy-700 p-6 shadow-2xl">
             <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full ${
-              confirmAction.action === 'approve' ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
+              ['approve', 'enable', 'clear_lockout'].includes(confirmAction.action)
+                ? 'bg-green-100 dark:bg-green-900/30'
+                : 'bg-red-100 dark:bg-red-900/30'
             }`}>
-              {confirmAction.action === 'approve' ? (
+              {['approve', 'enable', 'clear_lockout'].includes(confirmAction.action) ? (
                 <MdCheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
               ) : (
                 <MdBlock className="h-7 w-7 text-red-600 dark:text-red-400" />
               )}
             </div>
             <h3 className="text-center text-base font-bold text-navy-700 dark:text-white">
-              {confirmAction.action === 'approve' ? 'Approve Account?' : 'Reject Account?'}
+              {confirmAction.action === 'approve' && 'Approve Account?'}
+              {confirmAction.action === 'reject' && 'Reject Account?'}
+              {confirmAction.action === 'disable' && 'Disable Account?'}
+              {confirmAction.action === 'enable' && 'Re-enable Account?'}
+              {confirmAction.action === 'clear_lockout' && 'Clear Login Lockout?'}
             </h3>
             <p className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
-              {confirmAction.action === 'approve'
-                ? `Approving will allow ${confirmAction.name} to log in to the SPID system.`
-                : `Rejecting will prevent ${confirmAction.name} from accessing the SPID system.`}
-            </p>
-            <p className="mt-1 text-center text-xs font-semibold text-[#4318FF] dark:text-brand-400 break-all">
-              {confirmAction.email}
+              {confirmAction.action === 'approve' &&
+                `Approving will allow ${confirmAction.name} to log in to the SPID system.`}
+              {confirmAction.action === 'reject' &&
+                `Rejecting will prevent ${confirmAction.name} from accessing the SPID system.`}
+              {confirmAction.action === 'disable' &&
+                `${confirmAction.name} will be signed out and blocked from the SPID system immediately.`}
+              {confirmAction.action === 'enable' &&
+                `${confirmAction.name} will regain access to the SPID system.`}
+              {confirmAction.action === 'clear_lockout' &&
+                `The temporary login lockout for ${confirmAction.name} will be cleared.`}
             </p>
             <div className="mt-5 flex gap-3">
               <button
@@ -504,12 +633,12 @@ export default function UserManagementPage() {
               <button
                 onClick={executeAction}
                 className={`flex-1 rounded-xl py-2.5 text-sm font-bold text-white transition-colors shadow ${
-                  confirmAction.action === 'approve'
+                  ['approve', 'enable', 'clear_lockout'].includes(confirmAction.action)
                     ? 'bg-green-500 hover:bg-green-600'
                     : 'bg-red-500 hover:bg-red-600'
                 }`}
               >
-                {confirmAction.action === 'approve' ? 'Yes, Approve' : 'Yes, Reject'}
+                Confirm
               </button>
             </div>
           </div>

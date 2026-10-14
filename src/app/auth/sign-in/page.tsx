@@ -1,14 +1,37 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiShield } from 'react-icons/fi';
 import { HiOutlineIdentification } from 'react-icons/hi';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
-import { loginUser, AuthError } from 'utils/auth';
 import { useToast } from 'components/toast/ToastContext';
+import type { ApiErrorCode } from 'types/auth';
+
+const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string; text: string }> = {
+  pending: {
+    type: 'warning',
+    title: 'PENDING APPROVAL:',
+    text: 'Your account is awaiting administrator approval. Please contact the system administrator.',
+  },
+  disabled: {
+    type: 'error',
+    title: 'ACCOUNT DISABLED:',
+    text: 'Your account has been disabled. Please contact the system administrator.',
+  },
+  locked: {
+    type: 'error',
+    title: 'ACCOUNT LOCKED:',
+    text: 'Your account is temporarily locked due to security restrictions. Please try again later or contact the administrator.',
+  },
+  rejected: {
+    type: 'error',
+    title: 'REGISTRATION DECLINED:',
+    text: 'Your account registration was declined. Please contact the system administrator.',
+  },
+};
 
 export default function SignInPage() {
   const router = useRouter();
@@ -22,7 +45,29 @@ export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; text: string } | null>(null);
+
+  // Arriving from middleware with a status denial (e.g. pending account)
+  useEffect(() => {
+    const status = searchParams.get('status');
+    if (status && STATUS_BANNERS[status]) {
+      const banner = STATUS_BANNERS[status];
+      setErrorBanner({ type: banner.type, text: banner.text });
+      showToast({ type: banner.type, title: banner.title.replace(':', ''), message: banner.text, duration: 6000 });
+    } else if (status === 'unknown') {
+      const msg = 'Your session could not be verified. Please sign in again.';
+      setErrorBanner({ type: 'error', text: msg });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lockout countdown
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const t = setTimeout(() => setLockoutSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [lockoutSeconds]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,41 +88,58 @@ export default function SignInPage() {
       return;
     }
 
+    if (lockoutSeconds > 0) {
+      const msg = `Login is temporarily locked. Please try again in ${lockoutSeconds}s.`;
+      setErrorBanner({ type: 'error', text: msg });
+      showToast({ type: 'error', title: 'Login Locked', message: msg });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const session = loginUser(inputEmail, password, rememberDevice);
-
-      showToast({
-        type: 'success',
-        title: 'Authentication Successful',
-        message: `Welcome, ${session.name} (${session.role}). Loading portal...`,
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inputEmail, password, remember: rememberDevice }),
       });
+      const json = await res.json();
 
-      // Redirect to dashboard after brief delay for toast visibility
-      setTimeout(() => {
-        window.location.href = callbackUrl;
-      }, 500);
-    } catch (err: any) {
-      setIsLoading(false);
-      if (err instanceof AuthError && err.code === 'ACCOUNT_PENDING') {
-        const msg = err.message;
-        setErrorBanner({ type: 'warning', text: msg });
+      if (!res.ok || !json.ok) {
+        setIsLoading(false);
+        const code = json.code as ApiErrorCode;
+        const msg: string = json.message || 'Invalid email or password.';
+
+        if (code === 'LOGIN_LOCKED_OUT' && typeof json.remaining_seconds === 'number') {
+          setLockoutSeconds(json.remaining_seconds);
+        }
+
+        const isWarning = code === 'ACCOUNT_PENDING' || code === 'EMAIL_NOT_CONFIRMED';
+        setErrorBanner({ type: isWarning ? 'warning' : 'error', text: msg });
         showToast({
-          type: 'warning',
-          title: 'Account Status: PENDING',
+          type: isWarning ? 'warning' : 'error',
+          title: isWarning ? 'Account Notice' : code === 'LOGIN_LOCKED_OUT' ? 'Login Locked' : 'Sign In Failed',
           message: msg,
           duration: 6000,
         });
-      } else {
-        const msg = err?.message || 'Authentication failed. Please verify credentials.';
-        setErrorBanner({ type: 'error', text: msg });
-        showToast({
-          type: 'error',
-          title: 'Sign In Failed',
-          message: msg,
-        });
+        return;
       }
+
+      const profile = json.data.profile;
+      showToast({
+        type: 'success',
+        title: 'Login successful.',
+        message: `Welcome, ${profile.full_name} (${profile.role}). Loading portal...`,
+      });
+
+      setTimeout(() => {
+        window.location.href = callbackUrl;
+      }, 500);
+    } catch {
+      setIsLoading(false);
+      const msg = 'Could not reach the authentication service. Please try again.';
+      setErrorBanner({ type: 'error', text: msg });
+      showToast({ type: 'error', title: 'Sign In Failed', message: msg });
     }
   };
 
