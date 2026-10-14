@@ -17,7 +17,7 @@ import {
   FiAlertCircle,
   FiShield,
 } from 'react-icons/fi';
-import { HiOutlineIdentification, HiOutlineShieldCheck } from 'react-icons/hi';
+import { HiOutlineShieldCheck } from 'react-icons/hi';
 import { RiLockPasswordLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
@@ -33,7 +33,6 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [division, setDivision] = useState('');
-  const [nic, setNic] = useState('');
   const [phoneDigits, setPhoneDigits] = useState(''); // 9 digits after +94
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -155,12 +154,6 @@ export default function RegisterPage() {
       errs.division = 'Please select a section.';
     }
 
-    if (!nic.trim()) {
-      errs.nic = 'National Identity Card (NIC) is required.';
-    } else if (!/^(\d{9}[vVxX]|\d{12})$/.test(nic.trim())) {
-      errs.nic = 'Invalid NIC format (use 9 digits + V/X or modern 12 digits).';
-    }
-
     if (!phoneDigits) {
       errs.phone = 'Mobile phone number is required.';
     } else if (phoneDigits.length !== 9) {
@@ -184,7 +177,7 @@ export default function RegisterPage() {
     }
 
     return errs;
-  }, [role, name, email, division, nic, phoneDigits, password, confirmPassword, agreeProtocols]);
+  }, [role, name, email, division, phoneDigits, password, confirmPassword, agreeProtocols]);
 
   const markTouched = (field: string) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
@@ -199,7 +192,6 @@ export default function RegisterPage() {
       name: true,
       email: true,
       division: true,
-      nic: true,
       phone: true,
       password: true,
       confirmPassword: true,
@@ -228,7 +220,6 @@ export default function RegisterPage() {
         name,
         email,
         division,
-        nic,
         phone: phoneDigits,
         password,
       });
@@ -483,40 +474,7 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {/* 5. National Identity Card (NIC) */}
-              <div>
-                <label
-                  htmlFor="reg-nic"
-                  className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
-                >
-                  National Identity Card (NIC) <span className="text-red-500">*</span>
-                </label>
-                <div className="relative flex items-center">
-                  <HiOutlineIdentification className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
-                  <input
-                    id="reg-nic"
-                    type="text"
-                    required
-                    value={nic}
-                    onChange={(e) => setNic(e.target.value.toUpperCase())}
-                    onBlur={() => markTouched('nic')}
-                    placeholder="e.g. 198524103421 / 852410342V"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent uppercase tracking-wide border transition duration-150 focus:outline-none ${
-                      touched.nic && errors.nic
-                        ? 'border-red-400 focus:border-red-500'
-                        : 'border-transparent focus:border-[#4318FF]'
-                    }`}
-                  />
-                </div>
-                {touched.nic && errors.nic && (
-                  <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
-                    <FiAlertCircle className="h-3 w-3" />
-                    {errors.nic}
-                  </p>
-                )}
-              </div>
-
-              {/* 6. Mobile Phone Number (🇱🇰 +94 prefix pill + exactly 9 digits) */}
+              {/* 5. Mobile Phone Number (🇱🇰 +94 prefix pill + exactly 9 digits) */}
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label
@@ -566,7 +524,7 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {/* 7. Password & Real-Time Color Strength Meter */}
+              {/* 6. Password & Real-Time Color Strength Meter */}
               <div>
                 <label
                   htmlFor="reg-password"
@@ -626,7 +584,7 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {/* 8. Confirm Password */}
+              {/* 7. Confirm Password */}
               <div>
                 <label
                   htmlFor="reg-confirmPassword"
@@ -676,7 +634,7 @@ export default function RegisterPage() {
                 )}
               </div>
 
-              {/* 9. Security Protocol Agreement Checkbox (MANDATORY) */}
+              {/* 8. Security Protocol Agreement Checkbox (MANDATORY) */}
               <div className="pt-2">
                 <label className="flex items-start gap-2.5 cursor-pointer select-none">
                   <input

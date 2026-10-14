@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { FiMail, FiSend } from 'react-icons/fi';
 import { RiRestartLine } from 'react-icons/ri';
-import { HiOutlineIdentification, HiInformationCircle } from 'react-icons/hi';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
 import { useToast } from 'components/toast/ToastContext';
@@ -14,7 +13,6 @@ export default function ForgotPasswordPage() {
 
   // Inputs empty by default so placeholders appear like watermarks
   const [email, setEmail] = useState('');
-  const [nic, setNic] = useState('');
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -24,17 +22,9 @@ export default function ForgotPasswordPage() {
     setErrorMsg('');
 
     const cleanEmail = email.trim();
-    const cleanNic = nic.trim();
 
     if (!cleanEmail) {
       const msg = 'Please provide your registered official email.';
-      setErrorMsg(msg);
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
-      return;
-    }
-
-    if (!cleanNic) {
-      const msg = 'Please provide your National Identity Card (NIC) number.';
       setErrorMsg(msg);
       showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
@@ -74,7 +64,7 @@ export default function ForgotPasswordPage() {
               Forgot Your Password?
             </h2>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 px-2 sm:px-4 leading-relaxed">
-              Enter your registered official email and NIC to receive password reset instructions.
+              Enter your registered official email to receive password reset instructions.
             </p>
           </div>
 
@@ -125,41 +115,6 @@ export default function ForgotPasswordPage() {
                     className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
                   />
                 </div>
-              </div>
-
-              {/* National Identity Card (NIC) */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label
-                    htmlFor="nic"
-                    className="text-xs font-semibold text-slate-700 dark:text-slate-200"
-                  >
-                    National Identity Card (NIC) <span className="text-red-500">*</span>
-                  </label>
-                  <span className="text-[11px] font-semibold text-slate-400">
-                    Dual Verification
-                  </span>
-                </div>
-                <div className="relative flex items-center">
-                  <HiOutlineIdentification className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
-                  <input
-                    id="nic"
-                    type="text"
-                    required
-                    value={nic}
-                    onChange={(e) => setNic(e.target.value.toUpperCase())}
-                    placeholder="NIC NUMBER (E.G. 198524103421 / 852410342V)"
-                    className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent uppercase tracking-wide border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
-                  />
-                </div>
-              </div>
-
-              {/* Information Alert Box (Secure Reset Link only, NO OTP) */}
-              <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 p-3.5 border border-sky-100 dark:border-sky-900/50">
-                <HiInformationCircle className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-sky-900 dark:text-sky-200 leading-relaxed">
-                  A secure reset link will be sent to your registered department email address. Valid for 15 minutes.
-                </p>
               </div>
 
               {/* Action Button */}

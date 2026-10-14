@@ -223,7 +223,6 @@ export function registerUser(formData: {
   name: string;
   email: string;
   division: string;
-  nic: string;
   phone: string; // 9 digits, e.g. "771234567"
   password: string;
 }): UserAccount {
@@ -249,7 +248,7 @@ export function registerUser(formData: {
     name: formData.name.trim(),
     email: cleanEmail,
     division: formData.division,
-    nic: formData.nic.trim().toUpperCase(),
+    nic: '',
     phone: formattedPhone,
     password: formData.password,
     status: 'pending', // Pending administrator approval by default!
