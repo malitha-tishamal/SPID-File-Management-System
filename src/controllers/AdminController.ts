@@ -4,7 +4,16 @@ import { ProfileRepository } from 'models/ProfileRepository';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { LockoutService } from 'services/LockoutService';
-import type { AccountStatus, UserRole } from 'types/auth';
+import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
+
+let cachedUsers: AdminUserRow[] | null = null;
+let cachedUsersTimestamp = 0;
+const USERS_CACHE_TTL_MS = 15_000;
+
+export function invalidateUsersCache() {
+  cachedUsers = null;
+  cachedUsersTimestamp = 0;
+}
 
 type UserAction =
   | 'approve'
@@ -25,8 +34,15 @@ export class AdminController {
     requireServerEnv();
     const adminProfile = await AuthorizationService.requireAdminProfile();
 
+    const now = Date.now();
+    if (cachedUsers && now - cachedUsersTimestamp < USERS_CACHE_TTL_MS) {
+      return jsonOk({ users: cachedUsers, actor: adminProfile.id });
+    }
+
     const admin = getSupabaseAdminClient();
     const users = await new ProfileRepository(admin).listAllWithLockout();
+    cachedUsers = users;
+    cachedUsersTimestamp = now;
     return jsonOk({ users, actor: adminProfile.id });
   }
 
@@ -53,6 +69,8 @@ export class AdminController {
     if (protectedAdmin && action !== 'clear_lockout' && action !== 'update_profile') {
       throw new ApiError(403, 'FORBIDDEN', 'The primary administrator account is protected.');
     }
+
+    invalidateUsersCache();
 
     switch (action) {
       case 'approve': {
@@ -287,6 +305,8 @@ export class AdminController {
       console.warn('admin.auth.admin.deleteUser warning:', err);
     }
 
+    invalidateUsersCache();
+
     return jsonOk({
       message: `${target.full_name}'s account has been permanently deleted.`,
     });
@@ -382,6 +402,8 @@ export class AdminController {
         details: { email, role, full_name: fullName },
       });
     } catch {}
+
+    invalidateUsersCache();
 
     return jsonOk(
       {

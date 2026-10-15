@@ -1,10 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import Dropdown from 'components/dropdown';
-import { FiAlignJustify, FiSearch, FiBell, FiHelpCircle } from 'react-icons/fi';
-import { BsArrowBarUp } from 'react-icons/bs';
+import { FiAlignJustify, FiSearch } from 'react-icons/fi';
 import { RiMoonFill, RiSunFill } from 'react-icons/ri';
-import type { ProfileDTO } from 'types/auth';
 
 export interface NavbarProps {
   onOpenSidenav: () => void;
@@ -21,18 +18,11 @@ export default function Navbar({
   hideBreadcrumb = false,
 }: NavbarProps) {
   const [darkmode, setDarkmode] = useState(false);
-  const [user, setUser] = useState<ProfileDTO | null>(null);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
       setDarkmode(document.body.classList.contains('dark') || document.documentElement.classList.contains('dark'));
     }
-    fetch('/api/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (j?.ok && j.data?.profile) setUser(j.data.profile);
-      })
-      .catch(() => {});
   }, []);
 
   const toggleDarkMode = () => {
@@ -74,80 +64,6 @@ export default function Navbar({
 
       {/* Right side actions */}
       <div className="flex items-center gap-2">
-        {/* Department Notifications Dropdown */}
-        <Dropdown
-          button={
-            <button
-              type="button"
-              className="relative flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700"
-              aria-label="Notifications"
-            >
-              <FiBell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#4318FF] ring-2 ring-white dark:ring-navy-800" />
-            </button>
-          }
-          animation="origin-top-right transition-all duration-200 ease-out"
-          classNames="py-2 top-10 right-0 w-max"
-        >
-          <div className="flex w-[340px] flex-col gap-3 rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white sm:w-[380px]">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-navy-600">
-              <p className="text-sm font-bold text-navy-700 dark:text-white">Department Notifications</p>
-              <button type="button" className="text-xs font-semibold text-[#4318FF] hover:underline">Mark all read</button>
-            </div>
-
-            <div className="flex w-full items-start rounded-xl bg-slate-50 p-2.5 dark:bg-navy-800">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-b from-[#4318FF] to-brand-500 text-white">
-                <BsArrowBarUp className="h-4 w-4" />
-              </div>
-              <div className="ml-3 flex flex-col justify-center text-xs">
-                <p className="font-bold text-gray-900 dark:text-white">Circular #SPID/CIR/2026/04</p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">Updated guidelines for river basin &amp; tank dossier archiving.</p>
-              </div>
-            </div>
-
-            <div className="flex w-full items-start rounded-xl bg-slate-50 p-2.5 dark:bg-navy-800">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-b from-teal-500 to-emerald-600 text-white">
-                <BsArrowBarUp className="h-4 w-4" />
-              </div>
-              <div className="ml-3 flex flex-col justify-center text-xs">
-                <p className="font-bold text-gray-900 dark:text-white">File Requisition Approved</p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400">File #GAL-IRR-2026-081 ready for archival download.</p>
-              </div>
-            </div>
-          </div>
-        </Dropdown>
-
-        {/* System Info / Help Dropdown */}
-        <Dropdown
-          button={
-            <button
-              type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700"
-              aria-label="Department Info"
-            >
-              <FiHelpCircle className="h-4 w-4" />
-            </button>
-          }
-          classNames="py-2 top-10 right-0 w-max"
-          animation="origin-top-right transition-all duration-200 ease-out"
-        >
-          <div className="flex w-[300px] flex-col gap-2 rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white">
-            <div className="flex items-center gap-3 border-b border-gray-100 pb-3 dark:border-navy-600">
-              <div className="h-9 w-9 shrink-0 rounded-full bg-white p-1 shadow-sm border border-slate-200 flex items-center justify-center dark:bg-navy-900 dark:border-navy-700">
-                <img src="/img/spid/spid-logo.png" alt="SPID Logo" className="h-full w-full object-contain" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-800 dark:text-white">SPID File Management</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">Southern Provincial Irrigation Dept.</p>
-              </div>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mt-1">
-              Official records, irrigation engineering dossiers, and cadastral archives portal.
-            </p>
-            <div className="mt-2 text-[10px] text-slate-400">System Version: 2.1 (Production)</div>
-          </div>
-        </Dropdown>
-
         {/* Dark Mode Toggle */}
         <button
           type="button"

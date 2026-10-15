@@ -80,6 +80,19 @@ const COPY = {
   },
 };
 
+// Module-level in-memory cache to guarantee instantaneous navigation across routes
+let memoryAccounts: AdminUserRow[] | null = null;
+let memorySections: SectionRow[] | null = null;
+let memoryMeId: string | null = null;
+let memoryLastFetched = 0;
+const CACHE_TTL_MS = 60_000; // 60s freshness; background revalidation if older
+
+export function invalidateAccountDirectoryCache() {
+  memoryAccounts = null;
+  memorySections = null;
+  memoryLastFetched = 0;
+}
+
 /**
  * Full directory page shared by Admin Management (variant "admin") and
  * User Management (variant "staff"): header, KPI cards, filters, table,
@@ -89,11 +102,11 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const copy = COPY[variant];
   const { showToast } = useToast();
 
-  const [accounts, setAccounts] = useState<AdminUserRow[]>([]);
-  const [sections, setSections] = useState<SectionRow[]>([]);
-  const [meId, setMeId] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [listLoading, setListLoading] = useState(true);
+  const [accounts, setAccounts] = useState<AdminUserRow[]>(() => memoryAccounts || []);
+  const [sections, setSections] = useState<SectionRow[]>(() => memorySections || []);
+  const [meId, setMeId] = useState<string | null>(() => memoryMeId);
+  const [isAdmin, setIsAdmin] = useState(() => memoryAccounts !== null);
+  const [listLoading, setListLoading] = useState(() => memoryAccounts === null);
 
   const [search, setSearch] = useState('');
   const [filterSection, setFilterSection] = useState<'all' | number>('all');
@@ -102,15 +115,26 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
-  const loadAccounts = useCallback(async () => {
-    setListLoading(true);
+  const loadAccounts = useCallback(async (force = false) => {
+    const isCached = memoryAccounts !== null;
+    const isFresh = isCached && Date.now() - memoryLastFetched < CACHE_TTL_MS;
+
+    if (!isCached || force) {
+      setListLoading(true);
+    } else if (isFresh) {
+      return;
+    }
+
     try {
-      const [usersRes, sectionsRes] = await Promise.all([
+      const [usersRes, sectionsRes, meRes] = await Promise.all([
         fetch('/api/admin/users'),
         fetch('/api/sections'),
+        fetch('/api/auth/me'),
       ]);
       const usersJson = await usersRes.json();
       if (usersRes.ok && usersJson.ok) {
+        memoryAccounts = usersJson.data.users;
+        memoryLastFetched = Date.now();
         setAccounts(usersJson.data.users);
         setIsAdmin(true);
       } else {
@@ -125,26 +149,34 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
       }
       if (sectionsRes.ok) {
         const sectionsJson = await sectionsRes.json();
-        if (sectionsJson.ok) setSections(sectionsJson.data.sections);
+        if (sectionsJson.ok) {
+          memorySections = sectionsJson.data.sections;
+          setSections(sectionsJson.data.sections);
+        }
       }
-      const meRes = await fetch('/api/auth/me');
       if (meRes.ok) {
         const meJson = await meRes.json();
-        if (meJson.ok) setMeId(meJson.data.profile?.id ?? null);
+        if (meJson.ok) {
+          memoryMeId = meJson.data.profile?.id ?? null;
+          setMeId(memoryMeId);
+        }
       }
     } catch {
-      showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
+      if (!isCached) {
+        showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
+      }
     } finally {
       setListLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [showToast]);
+
+  const forceReload = useCallback(() => loadAccounts(true), [loadAccounts]);
 
   const { loadingId, feedback, setFeedback, request, confirmTarget, setConfirmTarget, run, saveProfile } =
-    useAccountActions(loadAccounts);
+    useAccountActions(forceReload);
 
   useEffect(() => {
-    loadAccounts();
+    loadAccounts(false);
   }, [loadAccounts]);
 
   const scoped = useMemo(
@@ -323,7 +355,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 ))}
               </select>
               <button
-                onClick={loadAccounts}
+                onClick={() => loadAccounts(true)}
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] border border-slate-300 dark:border-navy-700 text-slate-900 transition-colors hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
                 title="Refresh"
               >
@@ -398,7 +430,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               title: variant === 'admin' ? 'Administrator Registered' : 'Staff Member Registered',
               message: msg,
             });
-            loadAccounts();
+            loadAccounts(true);
           }}
         />
       )}

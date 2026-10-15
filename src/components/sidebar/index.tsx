@@ -15,12 +15,18 @@ interface SessionUser {
   role?: string;
 }
 
+let sessionCache: SessionUser | null = null;
+
 async function fetchSession(): Promise<SessionUser | null> {
+  if (sessionCache) return sessionCache;
   try {
     const res = await fetch('/api/auth/me');
     if (res.ok) {
       const json = await res.json();
-      if (json.ok) return json.data?.profile ?? null;
+      if (json.ok && json.data?.profile) {
+        sessionCache = json.data.profile;
+        return sessionCache;
+      }
     }
   } catch {}
   return null;
@@ -28,9 +34,10 @@ async function fetchSession(): Promise<SessionUser | null> {
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
-  const [user, setUser] = useState<SessionUser | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(sessionCache);
 
   useEffect(() => {
+    if (sessionCache) return;
     fetchSession().then((profile) => {
       if (profile) {
         setUser(profile);
@@ -45,6 +52,7 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   }, []);
 
   const handleLogout = async () => {
+    sessionCache = null;
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}

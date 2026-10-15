@@ -23,7 +23,7 @@ function NavLink({ className, children, styles, borderRadius, ...props }: any) {
   );
 
   return (
-    <NextLink className={`${className}`} style={memoizedStyles} {...props}>
+    <NextLink className={`${className}`} style={memoizedStyles} prefetch={true} {...props}>
       {children}
     </NextLink>
   );
