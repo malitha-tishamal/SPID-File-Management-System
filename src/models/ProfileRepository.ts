@@ -74,27 +74,42 @@ export class ProfileRepository {
 
   /** Admin registry listing including lockout state (service-role only). */
   async listAllWithLockout(): Promise<AdminUserRow[]> {
-    let select = `${PROFILE_SELECT_FULL}, login_security(failed_attempts, locked_until)`;
-    let { data, error } = await this.client
+    const { data, error } = await this.client
       .from('profiles')
-      .select(select)
+      .select(PROFILE_SELECT)
       .order('created_at', { ascending: false });
 
-    // Migration 0005 not applied yet — retry without last_login_at.
-    if (error) {
-      select = `${PROFILE_SELECT}, login_security(failed_attempts, locked_until)`;
-      const retry = await this.client
-        .from('profiles')
-        .select(select)
-        .order('created_at', { ascending: false });
-      data = retry.data;
-      error = retry.error;
+    if (error || !data) {
+      console.error('Failed to fetch profiles in listAllWithLockout:', error);
+      return [];
     }
-    if (error || !data) return [];
+
+    const userIds = (data as any[]).map((r) => r.id).filter(Boolean);
+    const secMap = new Map<string, { failed_attempts: number; locked_until: string | null }>();
+
+    if (userIds.length > 0) {
+      try {
+        const { data: secData } = await this.client
+          .from('login_security')
+          .select('user_id, failed_attempts, locked_until')
+          .in('user_id', userIds);
+
+        if (secData) {
+          for (const s of secData) {
+            secMap.set(s.user_id, {
+              failed_attempts: s.failed_attempts ?? 0,
+              locked_until: s.locked_until ?? null,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Could not query login_security:', err);
+      }
+    }
 
     return (data as any[]).map((row) => {
       const base = mapProfile(row);
-      const sec = Array.isArray(row.login_security) ? row.login_security[0] : row.login_security;
+      const sec = secMap.get(base.id);
       return {
         ...base,
         failed_attempts: sec?.failed_attempts ?? 0,
