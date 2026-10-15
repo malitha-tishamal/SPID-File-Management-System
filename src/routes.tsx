@@ -66,12 +66,6 @@ const routes = [
     path: 'staff-file-request',
   },
   {
-    name: 'Profile',
-    layout: '/admin',
-    path: 'profile',
-    icon: <MdPerson className="h-5 w-5" />,
-  },
-  {
     name: 'Sign In',
     layout: '/auth',
     path: 'sign-in',

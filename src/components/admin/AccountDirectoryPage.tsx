@@ -96,7 +96,6 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
 
   const [search, setSearch] = useState('');
   const [filterSection, setFilterSection] = useState<'all' | number>('all');
-  const [filterRole, setFilterRole] = useState<'all' | 'Staff' | 'Administrator'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | AccountStatus>('all');
 
   const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
@@ -147,7 +146,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   }, [loadAccounts]);
 
   const scoped = useMemo(
-    () => (variant === 'admin' ? accounts.filter((a) => a.role === 'Administrator') : accounts),
+    () => (variant === 'admin' ? accounts.filter((a) => a.role === 'Administrator') : accounts.filter((a) => a.role === 'Staff')),
     [accounts, variant]
   );
 
@@ -161,11 +160,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           (acc.section_name || '').toLowerCase().includes(q) ||
           (acc.nic || '').toLowerCase().includes(q);
         const matchSection = filterSection === 'all' || acc.section_id === filterSection;
-        const matchRole = variant === 'admin' || filterRole === 'all' || acc.role === filterRole;
         const matchStatus = filterStatus === 'all' || acc.account_status === filterStatus;
-        return matchSearch && matchSection && matchRole && matchStatus;
+        return matchSearch && matchSection && matchStatus;
       }),
-    [scoped, search, filterSection, filterRole, filterStatus, variant]
+    [scoped, search, filterSection, filterStatus]
   );
 
   const stats = useMemo(() => {
@@ -309,17 +307,6 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                   </option>
                 ))}
               </select>
-              {variant === 'staff' && (
-                <select
-                  value={filterRole}
-                  onChange={(e) => setFilterRole(e.target.value as 'all' | 'Staff' | 'Administrator')}
-                  className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-semibold text-gray-600 outline-none dark:bg-navy-900 dark:text-gray-300"
-                >
-                  <option value="all">All Roles</option>
-                  <option value="Staff">Staff</option>
-                  <option value="Administrator">Administrator</option>
-                </select>
-              )}
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as 'all' | AccountStatus)}

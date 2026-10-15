@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { HiX } from 'react-icons/hi';
 import { FiSettings, FiLogOut } from 'react-icons/fi';
 import Links from './components/Links';
@@ -104,7 +105,7 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
       {/* ── Bottom: User Profile + LOG OUT ── */}
       <div className="mt-auto border-t border-gray-100 dark:border-navy-700 pt-2">
         {/* User Info Row (entire card clicks to /admin/profile) */}
-        <a
+        <Link
           href="/admin/profile"
           className="flex items-center justify-between gap-2.5 px-3 py-3 mx-2 mb-2 rounded-2xl transition-all hover:bg-slate-100/80 dark:hover:bg-navy-700 cursor-pointer group"
           title="Open Profile Management"
@@ -127,7 +128,7 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 group-hover:text-[#4318FF] group-hover:rotate-45 transition-all">
             <FiSettings className="h-4 w-4" />
           </div>
-        </a>
+        </Link>
 
         {/* LOG OUT Button */}
         <div className="px-4 pb-5">

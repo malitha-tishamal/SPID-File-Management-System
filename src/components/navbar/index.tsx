@@ -1,8 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Dropdown from 'components/dropdown';
-import { FiAlignJustify, FiSearch, FiLogOut, FiUser, FiBell, FiHelpCircle } from 'react-icons/fi';
-import NavLink from 'components/link/NavLink';
+import { FiAlignJustify, FiSearch, FiBell, FiHelpCircle } from 'react-icons/fi';
 import { BsArrowBarUp } from 'react-icons/bs';
 import { RiMoonFill, RiSunFill } from 'react-icons/ri';
 import type { ProfileDTO } from 'types/auth';
@@ -36,18 +35,6 @@ export default function Navbar({
       .catch(() => {});
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } finally {
-      try {
-        localStorage.removeItem('spid_user');
-        document.cookie = 'spid_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      } catch {}
-      window.location.href = '/auth/sign-in';
-    }
-  };
-
   const toggleDarkMode = () => {
     if (darkmode) {
       document.body.classList.remove('dark');
@@ -59,10 +46,6 @@ export default function Navbar({
       setDarkmode(true);
     }
   };
-
-  const displayName = user?.full_name || 'SPID Officer';
-  const displayRole = user?.role || 'Staff';
-  const displayInitials = displayName.slice(0, 2).toUpperCase();
 
   return (
     <nav className="sticky top-2 z-40 mb-3 flex flex-row items-center justify-between gap-3 rounded-2xl bg-white/70 px-4 py-2.5 backdrop-blur-xl shadow-sm dark:bg-navy-800/80 dark:shadow-none border border-slate-100 dark:border-navy-700">
@@ -78,12 +61,12 @@ export default function Navbar({
         </button>
 
         {/* Global Search Bar (matching screenshots) */}
-        <div className="flex h-10 w-full max-w-md items-center rounded-xl bg-[#f4f7fe] px-3.5 text-navy-700 transition-all focus-within:ring-2 focus-within:ring-[#4318FF]/20 dark:bg-navy-900 dark:text-white">
-          <FiSearch className="h-4 w-4 text-gray-400 dark:text-gray-400 shrink-0" />
+        <div className="flex h-10 w-full max-w-md items-center rounded-xl bg-[#f4f7fe] px-3.5 text-navy-700 transition-all focus-within:ring-2 focus-within:ring-[#4318FF]/20 dark:bg-navy-900 dark:text-white border border-transparent dark:border-navy-700">
+          <FiSearch className="h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
           <input
             type="text"
             placeholder="Search record numbers, files, or offices..."
-            className="ml-2 block h-full w-full bg-transparent text-xs font-medium text-navy-700 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-500"
+            className="ml-2 block h-full w-full bg-transparent text-xs font-medium text-navy-700 outline-none placeholder:text-gray-400 dark:bg-navy-900 dark:text-white dark:placeholder:text-gray-500"
           />
         </div>
       </div>
@@ -173,50 +156,6 @@ export default function Navbar({
         >
           {darkmode ? <RiSunFill className="h-4 w-4 text-amber-400" /> : <RiMoonFill className="h-4 w-4 text-gray-600" />}
         </button>
-
-        {/* User Profile Dropdown */}
-        <Dropdown
-          button={
-            <div className="flex items-center gap-2 cursor-pointer pl-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-xs font-bold text-white shadow-sm ring-2 ring-brand-500/20">
-                {displayInitials}
-              </div>
-            </div>
-          }
-          classNames="py-2 top-10 right-0 w-max"
-          animation="origin-top-right transition-all duration-200 ease-out"
-        >
-          <div className="flex w-64 flex-col rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white border border-slate-100 dark:border-navy-600">
-            <div className="flex flex-col border-b border-gray-100 pb-3 dark:border-navy-600">
-              <p className="text-xs font-bold text-navy-700 dark:text-white">
-                👋 {displayName}
-              </p>
-              <p className="text-[11px] font-medium text-slate-400 truncate mt-0.5">
-                {user?.email || 'officer@spid.gov.lk'}
-              </p>
-              <span className="mt-1.5 inline-block w-fit rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-bold text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
-                {displayRole}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-1.5 pt-2">
-              <NavLink
-                href="/admin/profile"
-                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-700 transition-colors hover:bg-slate-50 hover:text-[#4318FF] dark:text-gray-300 dark:hover:bg-navy-800"
-              >
-                <FiUser className="h-3.5 w-3.5" /> Officer Profile
-              </NavLink>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20 text-left"
-              >
-                <FiLogOut className="h-3.5 w-3.5" /> Log Out
-              </button>
-            </div>
-          </div>
-        </Dropdown>
       </div>
     </nav>
   );
