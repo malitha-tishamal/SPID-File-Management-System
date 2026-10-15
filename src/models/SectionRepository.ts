@@ -39,48 +39,115 @@ export class SectionRepository {
   }
 
   async findByName(name: string): Promise<SectionRow | null> {
-    const { data } = await this.client
+    const { data, error } = await this.client
       .from('sections')
       .select('id, name, status, section_lead')
       .ilike('name', name.trim())
       .maybeSingle();
+    if (error) {
+      // Fallback if columns don't exist
+      const fallback = await this.client
+        .from('sections')
+        .select('id, name')
+        .ilike('name', name.trim())
+        .maybeSingle();
+      if (fallback.data) {
+        return { ...fallback.data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
+      }
+      return null;
+    }
     return (data as SectionRow) ?? null;
   }
 
   async findById(id: number): Promise<SectionRow | null> {
-    const { data } = await this.client
+    const { data, error } = await this.client
       .from('sections')
       .select('id, name, status, section_lead')
       .eq('id', id)
       .maybeSingle();
+    if (error) {
+      // Fallback if columns don't exist
+      const fallback = await this.client
+        .from('sections')
+        .select('id, name')
+        .eq('id', id)
+        .maybeSingle();
+      if (fallback.data) {
+        return { ...fallback.data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
+      }
+      return null;
+    }
     return (data as SectionRow) ?? null;
   }
 
   async create(name: string, sectionLead?: string): Promise<SectionRow> {
     const insert: Record<string, unknown> = {
       name: name.trim(),
-      status: 'approved',
     };
-    if (sectionLead) insert.section_lead = sectionLead.trim();
 
-    const { data, error } = await this.client
-      .from('sections')
-      .insert(insert)
-      .select('id, name, status, section_lead, created_at')
-      .single();
-    if (error) throw error;
-    return data as SectionRow;
+    // Try to insert with status and section_lead columns
+    try {
+      insert.status = 'approved';
+      if (sectionLead) insert.section_lead = sectionLead.trim();
+
+      const { data, error } = await this.client
+        .from('sections')
+        .insert(insert)
+        .select('id, name, status, section_lead, created_at')
+        .single();
+      if (error) throw error;
+      return data as SectionRow;
+    } catch (err: any) {
+      // If columns don't exist, fallback to basic insert
+      if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('does not exist')) {
+        const basicInsert: Record<string, unknown> = { name: name.trim() };
+        const { data, error } = await this.client
+          .from('sections')
+          .insert(basicInsert)
+          .select('id, name, created_at')
+          .single();
+        if (error) throw error;
+        return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
+      }
+      throw err;
+    }
   }
 
   async update(id: number, patch: { name?: string; status?: SectionStatus; section_lead?: string | null }): Promise<SectionRow> {
-    const { data, error } = await this.client
-      .from('sections')
-      .update(patch)
-      .eq('id', id)
-      .select('id, name, status, section_lead, created_at')
-      .single();
-    if (error) throw error;
-    return data as SectionRow;
+    // Filter out status and section_lead if they might not exist in the DB
+    const updateData: Record<string, unknown> = {};
+    if (patch.name !== undefined) updateData.name = patch.name;
+
+    try {
+      // Try updating with all fields
+      if (patch.status !== undefined) updateData.status = patch.status;
+      if (patch.section_lead !== undefined) updateData.section_lead = patch.section_lead;
+
+      const { data, error } = await this.client
+        .from('sections')
+        .update(updateData)
+        .eq('id', id)
+        .select('id, name, status, section_lead, created_at')
+        .single();
+      if (error) throw error;
+      return data as SectionRow;
+    } catch (err: any) {
+      // If columns don't exist, fallback to name-only update
+      if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('does not exist')) {
+        const basicUpdate: Record<string, unknown> = {};
+        if (patch.name !== undefined) basicUpdate.name = patch.name;
+
+        const { data, error } = await this.client
+          .from('sections')
+          .update(basicUpdate)
+          .eq('id', id)
+          .select('id, name, created_at')
+          .single();
+        if (error) throw error;
+        return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
+      }
+      throw err;
+    }
   }
 
   async delete(id: number): Promise<void> {

@@ -1,4 +1,8 @@
 import React, { ReactNode } from 'react';
+import 'styles/App.css';
+import 'styles/Contact.css';
+import 'styles/MiniCalendar.css';
+import 'styles/index.css';
 import AppWrappers from './AppWrappers';
 
 export const metadata = {
