@@ -8,6 +8,7 @@ import {
   MdPerson,
   MdLock,
   MdPeopleAlt,
+  MdAdminPanelSettings,
   MdArchive,
 } from 'react-icons/md';
 
@@ -30,6 +31,12 @@ const routes = [
     layout: '/admin',
     icon: <MdBarChart className="h-6 w-6" />,
     path: 'data-tables',
+  },
+  {
+    name: 'Admin Management',
+    layout: '/admin',
+    icon: <MdAdminPanelSettings className="h-6 w-6" />,
+    path: 'admin-management',
   },
   {
     name: 'User Management',
