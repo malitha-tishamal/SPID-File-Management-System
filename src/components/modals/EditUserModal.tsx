@@ -1,15 +1,15 @@
 'use client';
 import React, { useState } from 'react';
 import {
-  FiEdit2,
   FiX,
   FiUser,
   FiMail,
-  FiGrid,
   FiShield,
   FiCheck,
   FiLock,
+  FiCheckCircle,
 } from 'react-icons/fi';
+import { MdAdminPanelSettings, MdSave } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
 
@@ -29,11 +29,6 @@ function statusLabel(status: AccountStatus): string {
   return 'Locked';
 }
 
-/**
- * Reusable profile editor for both directories.
- * variant 'admin' renders the Admin Management wording, 'staff' the User
- * Management wording. Role/status are disabled for self and protected admin.
- */
 export default function EditUserModal({
   user,
   variant,
@@ -84,24 +79,24 @@ export default function EditUserModal({
   };
 
   const inputBase =
-    'h-10 w-full rounded-xl border bg-[#f4f7fe] pl-9 pr-3 text-xs font-medium text-navy-700 outline-none transition-colors placeholder:text-gray-400 focus:border-[#4318FF] dark:bg-navy-900 dark:text-white';
+    'h-11 w-full rounded-xl border border-slate-200/80 bg-white px-4 text-xs font-semibold text-navy-700 outline-none transition-all placeholder:text-gray-400 focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/10 dark:border-navy-600 dark:bg-navy-900 dark:text-white';
 
   return (
     <div
-      className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md animate-fadeIn"
       onClick={() => !saving && onClose()}
     >
       <div
-        className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[24px] bg-white p-6 shadow-2xl dark:bg-navy-700"
+        className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[24px] bg-white p-6 sm:p-7 shadow-2xl dark:bg-navy-700 border border-slate-100 dark:border-navy-600"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between">
+        {/* Header (matching image 4) */}
+        <div className="flex items-center justify-between pb-2">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-b from-[#4318FF] to-brand-500 text-white shadow-md">
-              <FiEdit2 className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
+              <MdAdminPanelSettings className="h-6 w-6" />
             </div>
-            <h3 className="text-lg font-bold text-navy-700 dark:text-white">
+            <h3 className="text-base font-bold text-navy-700 dark:text-white">
               {isAdminVariant ? 'Edit Admin Profile' : 'Edit Staff User Profile'}
             </h3>
           </div>
@@ -115,73 +110,82 @@ export default function EditUserModal({
           </button>
         </div>
 
-        {/* Identity */}
-        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-[#f4f7fe] p-3.5 dark:bg-navy-900">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-sm font-bold text-white">
+        {/* Identity card (matching image 4) */}
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-50/50 to-slate-50 p-4 dark:from-navy-800 dark:to-navy-900 border border-indigo-100/40 dark:border-navy-700">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-sm font-bold text-white shadow-sm">
               {user.full_name.slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <p className="text-sm font-bold text-navy-700 dark:text-white">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-navy-700 dark:text-white">
                 {user.full_name}
                 {isProtected && (
-                  <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-purple-100 px-1 py-0.5 text-[9px] font-bold text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-purple-100 px-1 py-0.5 text-[8px] font-bold text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
                     <FiLock className="h-2.5 w-2.5" /> PROTECTED
                   </span>
                 )}
               </p>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">{user.email}</p>
+              <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">{user.email}</p>
             </div>
           </div>
-          <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+          <span className="shrink-0 flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             {statusLabel(user.account_status)}
           </span>
         </div>
 
-        {/* Form */}
+        {/* Form Fields (2 columns, matching image 4) */}
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Full Name */}
           <div>
-            <label className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              <FiUser className="h-3 w-3" /> Full Name
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              <FiUser className="h-3.5 w-3.5 text-[#4318FF]" /> Full Name
             </label>
             <div className="relative">
-              <FiUser className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className={`${inputBase} ${nameError ? 'border-red-400' : 'border-transparent'}`}
+                className={`${inputBase} pr-9 ${nameError ? 'border-red-400' : ''}`}
+                placeholder="Enter full name"
               />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500">
+                <FiCheckCircle className="h-4 w-4" />
+              </span>
             </div>
             {nameError && <p className="mt-1 text-[10px] text-red-500">Name must be at least 3 characters.</p>}
           </div>
 
+          {/* Official Email */}
           <div>
-            <label className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              <FiMail className="h-3 w-3" />
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              <FiMail className="h-3.5 w-3.5 text-[#4318FF]" />
               {isAdminVariant ? 'Official Government Email' : 'Official Staff Email'}
             </label>
-            <div className="relative" title="Email changes require re-verification and are managed by Supabase Auth — contact the system owner.">
-              <FiMail className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+            <div className="relative">
               <input
                 type="email"
                 value={user.email}
                 disabled
-                className={`${inputBase} cursor-not-allowed border-transparent opacity-60`}
+                className={`${inputBase} pr-9 cursor-not-allowed bg-slate-50 text-gray-400 dark:bg-navy-950`}
               />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <FiMail className="h-4 w-4" />
+              </span>
             </div>
           </div>
 
-          <div className="sm:col-span-2">
-            <label className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              <FiGrid className="h-3 w-3" /> Assigned Section / Division
+          {/* Departmental Allocation */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              <FiShield className="h-3.5 w-3.5 text-[#4318FF]" /> Departmental Allocation
             </label>
             <select
               value={sectionId ?? ''}
               onChange={(e) => setSectionId(e.target.value === '' ? null : Number(e.target.value))}
-              className="h-10 w-full rounded-xl border border-transparent bg-[#f4f7fe] px-3 text-xs font-medium text-navy-700 outline-none transition-colors focus:border-[#4318FF] dark:bg-navy-900 dark:text-white"
+              className={`${inputBase} cursor-pointer`}
             >
-              <option value="">— No Section —</option>
+              <option value="">— Select Department —</option>
               {sections.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -190,18 +194,18 @@ export default function EditUserModal({
             </select>
           </div>
 
-          <div className="sm:col-span-2">
-            <label className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              <FiShield className="h-3 w-3" />
+          {/* Admin Security Role / Clearance */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              <FiShield className="h-3.5 w-3.5 text-[#4318FF]" />
               {isAdminVariant ? 'Admin Security Role / Clearance' : 'User Access Role & Permissions'}
             </label>
             <div className="relative">
-              <FiShield className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 disabled={!canChangePrivileged}
-                className={`${inputBase} border-transparent disabled:cursor-not-allowed disabled:opacity-60`}
+                className={`${inputBase} pr-9 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-50`}
               >
                 <option value="Staff">
                   {isAdminVariant ? 'Administrator (Section Level)' : 'Staff Officer (Record Room Ingest & File Checkout)'}
@@ -210,65 +214,69 @@ export default function EditUserModal({
                   {isAdminVariant ? 'Super Admin (Level 1 Root Clearance)' : 'Administrator (Full System Clearance)'}
                 </option>
               </select>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <FiShield className="h-3.5 w-3.5" />
+              </span>
             </div>
             {!canChangePrivileged && (
               <p className="mt-1 text-[10px] text-gray-400">
                 {isSelf
-                  ? 'You cannot change your own role or status.'
-                  : 'The primary administrator role and status are protected.'}
+                  ? 'You cannot change your own role.'
+                  : 'The primary administrator role is protected.'}
               </p>
             )}
           </div>
 
-          <div className="sm:col-span-2">
-            <label className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Account Status
+          {/* Account Access Status (Radio pills matching image 4) */}
+          <div className="sm:col-span-2 mt-1">
+            <label className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              Account Access Status
             </label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2.5">
               {STATUS_OPTIONS.map((opt) => {
                 const active = status === opt.value;
-                const currentButUnselectable =
-                  !canChangePrivileged && user.account_status === opt.value;
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    disabled={saving}
+                    disabled={saving || !canChangePrivileged}
                     onClick={() => canChangePrivileged && setStatus(opt.value)}
-                    className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[11px] font-bold transition-all ${
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
                       active
-                        ? 'bg-emerald-600 text-white shadow-md'
-                        : 'bg-[#f4f7fe] text-gray-500 hover:bg-gray-100 dark:bg-navy-900 dark:text-gray-400'
-                    } ${!canChangePrivileged ? 'cursor-not-allowed opacity-70' : ''}`}
+                        ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-600'
+                        : 'bg-slate-50 text-gray-500 border border-slate-200/80 hover:bg-slate-100 dark:bg-navy-800 dark:text-gray-400 dark:border-navy-600'
+                    } ${!canChangePrivileged ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    {active && <FiCheck className="h-3 w-3" />}
+                    <span
+                      className={`flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
+                        active
+                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                          : 'border-gray-300 text-transparent dark:border-gray-600'
+                      }`}
+                    >
+                      ✓
+                    </span>
                     {opt.label}
-                    {currentButUnselectable && <FiLock className="h-3 w-3" />}
                   </button>
                 );
               })}
-              {(user.account_status === 'rejected' || user.account_status === 'locked') && (
-                <span className="rounded-full bg-[#f4f7fe] px-3.5 py-2 text-[11px] font-bold text-gray-400 dark:bg-navy-900">
-                  Current: {statusLabel(user.account_status)}
-                </span>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="mt-7 flex items-center justify-end gap-3">
+        {/* Footer actions (matching image 4) */}
+        <div className="mt-7 flex items-center justify-end gap-3 border-t border-gray-100 pt-4 dark:border-navy-600">
           <button
             onClick={onClose}
             disabled={saving}
-            className="rounded-xl px-5 py-2.5 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-navy-600"
+            className="rounded-xl px-5 py-2.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-slate-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-navy-800 cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving || fullName.trim().length < 3}
-            className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-shadow-500 transition-colors hover:bg-brand-600 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/25 transition-colors hover:bg-brand-600 disabled:opacity-60 cursor-pointer"
           >
             {saving ? (
               <>
@@ -277,7 +285,7 @@ export default function EditUserModal({
               </>
             ) : (
               <>
-                <FiCheck className="h-4 w-4" />
+                <MdSave className="h-4 w-4" />
                 {isAdminVariant ? 'Save Admin Changes' : 'Save User Changes'}
               </>
             )}

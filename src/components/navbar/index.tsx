@@ -1,36 +1,37 @@
+'use client';
 import React, { useEffect, useState } from 'react';
 import Dropdown from 'components/dropdown';
-import { FiAlignJustify, FiSearch, FiLogOut, FiUser } from 'react-icons/fi';
+import { FiAlignJustify, FiSearch, FiLogOut, FiUser, FiBell, FiHelpCircle } from 'react-icons/fi';
 import NavLink from 'components/link/NavLink';
 import { BsArrowBarUp } from 'react-icons/bs';
 import { RiMoonFill, RiSunFill } from 'react-icons/ri';
-import {
-  IoMdNotificationsOutline,
-  IoMdInformationCircleOutline,
-} from 'react-icons/io';
-import avatar from '/public/img/avatars/avatar4.png';
-import Image from 'next/image';
-import { getSupabaseBrowserClient } from 'config/supabase/client';
 import type { ProfileDTO } from 'types/auth';
 
-const Navbar = (props: {
+export interface NavbarProps {
   onOpenSidenav: () => void;
-  brandText: string;
+  brandText?: string;
   secondary?: boolean | string;
+  hideBreadcrumb?: boolean;
   [x: string]: any;
-}) => {
-  const { onOpenSidenav, brandText } = props;
+}
+
+export default function Navbar({
+  onOpenSidenav,
+  brandText = 'Dashboard',
+  secondary,
+  hideBreadcrumb = false,
+}: NavbarProps) {
   const [darkmode, setDarkmode] = useState(false);
   const [user, setUser] = useState<ProfileDTO | null>(null);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      setDarkmode(document.body.classList.contains('dark'));
+      setDarkmode(document.body.classList.contains('dark') || document.documentElement.classList.contains('dark'));
     }
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (j?.ok) setUser(j.data.profile);
+        if (j?.ok && j.data?.profile) setUser(j.data.profile);
       })
       .catch(() => {});
   }, []);
@@ -39,207 +40,179 @@ const Navbar = (props: {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
+      try {
+        localStorage.removeItem('spid_user');
+        document.cookie = 'spid_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      } catch {}
       window.location.href = '/auth/sign-in';
     }
   };
 
+  const toggleDarkMode = () => {
+    if (darkmode) {
+      document.body.classList.remove('dark');
+      document.documentElement.classList.remove('dark');
+      setDarkmode(false);
+    } else {
+      document.body.classList.add('dark');
+      document.documentElement.classList.add('dark');
+      setDarkmode(true);
+    }
+  };
+
+  const displayName = user?.full_name || 'SPID Officer';
+  const displayRole = user?.role || 'Staff';
+  const displayInitials = displayName.slice(0, 2).toUpperCase();
+
   return (
-    <nav className="sticky top-4 z-40 flex flex-row flex-wrap items-center justify-between rounded-xl bg-white/10 p-2 backdrop-blur-xl dark:bg-[#0b14374d]">
-      <div className="ml-[6px]">
-        <div className="h-6 w-full pt-1">
-          <a
-            className="text-sm font-normal text-navy-700 hover:underline dark:text-white dark:hover:text-white"
-            href="#"
-          >
-            SPID System
-            <span className="mx-1 text-sm text-navy-700 hover:text-navy-700 dark:text-white">
-              {' '}/{' '}
-            </span>
-          </a>
-          <NavLink
-            className="text-sm font-normal capitalize text-navy-700 hover:underline dark:text-white dark:hover:text-white"
-            href="#"
-          >
-            {brandText}
-          </NavLink>
-        </div>
-        <p className="shrink text-[30px] font-bold capitalize text-navy-700 dark:text-white">
-          <NavLink
-            href="#"
-            className="font-bold capitalize hover:text-navy-700 dark:hover:text-white"
-          >
-            {brandText}
-          </NavLink>
-        </p>
-      </div>
-
-      <div className="relative mt-[3px] flex h-[61px] w-[355px] flex-grow items-center justify-around gap-2 rounded-full bg-white px-2 py-2 shadow-xl shadow-shadow-500 dark:!bg-navy-800 dark:shadow-none md:w-[380px] md:flex-grow-0 md:gap-1 xl:w-[410px] xl:gap-2">
-        {/* Search Bar */}
-        <div className="flex h-full items-center rounded-full bg-lightPrimary text-navy-700 dark:bg-navy-900 dark:text-white xl:w-[240px]">
-          <p className="pl-3 pr-2 text-xl">
-            <FiSearch className="h-4 w-4 text-gray-400 dark:text-white" />
-          </p>
-          <input
-            type="text"
-            placeholder="Search files, dossiers..."
-            className="block h-full w-full rounded-full bg-lightPrimary text-xs font-medium text-navy-700 outline-none placeholder:!text-gray-400 dark:bg-navy-900 dark:text-white dark:placeholder:!text-white sm:w-fit"
-          />
-        </div>
-
-        <span
-          className="flex cursor-pointer text-xl text-gray-600 dark:text-white xl:hidden"
+    <nav className="sticky top-2 z-40 mb-3 flex flex-row items-center justify-between gap-3 rounded-2xl bg-white/70 px-4 py-2.5 backdrop-blur-xl shadow-sm dark:bg-navy-800/80 dark:shadow-none border border-slate-100 dark:border-navy-700">
+      {/* Mobile Menu & Search Bar */}
+      <div className="flex flex-1 items-center gap-3">
+        <button
+          type="button"
           onClick={onOpenSidenav}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-600 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700 xl:hidden"
+          aria-label="Toggle Sidenav"
         >
           <FiAlignJustify className="h-5 w-5" />
-        </span>
+        </button>
 
-        {/* Notifications */}
+        {/* Global Search Bar (matching screenshots) */}
+        <div className="flex h-10 w-full max-w-md items-center rounded-xl bg-[#f4f7fe] px-3.5 text-navy-700 transition-all focus-within:ring-2 focus-within:ring-[#4318FF]/20 dark:bg-navy-900 dark:text-white">
+          <FiSearch className="h-4 w-4 text-gray-400 dark:text-gray-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Search record numbers, files, or offices..."
+            className="ml-2 block h-full w-full bg-transparent text-xs font-medium text-navy-700 outline-none placeholder:text-gray-400 dark:text-white dark:placeholder:text-gray-500"
+          />
+        </div>
+      </div>
+
+      {/* Right side actions */}
+      <div className="flex items-center gap-2">
+        {/* Department Notifications Dropdown */}
         <Dropdown
           button={
-            <p className="cursor-pointer">
-              <IoMdNotificationsOutline className="h-4 w-4 text-gray-600 dark:text-white" />
-            </p>
+            <button
+              type="button"
+              className="relative flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700"
+              aria-label="Notifications"
+            >
+              <FiBell className="h-4 w-4" />
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#4318FF] ring-2 ring-white dark:ring-navy-800" />
+            </button>
           }
-          animation="origin-[65%_0%] md:origin-top-right transition-all duration-300 ease-in-out"
-          classNames={'py-2 top-4 -left-[230px] md:-left-[440px] w-max'}
+          animation="origin-top-right transition-all duration-200 ease-out"
+          classNames="py-2 top-10 right-0 w-max"
         >
-          <div className="flex w-[360px] flex-col gap-3 rounded-[20px] bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none sm:w-[420px]">
-            <div className="flex items-center justify-between">
-              <p className="text-base font-bold text-navy-700 dark:text-white">
-                Department Notifications
-              </p>
-              <p className="text-xs font-semibold text-[#4318FF] hover:underline cursor-pointer">
-                Mark all read
-              </p>
+          <div className="flex w-[340px] flex-col gap-3 rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white sm:w-[380px]">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-navy-600">
+              <p className="text-sm font-bold text-navy-700 dark:text-white">Department Notifications</p>
+              <button type="button" className="text-xs font-semibold text-[#4318FF] hover:underline">Mark all read</button>
             </div>
 
-            <div className="flex w-full items-center rounded-xl bg-slate-50 dark:bg-navy-800 p-2.5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-[#4318FF] to-brand-500 text-white">
-                <BsArrowBarUp className="h-5 w-5" />
+            <div className="flex w-full items-start rounded-xl bg-slate-50 p-2.5 dark:bg-navy-800">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-b from-[#4318FF] to-brand-500 text-white">
+                <BsArrowBarUp className="h-4 w-4" />
               </div>
               <div className="ml-3 flex flex-col justify-center text-xs">
-                <p className="font-bold text-gray-900 dark:text-white">
-                  Circular #SPID/CIR/2026/04
-                </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-300">
-                  Updated guidelines for river basin &amp; tank dossier archiving.
-                </p>
+                <p className="font-bold text-gray-900 dark:text-white">Circular #SPID/CIR/2026/04</p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">Updated guidelines for river basin &amp; tank dossier archiving.</p>
               </div>
             </div>
 
-            <div className="flex w-full items-center rounded-xl bg-slate-50 dark:bg-navy-800 p-2.5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-teal-500 to-emerald-600 text-white">
-                <BsArrowBarUp className="h-5 w-5" />
+            <div className="flex w-full items-start rounded-xl bg-slate-50 p-2.5 dark:bg-navy-800">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-b from-teal-500 to-emerald-600 text-white">
+                <BsArrowBarUp className="h-4 w-4" />
               </div>
               <div className="ml-3 flex flex-col justify-center text-xs">
-                <p className="font-bold text-gray-900 dark:text-white">
-                  File Requisition Approved
-                </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-300">
-                  File #GAL-IRR-2026-081 ready for archival download.
-                </p>
+                <p className="font-bold text-gray-900 dark:text-white">File Requisition Approved</p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">File #GAL-IRR-2026-081 ready for archival download.</p>
               </div>
             </div>
           </div>
         </Dropdown>
 
-        {/* SPID Info Dropdown */}
+        {/* System Info / Help Dropdown */}
         <Dropdown
           button={
-            <p className="cursor-pointer">
-              <IoMdInformationCircleOutline className="h-4 w-4 text-gray-600 dark:text-white" />
-            </p>
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700"
+              aria-label="Department Info"
+            >
+              <FiHelpCircle className="h-4 w-4" />
+            </button>
           }
-          classNames={'py-2 top-6 -left-[250px] md:-left-[330px] w-max'}
-          animation="origin-[75%_0%] md:origin-top-right transition-all duration-300 ease-in-out"
+          classNames="py-2 top-10 right-0 w-max"
+          animation="origin-top-right transition-all duration-200 ease-out"
         >
-          <div className="flex w-[320px] flex-col gap-2 rounded-[20px] bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-10 w-10 rounded-full bg-white p-1 border border-slate-200 shrink-0 shadow-sm">
-                <img
-                  src="/img/spid/spid-logo.png"
-                  alt="SPID Logo"
-                  className="h-full w-full object-contain"
-                />
+          <div className="flex w-[300px] flex-col gap-2 rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white">
+            <div className="flex items-center gap-3 border-b border-gray-100 pb-3 dark:border-navy-600">
+              <div className="h-9 w-9 shrink-0 rounded-full bg-white p-1 shadow-sm border border-slate-200 flex items-center justify-center dark:bg-navy-900 dark:border-navy-700">
+                <img src="/img/spid/spid-logo.png" alt="SPID Logo" className="h-full w-full object-contain" />
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-800 dark:text-white">
-                  SPID File Management System
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Southern Provincial Irrigation Department
-                </p>
+                <p className="text-xs font-bold text-slate-800 dark:text-white">SPID File Management</p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Southern Provincial Irrigation Dept.</p>
               </div>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mt-1">
               Official records, irrigation engineering dossiers, and cadastral archives portal.
             </p>
-            <div className="mt-2 text-[11px] text-slate-400">
-              System Version: 1.0.0 (Production)
-            </div>
+            <div className="mt-2 text-[10px] text-slate-400">System Version: 2.1 (Production)</div>
           </div>
         </Dropdown>
 
         {/* Dark Mode Toggle */}
-        <div
-          className="cursor-pointer text-gray-600"
-          onClick={() => {
-            if (darkmode) {
-              document.body.classList.remove('dark');
-              setDarkmode(false);
-            } else {
-              document.body.classList.add('dark');
-              setDarkmode(true);
-            }
-          }}
+        <button
+          type="button"
+          onClick={toggleDarkMode}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-navy-700"
+          aria-label="Toggle Dark Mode"
         >
-          {darkmode ? (
-            <RiSunFill className="h-4 w-4 text-gray-600 dark:text-white" />
-          ) : (
-            <RiMoonFill className="h-4 w-4 text-gray-600 dark:text-white" />
-          )}
-        </div>
+          {darkmode ? <RiSunFill className="h-4 w-4 text-amber-400" /> : <RiMoonFill className="h-4 w-4 text-gray-600" />}
+        </button>
 
-        {/* Profile Dropdown with Real Logout */}
+        {/* User Profile Dropdown */}
         <Dropdown
           button={
-            <div className="h-10 w-10 rounded-full bg-indigo-50 border-2 border-[#4318FF] flex items-center justify-center cursor-pointer text-[#4318FF] font-bold text-sm shadow-sm">
-              {user?.full_name ? user.full_name.slice(0, 2).toUpperCase() : 'SP'}
+            <div className="flex items-center gap-2 cursor-pointer pl-1">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-xs font-bold text-white shadow-sm ring-2 ring-brand-500/20">
+                {displayInitials}
+              </div>
             </div>
           }
-          classNames={'py-2 top-8 -left-[200px] w-max'}
+          classNames="py-2 top-10 right-0 w-max"
+          animation="origin-top-right transition-all duration-200 ease-out"
         >
-          <div className="flex w-64 flex-col justify-start rounded-[20px] bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white dark:shadow-none">
-            <div className="flex flex-col">
+          <div className="flex w-64 flex-col rounded-2xl bg-white p-4 shadow-xl shadow-shadow-500 dark:!bg-navy-700 dark:text-white border border-slate-100 dark:border-navy-600">
+            <div className="flex flex-col border-b border-gray-100 pb-3 dark:border-navy-600">
               <p className="text-xs font-bold text-navy-700 dark:text-white">
-                👋 {user?.full_name || 'Eng. K. L. Perera'}
+                👋 {displayName}
               </p>
-              <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+              <p className="text-[11px] font-medium text-slate-400 truncate mt-0.5">
                 {user?.email || 'officer@spid.gov.lk'}
               </p>
-              <span className="mt-1 inline-block w-fit rounded bg-indigo-50 dark:bg-navy-800 px-1.5 py-0.5 text-[10px] font-semibold text-[#4318FF] dark:text-brand-400">
-                {user?.section_name || 'SPID'}
+              <span className="mt-1.5 inline-block w-fit rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-bold text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
+                {displayRole}
               </span>
             </div>
 
-            <div className="my-3 h-px w-full bg-gray-200 dark:bg-white/20" />
-
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5 pt-2">
               <NavLink
                 href="/admin/profile"
-                className="text-xs text-gray-800 dark:text-white hover:text-[#4318FF] flex items-center gap-2 py-1"
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-700 transition-colors hover:bg-slate-50 hover:text-[#4318FF] dark:text-gray-300 dark:hover:bg-navy-800"
               >
-                <FiUser className="h-3.5 w-3.5" />
-                Officer Profile
+                <FiUser className="h-3.5 w-3.5" /> Officer Profile
               </NavLink>
 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex items-center gap-2 text-xs font-bold text-red-500 hover:text-red-600 pt-1 text-left"
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20 text-left"
               >
-                <FiLogOut className="h-3.5 w-3.5" />
-                Log Out
+                <FiLogOut className="h-3.5 w-3.5" /> Log Out
               </button>
             </div>
           </div>
@@ -247,6 +220,4 @@ const Navbar = (props: {
       </div>
     </nav>
   );
-};
-
-export default Navbar;
+}

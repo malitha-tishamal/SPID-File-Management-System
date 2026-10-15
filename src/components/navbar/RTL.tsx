@@ -1,3 +1,4 @@
+'use client';
 import React from 'react';
 import Dropdown from 'components/dropdown';
 import { FiAlignJustify } from 'react-icons/fi';
@@ -15,9 +16,16 @@ import avatar from '/public/img/avatars/avatar4.png';
 
 const Navbar = (props: { brandText: string; [x: string]: any }) => {
   const { onOpenSidenav, brandText, mini, hovered } = props;
-  const [darkmode, setDarkmode] = React.useState(
-    document.body.classList.contains('dark'),
-  );
+  const [darkmode, setDarkmode] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') {
+      setDarkmode(
+        document.body.classList.contains('dark') ||
+        document.documentElement.classList.contains('dark')
+      );
+    }
+  }, []);
   return (
     <nav
       className={`duration-175 linear fixed left-3 top-3 flex flex-row flex-wrap items-center justify-between rounded-xl bg-white/30 transition-all ${

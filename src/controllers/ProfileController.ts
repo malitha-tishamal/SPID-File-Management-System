@@ -3,13 +3,13 @@ import { AuthorizationService } from 'services/AuthorizationService';
 import { StorageService } from 'services/StorageService';
 import { ProfileRepository } from 'models/ProfileRepository';
 import { isValidNicFormat } from 'validators/authValidators';
-import { getSupabaseServerClient } from 'config/supabase/server';
+import { getSupabaseAdminClient } from 'config/supabase/server';
 
 /**
  * Controller layer: self-service profile management and secure uploads.
  */
 export class ProfileController {
-  /** PATCH /api/profile  body: { full_name?, nic?, mobile_phone? } */
+  /** PATCH /api/profile  body: { full_name?, nic?, mobile_phone?, section_id? } */
   static async updateOwn(req: Request) {
     requireServerEnv();
     const profile = await AuthorizationService.requireApprovedProfile();
@@ -17,7 +17,7 @@ export class ProfileController {
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid request body.');
 
-    const patch: { full_name?: string; nic?: string; mobile_phone?: string } = {};
+    const patch: { full_name?: string; nic?: string; mobile_phone?: string; section_id?: number | null } = {};
 
     if (typeof body.full_name === 'string') {
       const name = body.full_name.trim();
@@ -40,14 +40,18 @@ export class ProfileController {
       }
       patch.mobile_phone = `+94 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 9)}`;
     }
+    if (typeof body.section_id === 'number' || body.section_id === null) {
+      patch.section_id = body.section_id;
+    }
 
     if (Object.keys(patch).length === 0) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'No editable fields provided.');
     }
 
-    const supabase = await getSupabaseServerClient();
-    const updated = await new ProfileRepository(supabase).updateOwn(profile.id, patch);
-    return jsonOk({ profile: updated, message: 'Profile updated.' });
+    // Use admin client so the update commits smoothly
+    const admin = getSupabaseAdminClient();
+    const updated = await new ProfileRepository(admin).updateOwn(profile.id, patch);
+    return jsonOk({ profile: updated, message: 'Profile details updated successfully.' });
   }
 
   /** POST /api/profile/avatar  multipart/form-data field: file */

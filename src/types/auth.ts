@@ -47,4 +47,5 @@ export type ApiErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
+  | 'AUTHENTICATION_DISCREPANCY'
   | 'AUTH_ERROR';

@@ -361,6 +361,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         title={copy.tableTitle}
         caption={copy.tableCaption}
         emptyMessage={copy.emptyMessage}
+        variant={variant}
         onAction={request}
         onEdit={setEditUser}
       />

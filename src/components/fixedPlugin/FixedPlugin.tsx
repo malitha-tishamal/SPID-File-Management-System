@@ -1,3 +1,4 @@
+'use client';
 // Chakra Imports
 // Custom Icons
 import React from 'react';
@@ -5,9 +6,16 @@ import React from 'react';
 import { RiMoonFill, RiSunFill } from 'react-icons/ri';
 export default function FixedPlugin(props: { [x: string]: any }) {
   const { ...rest } = props;
-  const [darkmode, setDarkmode] = React.useState(
-    document.body.classList.contains('dark')
-  );
+  const [darkmode, setDarkmode] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof document !== 'undefined') {
+      setDarkmode(
+        document.body.classList.contains('dark') ||
+        document.documentElement.classList.contains('dark')
+      );
+    }
+  }, []);
 
   return (
     <button

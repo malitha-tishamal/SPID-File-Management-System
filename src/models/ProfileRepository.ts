@@ -127,7 +127,7 @@ export class ProfileRepository {
   /** Self-service profile edit — protected by RLS + privileged-column trigger. */
   async updateOwn(
     id: string,
-    patch: { full_name?: string; nic?: string; mobile_phone?: string }
+    patch: { full_name?: string; nic?: string; mobile_phone?: string; section_id?: number | null }
   ): Promise<ProfileDTO | null> {
     const { error } = await this.client.from('profiles').update(patch).eq('id', id);
     if (error) {

@@ -27,11 +27,11 @@ export default function PageHeader({
               <span key={crumb} className="flex items-center gap-1.5">
                 {i > 0 && <span className="text-gray-300 dark:text-gray-600">/</span>}
                 {last ? (
-                  <span className="rounded-md bg-[#4318FF] px-2 py-0.5 text-[10px] font-bold text-white">
+                  <span className="font-bold text-[#4318FF] dark:text-brand-300">
                     {crumb}
                   </span>
                 ) : (
-                  <span>{crumb}</span>
+                  <span className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors">{crumb}</span>
                 )}
               </span>
             );

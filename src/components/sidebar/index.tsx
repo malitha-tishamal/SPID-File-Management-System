@@ -1,55 +1,144 @@
 /* eslint-disable */
+'use client';
 
+import React, { useEffect, useState } from 'react';
 import { HiX } from 'react-icons/hi';
+import { FiSettings, FiLogOut } from 'react-icons/fi';
 import Links from './components/Links';
-
-import SidebarCard from 'components/sidebar/components/SidebarCard';
 import { IRoute } from 'types/navigation';
+
+interface SessionUser {
+  full_name?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+}
+
+async function fetchSession(): Promise<SessionUser | null> {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.ok) return json.data?.profile ?? null;
+    }
+  } catch {}
+  return null;
+}
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
+  const [user, setUser] = useState<SessionUser | null>(null);
+
+  useEffect(() => {
+    fetchSession().then((profile) => {
+      if (profile) {
+        setUser(profile);
+      } else {
+        // Fallback: read from cookie/localStorage if API not available
+        try {
+          const stored = localStorage.getItem('spid_user');
+          if (stored) setUser(JSON.parse(stored));
+        } catch {}
+      }
+    });
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    // Clear local session data
+    try {
+      localStorage.removeItem('spid_user');
+      document.cookie = 'spid_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    } catch {}
+    window.location.href = '/auth/sign-in';
+  };
+
+  const displayName = user?.full_name || user?.name || 'SPID Officer';
+  const displayRole = user?.role || 'Staff';
+  const initials = displayName.slice(0, 2).toUpperCase();
+
   return (
     <div
-      className={`sm:none duration-175 linear fixed !z-50 flex min-h-full flex-col bg-white pb-10 shadow-2xl shadow-white/5 transition-all dark:!bg-navy-800 dark:text-white md:!z-50 lg:!z-50 xl:!z-0 ${
+      className={`sm:none duration-175 linear fixed !z-50 flex min-h-full flex-col bg-white pb-0 shadow-2xl shadow-white/5 transition-all dark:!bg-navy-800 dark:text-white md:!z-50 lg:!z-50 xl:!z-0 ${
         open ? 'translate-x-0' : '-translate-x-96 xl:translate-x-0'
       }`}
+      style={{ width: '280px' }}
     >
+      {/* Close button (mobile) */}
       <span
         className="absolute right-4 top-4 block cursor-pointer xl:hidden"
         onClick={() => setOpen(false)}
       >
-        <HiX />
+        <HiX className="h-5 w-5 text-gray-400" />
       </span>
 
-      {/* SPID Official Branding Header */}
-      <div className="mx-[28px] mt-[36px] flex items-center gap-3">
-        <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0">
+      {/* ── SPID Logo & Brand ── */}
+      <div className="mx-5 mt-8 flex items-center gap-3">
+        <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0 dark:bg-navy-900 dark:border-navy-700">
           <img
             src="/img/spid/spid-logo.png"
             alt="SPID Logo"
             className="h-full w-full object-contain select-none"
           />
         </div>
-        <div className="flex flex-col">
-          <div className="font-poppins text-[15px] font-black uppercase text-navy-700 dark:text-white tracking-tight leading-tight">
-            SPID <span className="text-[#4318FF] font-extrabold">SYSTEM</span>
-          </div>
-          <span className="text-[9px] font-bold uppercase text-sky-600 dark:text-sky-400 tracking-wider">
-            Irrigation Dept.
+        <div className="flex flex-col leading-tight">
+          <span className="text-[13px] font-black uppercase text-navy-700 dark:text-white tracking-tight">
+            SPID
+          </span>
+          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+            File Management
           </span>
         </div>
       </div>
 
-      <div className="mb-6 mt-6 h-px bg-gray-200 dark:bg-white/20" />
+      {/* ── Divider ── */}
+      <div className="mx-4 my-5 h-px bg-gray-100 dark:bg-navy-700" />
 
-      {/* Nav items */}
-      <ul className="mb-auto pt-1">
+      {/* ── Navigation Links (scrollable) ── */}
+      <ul className="flex-1 overflow-y-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-navy-700">
         <Links routes={routes} />
       </ul>
 
-      {/* Department System Badge Card */}
-      <div className="flex justify-center px-4">
-        <SidebarCard />
+      {/* ── Bottom: User Profile + LOG OUT ── */}
+      <div className="mt-auto border-t border-gray-100 dark:border-navy-700 pt-2">
+        {/* User Info Row (entire card clicks to /admin/profile) */}
+        <a
+          href="/admin/profile"
+          className="flex items-center justify-between gap-2.5 px-3 py-3 mx-2 mb-2 rounded-2xl transition-all hover:bg-slate-100/80 dark:hover:bg-navy-700 cursor-pointer group"
+          title="Open Profile Management"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Avatar matching screenshot */}
+            <div className="h-10 w-10 shrink-0 rounded-full bg-[#4318FF] flex items-center justify-center text-white text-xs font-black shadow-sm group-hover:scale-105 transition-transform">
+              {initials}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[12px] font-black text-navy-700 dark:text-white uppercase tracking-tight group-hover:text-[#4318FF] transition-colors">
+                {displayName}
+              </p>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
+                {displayRole}
+              </p>
+            </div>
+          </div>
+          {/* Settings gear */}
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 group-hover:text-[#4318FF] group-hover:rotate-45 transition-all">
+            <FiSettings className="h-4 w-4" />
+          </div>
+        </a>
+
+        {/* LOG OUT Button */}
+        <div className="px-4 pb-5">
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-red-500 py-3 text-sm font-bold text-white shadow-md shadow-red-500/25 transition-colors hover:bg-red-600 active:bg-red-700"
+          >
+            <FiLogOut className="h-4 w-4" />
+            LOG OUT
+          </button>
+        </div>
       </div>
     </div>
   );
