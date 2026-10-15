@@ -21,7 +21,7 @@ let memorySections: SectionRow[] | null = null;
 let memoryLastFetched = 0;
 const CACHE_TTL_MS = 60_000;
 
-export function invalidateSectionManagementCache() {
+function invalidateSectionManagementCache() {
   memorySections = null;
   memoryLastFetched = 0;
 }
