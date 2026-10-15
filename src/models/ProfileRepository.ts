@@ -6,6 +6,9 @@ const PROFILE_SELECT = `
   account_status, approved_at, created_at, sections(name)
 `;
 
+// Present only after migration 0005; fall back to PROFILE_SELECT until then.
+const PROFILE_SELECT_FULL = `${PROFILE_SELECT}, last_login_at`;
+
 type RawProfile = {
   id: string;
   full_name: string;
@@ -18,6 +21,7 @@ type RawProfile = {
   account_status: string;
   approved_at: string | null;
   created_at: string;
+  last_login_at?: string | null;
   sections: { name: string } | { name: string }[] | null;
 };
 
@@ -37,6 +41,7 @@ function mapProfile(raw: RawProfile): ProfileDTO {
     account_status: raw.account_status as AccountStatus,
     approved_at: raw.approved_at,
     created_at: raw.created_at,
+    last_login_at: raw.last_login_at ?? null,
   };
 }
 
@@ -69,10 +74,22 @@ export class ProfileRepository {
 
   /** Admin registry listing including lockout state (service-role only). */
   async listAllWithLockout(): Promise<AdminUserRow[]> {
-    const { data, error } = await this.client
+    let select = `${PROFILE_SELECT_FULL}, login_security(failed_attempts, locked_until)`;
+    let { data, error } = await this.client
       .from('profiles')
-      .select(`${PROFILE_SELECT}, login_security(failed_attempts, locked_until)`)
+      .select(select)
       .order('created_at', { ascending: false });
+
+    // Migration 0005 not applied yet — retry without last_login_at.
+    if (error) {
+      select = `${PROFILE_SELECT}, login_security(failed_attempts, locked_until)`;
+      const retry = await this.client
+        .from('profiles')
+        .select(select)
+        .order('created_at', { ascending: false });
+      data = retry.data;
+      error = retry.error;
+    }
     if (error || !data) return [];
 
     return (data as any[]).map((row) => {
@@ -117,5 +134,28 @@ export class ProfileRepository {
       throw new Error(`Failed to update profile: ${error.message}`);
     }
     return this.findById(id);
+  }
+
+  /** Service-role admin edit: name + section only (role/status go through dedicated actions). */
+  async updateDetails(
+    id: string,
+    patch: { full_name?: string; section_id?: number | null }
+  ): Promise<void> {
+    const { error } = await this.client.from('profiles').update(patch).eq('id', id);
+    if (error) {
+      throw new Error(`Failed to update profile: ${error.message}`);
+    }
+  }
+
+  /** Stamp the last successful sign-in time (service-role only). */
+  async touchLastLogin(id: string): Promise<void> {
+    const { error } = await this.client
+      .from('profiles')
+      .update({ last_login_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      // Migration 0005 may not be applied yet — last-login display stays empty.
+      return;
+    }
   }
 }

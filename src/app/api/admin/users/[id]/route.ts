@@ -9,3 +9,10 @@ export const PATCH = withErrorHandling(
     return AdminController.updateUser(req, id);
   }
 );
+
+export const DELETE = withErrorHandling(
+  async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+    const { id } = await ctx.params;
+    return AdminController.deleteUser(req, id);
+  }
+);

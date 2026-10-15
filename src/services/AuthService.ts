@@ -182,8 +182,9 @@ export class AuthService {
       throw new ApiError(403, denial.code, denial.message);
     }
 
-    // 5. Success — reset consecutive-failure counters.
+    // 5. Success — reset consecutive-failure counters and stamp last login.
     await LockoutService.resetOnSuccess(profile.id);
+    await new ProfileRepository(getSupabaseAdminClient()).touchLastLogin(profile.id);
     return profile;
   }
 

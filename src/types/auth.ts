@@ -15,6 +15,7 @@ export interface ProfileDTO {
   account_status: AccountStatus;
   approved_at: string | null;
   created_at: string;
+  last_login_at: string | null;
 }
 
 export interface AdminUserRow extends ProfileDTO {
