@@ -19,6 +19,7 @@ import { useAccountActions, type AccountAction } from 'components/admin/useAccou
 import ActionFeedbackModal from 'components/modals/ActionFeedbackModal';
 import ConfirmActionModal from 'components/modals/ConfirmActionModal';
 import EditUserModal from 'components/modals/EditUserModal';
+import RegisterUserModal from 'components/modals/RegisterUserModal';
 import { useToast } from 'components/toast/ToastContext';
 import type { AccountStatus, AdminUserRow } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
@@ -99,6 +100,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const [filterStatus, setFilterStatus] = useState<'all' | AccountStatus>('all');
 
   const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
 
   const loadAccounts = useCallback(async () => {
     setListLoading(true);
@@ -261,12 +263,13 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 <FiDownload className="h-3.5 w-3.5" /> Export Roster
               </button>
             )}
-            <Link
-              href="/auth/register"
-              className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-shadow-500 transition-colors hover:bg-brand-600"
+            <button
+              type="button"
+              onClick={() => setShowRegisterModal(true)}
+              className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/25 transition-all hover:bg-brand-600 active:scale-95 cursor-pointer"
             >
               <FiUserPlus className="h-3.5 w-3.5" /> {copy.registerLabel}
-            </Link>
+            </button>
           </>
         }
       />
@@ -282,14 +285,15 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
       {isAdmin && (
         <div className="rounded-2xl bg-white p-4 shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="flex h-10 w-full items-center gap-2 rounded-xl bg-[#f4f7fe] px-3 dark:bg-navy-900 lg:max-w-sm">
-              <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+            <div className="flex h-10 w-full items-center gap-2 rounded-xl bg-[#f4f7fe] px-3 dark:bg-navy-900 lg:max-w-sm border border-slate-300 dark:border-navy-700">
+              <FiSearch className="h-4 w-4 shrink-0 text-slate-700 dark:text-gray-300" />
               <input
                 type="text"
                 placeholder={copy.searchPlaceholder}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-full w-full bg-transparent text-xs text-navy-700 outline-none placeholder:text-gray-400 dark:text-white"
+                style={{ backgroundColor: 'transparent' }}
+                className="h-full w-full !bg-transparent text-xs font-bold text-slate-950 outline-none placeholder:text-slate-600 placeholder:font-medium dark:!bg-transparent dark:text-white dark:placeholder:text-gray-400"
               />
             </div>
             <div className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
@@ -298,7 +302,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 onChange={(e) =>
                   setFilterSection(e.target.value === 'all' ? 'all' : Number(e.target.value))
                 }
-                className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-semibold text-gray-600 outline-none dark:bg-navy-900 dark:text-gray-300"
+                className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none border border-slate-300 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
               >
                 <option value="all">All Departments</option>
                 {sections.map((s) => (
@@ -310,7 +314,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as 'all' | AccountStatus)}
-                className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-semibold text-gray-600 outline-none dark:bg-navy-900 dark:text-gray-300"
+                className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none border border-slate-300 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
               >
                 {STATUS_FILTERS.map((s) => (
                   <option key={s} value={s}>
@@ -320,7 +324,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               </select>
               <button
                 onClick={loadAccounts}
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] text-gray-500 transition-colors hover:text-[#4318FF] dark:bg-navy-900 dark:text-gray-400"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] border border-slate-300 dark:border-navy-700 text-slate-900 transition-colors hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
                 title="Refresh"
               >
                 <FiRefreshCw className="h-3.5 w-3.5" />
@@ -349,6 +353,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         caption={copy.tableCaption}
         emptyMessage={copy.emptyMessage}
         variant={variant}
+        currentUserId={meId}
         onAction={request}
         onEdit={setEditUser}
       />
@@ -378,6 +383,23 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           isProtected={isProtectedRow(editUser)}
           onClose={() => setEditUser(null)}
           onSave={handleEditSave}
+        />
+      )}
+
+      {/* Register New User / Admin Modal */}
+      {showRegisterModal && (
+        <RegisterUserModal
+          variant={variant}
+          sections={sections}
+          onClose={() => setShowRegisterModal(false)}
+          onSuccess={(msg) => {
+            showToast({
+              type: 'success',
+              title: variant === 'admin' ? 'Administrator Registered' : 'Staff Member Registered',
+              message: msg,
+            });
+            loadAccounts();
+          }}
         />
       )}
 

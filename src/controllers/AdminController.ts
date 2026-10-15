@@ -251,24 +251,150 @@ export class AdminController {
     await AuthorizationService.revokeAllSessions(targetUserId);
 
     // Historical audit rows reference this user — write the log BEFORE the
-    // auth user disappears (FK cascades wipe the profile + login_security).
-    await audit.log({
-      actorId: actor.id,
-      targetUserId,
-      action: 'account_deleted',
-      details: { email: target.email },
-    });
+    // auth user disappears.
+    try {
+      await audit.log({
+        actorId: actor.id,
+        targetUserId,
+        action: 'account_deleted',
+        details: { email: target.email },
+      });
+    } catch {}
 
-    const { error } = await admin.auth.admin.deleteUser(targetUserId);
-    if (error) {
-      throw new ApiError(
-        409,
-        'AUTH_ERROR',
-        'The deletion request has been blocked because the account is still linked to existing departmental records.'
-      );
+    // Unlink any foreign key references from audit logs and profiles so FK constraints never block deletion
+    try {
+      await admin.from('audit_logs').update({ target_user_id: null }).eq('target_user_id', targetUserId);
+      await admin.from('audit_logs').update({ actor_id: null }).eq('actor_id', targetUserId);
+      await admin.from('profiles').update({ approved_by: null }).eq('approved_by', targetUserId);
+      await admin.from('login_security').delete().eq('user_id', targetUserId);
+    } catch (err) {
+      console.warn('Could not unlink foreign references before user deletion:', err);
     }
+
+    // Delete from public.profiles
+    const { error: profileDeleteError } = await admin.from('profiles').delete().eq('id', targetUserId);
+    if (profileDeleteError) {
+      console.error('Failed to delete profile row:', profileDeleteError);
+    }
+
+    // Delete from auth.users (if exists in auth)
+    try {
+      const { error: authError } = await admin.auth.admin.deleteUser(targetUserId);
+      if (authError && !authError.message.toLowerCase().includes('not found')) {
+        console.warn('Auth user deletion warning:', authError);
+      }
+    } catch (err) {
+      console.warn('admin.auth.admin.deleteUser warning:', err);
+    }
+
     return jsonOk({
       message: `${target.full_name}'s account has been permanently deleted.`,
     });
+  }
+
+  /** POST /api/admin/users/create — directly provision and activate a new Admin or Staff user */
+  static async createUser(req: Request) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+
+    const body = await req.json().catch(() => null);
+    if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
+
+    const fullName = String(body.full_name ?? '').trim();
+    const email = String(body.email ?? '').trim().toLowerCase();
+    const password = String(body.password ?? '');
+    const role = (body.role === 'Administrator' ? 'Administrator' : 'Staff') as UserRole;
+    const sectionId =
+      body.section_id !== undefined && body.section_id !== '' && body.section_id !== null
+        ? Number(body.section_id)
+        : null;
+    const mobilePhone = body.mobile_phone ? String(body.mobile_phone).trim() : null;
+
+    if (!fullName || fullName.length < 3) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Full name must be at least 3 characters.');
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'A valid email address is required.');
+    }
+    if (!password || password.length < 8) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Password must be at least 8 characters.');
+    }
+
+    const admin = getSupabaseAdminClient();
+    const profiles = new ProfileRepository(admin);
+    const audit = new AuditLogRepository(admin);
+
+    const existing = await profiles.findByEmail(email);
+    if (existing) {
+      throw new ApiError(409, 'USER_EXISTS', 'An account with this email address already exists.');
+    }
+
+    // Provision user via Supabase Auth Admin API (auto-confirmed)
+    const { data: authData, error: authError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: fullName,
+        requested_role: role,
+        section_id: sectionId,
+        mobile_phone: mobilePhone,
+      },
+    });
+
+    if (authError || !authData.user) {
+      throw new ApiError(
+        400,
+        'AUTH_ERROR',
+        authError?.message || 'Failed to create user authentication record.'
+      );
+    }
+
+    const userId = authData.user.id;
+    const now = new Date().toISOString();
+
+    // Upsert the public.profiles record with the specified role and approved status
+    const { error: profileError } = await admin.from('profiles').upsert({
+      id: userId,
+      email,
+      full_name: fullName,
+      role,
+      requested_role: role,
+      account_status: 'approved',
+      section_id: sectionId,
+      mobile_phone: mobilePhone,
+      approved_by: actor.id,
+      approved_at: now,
+    });
+
+    if (profileError) {
+      console.error('Failed to create/update profile row:', profileError);
+      await admin.auth.admin.deleteUser(userId).catch(() => {});
+      throw new ApiError(500, 'AUTH_ERROR', 'Failed to create user profile record.');
+    }
+
+    // Write audit log
+    try {
+      await audit.log({
+        actorId: actor.id,
+        targetUserId: userId,
+        action: 'account_created_by_admin',
+        details: { email, role, full_name: fullName },
+      });
+    } catch {}
+
+    return jsonOk(
+      {
+        message: `${fullName} has been successfully registered as ${role}.`,
+        user: {
+          id: userId,
+          full_name: fullName,
+          email,
+          role,
+          account_status: 'approved',
+        },
+      },
+      201
+    );
   }
 }

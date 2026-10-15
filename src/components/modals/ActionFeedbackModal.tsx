@@ -21,36 +21,51 @@ export interface FeedbackState {
 
 const TONE_CONFIG: Record<
   FeedbackTone,
-  { gradient: string; glow: string; badge: string; defaultIcon: FeedbackIcon }
+  { bg: string; gradient: string; glow: string; ring: string; badge: string; shadow: string; defaultIcon: FeedbackIcon }
 > = {
   success: {
+    bg: 'bg-emerald-500',
     gradient: 'from-emerald-400 to-teal-500',
     glow: 'bg-emerald-400',
-    badge: 'bg-emerald-50 text-emerald-600 border border-emerald-200/60 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
+    ring: 'ring-emerald-100 dark:ring-emerald-900/30',
+    shadow: 'shadow-emerald-400/40',
+    badge: 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800',
     defaultIcon: 'check',
   },
   error: {
+    bg: 'bg-red-500',
     gradient: 'from-red-500 to-rose-600',
     glow: 'bg-red-500',
-    badge: 'bg-red-50 text-red-600 border border-red-200/60 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
+    ring: 'ring-red-100 dark:ring-red-900/30',
+    shadow: 'shadow-red-400/40',
+    badge: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
     defaultIcon: 'alert',
   },
   info: {
-    gradient: 'from-sky-400 to-blue-500',
-    glow: 'bg-sky-400',
-    badge: 'bg-sky-50 text-sky-600 border border-sky-200/60 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-800',
+    bg: 'bg-blue-500',
+    gradient: 'from-blue-500 to-indigo-600',
+    glow: 'bg-blue-500',
+    ring: 'ring-blue-100 dark:ring-blue-900/30',
+    shadow: 'shadow-blue-400/40',
+    badge: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800',
     defaultIcon: 'pause',
   },
   restricted: {
+    bg: 'bg-red-500',
     gradient: 'from-red-500 to-rose-600',
     glow: 'bg-red-400',
-    badge: 'bg-red-50 text-red-600 border border-red-200/60 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800',
+    ring: 'ring-red-100 dark:ring-red-900/30',
+    shadow: 'shadow-red-400/40',
+    badge: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
     defaultIcon: 'lock',
   },
   warning: {
+    bg: 'bg-amber-500',
     gradient: 'from-amber-400 to-orange-500',
     glow: 'bg-amber-400',
-    badge: 'bg-amber-50 text-amber-600 border border-amber-200/60 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
+    ring: 'ring-amber-100 dark:ring-amber-900/30',
+    shadow: 'shadow-amber-400/40',
+    badge: 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800',
     defaultIcon: 'alert',
   },
 };
@@ -114,20 +129,20 @@ export default function ActionFeedbackModal({
 
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-navy-600 cursor-pointer"
+          className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-navy-600 cursor-pointer"
           aria-label="Close"
         >
           <FiX className="h-4 w-4" />
         </button>
 
-        {/* Central glowing icon (matching Image 3) */}
+        {/* Central glowing icon */}
         <div
-          className={`relative mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-b ${cfg.gradient} text-white shadow-xl shadow-emerald-500/25 ring-8 ring-emerald-50 dark:ring-navy-600/60`}
+          className={`relative mx-auto flex h-16 w-16 items-center justify-center rounded-full ${cfg.bg} bg-gradient-to-b ${cfg.gradient} text-white shadow-xl ${cfg.shadow} ring-8 ${cfg.ring}`}
         >
-          <Icon className="h-8 w-8" strokeWidth={feedback.icon === 'x' ? 3 : 2.5} />
+          <Icon className="h-8 w-8 text-white" strokeWidth={feedback.icon === 'x' ? 3 : 2.5} />
         </div>
 
-        {/* Optional Pill Badge (e.g. 🔒 CRYPTOGRAPHICALLY SEALED) */}
+        {/* Optional Pill Badge */}
         {feedback.badge && (
           <div className="mt-4 flex justify-center">
             <span
@@ -139,8 +154,8 @@ export default function ActionFeedbackModal({
           </div>
         )}
 
-        <h3 className="mt-3.5 text-lg font-bold text-navy-700 dark:text-white">{feedback.title}</h3>
-        <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+        <h3 className="mt-5 text-lg font-extrabold text-slate-900 dark:text-white">{feedback.title}</h3>
+        <p className="mx-auto mt-2 max-w-xs text-sm font-medium leading-relaxed text-slate-600 dark:text-gray-300">
           {feedback.description}
         </p>
       </div>

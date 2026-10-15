@@ -25,13 +25,13 @@ export const SidebarLinks = (props: { routes: RoutesType[] }): JSX.Element => {
               className={`relative mx-3 mb-1 flex items-center gap-3 rounded-xl px-4 py-2.5 transition-all duration-150 cursor-pointer
                 ${isActive
                   ? 'bg-[#4318FF] text-white shadow-md shadow-indigo-500/30'
-                  : 'text-gray-500 hover:bg-[#f4f7fe] dark:text-gray-400 dark:hover:bg-navy-800'
+                  : 'text-slate-800 hover:bg-[#f4f7fe] dark:text-gray-200 dark:hover:bg-navy-800'
                 }`}
             >
-              <span className={`shrink-0 ${isActive ? 'text-white' : 'text-gray-400 dark:text-gray-500'}`}>
+              <span className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-600 dark:text-gray-400'}`}>
                 {route.icon ? route.icon : <DashIcon />}
               </span>
-              <p className={`text-sm font-semibold leading-tight ${isActive ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`}>
+              <p className={`text-sm font-bold leading-tight ${isActive ? 'text-white' : 'text-slate-800 dark:text-gray-200'}`}>
                 {route.name}
               </p>
             </div>

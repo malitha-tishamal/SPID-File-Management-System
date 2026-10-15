@@ -53,9 +53,9 @@ const MESSAGES: Record<AccountAction, ActionMessages> = {
     failDescription: 'The lockout could not be cleared at this time.',
   },
   delete: {
-    successTitle: 'Account Permanently Expunged',
+    successTitle: 'Account Permanently Deleted',
     successDescription: (n) =>
-      `Credentials, cryptographic root keys, and records for ${n} have been irrevocably expunged from the departmental cluster.`,
+      `The account for ${n} has been permanently deleted from the system.`,
     failTitle: 'Account Deletion Failed',
     failDescription: 'The account could not be deleted at this time.',
   },
@@ -67,7 +67,7 @@ function successFeedback(action: AccountAction, name: string, apiMessage?: strin
     return { tone: 'info', icon: 'pause', title: m.successTitle, description: apiMessage || m.successDescription(name) };
   }
   if (action === 'delete') {
-    return { tone: 'error', icon: 'x', title: m.successTitle, description: apiMessage || m.successDescription(name) };
+    return { tone: 'success', icon: 'check', title: m.successTitle, description: apiMessage || m.successDescription(name) };
   }
   if (action === 'reject') {
     return { tone: 'warning', icon: 'alert', title: m.successTitle, description: apiMessage || m.successDescription(name) };
@@ -82,15 +82,15 @@ function successFeedback(action: AccountAction, name: string, apiMessage?: strin
 
 function failureFeedback(action: AccountAction, apiMessage?: string, status?: number, name?: string): FeedbackState {
   const m = MESSAGES[action];
-  if (action === 'delete' && status === 403) {
+  if (action === 'delete' && (status === 403 || status === 409)) {
     return {
       tone: 'restricted',
       icon: 'lock',
-      badge: 'Action Restricted',
-      title: 'Cannot Delete Account',
+      badge: 'Deletion Blocked',
+      title: 'Account Deletion Failed',
       description:
         apiMessage ||
-        'The deletion request has been blocked because the account is still linked to active departmental records.',
+        'The deletion request has been blocked because the account is still linked to existing departmental records.',
     };
   }
   return {

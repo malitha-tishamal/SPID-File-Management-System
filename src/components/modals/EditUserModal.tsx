@@ -13,13 +13,18 @@ import { MdAdminPanelSettings, MdSave } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
 
-type StatusOption = { value: AccountStatus; label: string };
+function statusBadgeClass(status: AccountStatus): string {
+  if (status === 'approved') return 'bg-emerald-600 text-white shadow-sm';
+  if (status === 'disabled') return 'bg-orange-500 text-white shadow-sm';
+  if (status === 'pending')  return 'bg-amber-400 text-slate-900 shadow-sm';
+  if (status === 'rejected') return 'bg-red-600 text-white shadow-sm';
+  return 'bg-red-600 text-white shadow-sm';
+}
 
-const STATUS_OPTIONS: StatusOption[] = [
-  { value: 'approved', label: 'Active' },
-  { value: 'disabled', label: 'Suspended' },
-  { value: 'pending', label: 'Pending Verification' },
-];
+function statusDotClass(status: AccountStatus): string {
+  if (status === 'pending') return 'bg-slate-900';
+  return 'bg-white';
+}
 
 function statusLabel(status: AccountStatus): string {
   if (status === 'approved') return 'Active Account';
@@ -56,11 +61,6 @@ export default function EditUserModal({
   const [fullName, setFullName] = useState(user.full_name);
   const [sectionId, setSectionId] = useState<number | null>(user.section_id);
   const [role, setRole] = useState<UserRole>(user.role);
-  const [status, setStatus] = useState<AccountStatus | null>(
-    user.account_status === 'approved' || user.account_status === 'disabled' || user.account_status === 'pending'
-      ? user.account_status
-      : null
-  );
 
   const canChangePrivileged = !isSelf && !isProtected;
   const isAdminVariant = variant === 'admin';
@@ -71,10 +71,8 @@ export default function EditUserModal({
       full_name: string;
       section_id: number | null;
       role?: UserRole;
-      status?: AccountStatus;
     } = { full_name: fullName.trim(), section_id: sectionId };
     if (canChangePrivileged && role !== user.role) payload.role = role;
-    if (canChangePrivileged && status !== null && status !== user.account_status) payload.status = status;
     onSave(payload);
   };
 
@@ -128,8 +126,8 @@ export default function EditUserModal({
               <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">{user.email}</p>
             </div>
           </div>
-          <span className="shrink-0 flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <span className={`shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${statusBadgeClass(user.account_status)}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass(user.account_status)}`} />
             {statusLabel(user.account_status)}
           </span>
         </div>
@@ -225,42 +223,6 @@ export default function EditUserModal({
                   : 'The primary administrator role is protected.'}
               </p>
             )}
-          </div>
-
-          {/* Account Access Status (Radio pills matching image 4) */}
-          <div className="sm:col-span-2 mt-1">
-            <label className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
-              Account Access Status
-            </label>
-            <div className="flex flex-wrap items-center gap-2.5">
-              {STATUS_OPTIONS.map((opt) => {
-                const active = status === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    disabled={saving || !canChangePrivileged}
-                    onClick={() => canChangePrivileged && setStatus(opt.value)}
-                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
-                      active
-                        ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-500 shadow-sm dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-600'
-                        : 'bg-slate-50 text-gray-500 border border-slate-200/80 hover:bg-slate-100 dark:bg-navy-800 dark:text-gray-400 dark:border-navy-600'
-                    } ${!canChangePrivileged ? 'cursor-not-allowed opacity-60' : ''}`}
-                  >
-                    <span
-                      className={`flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
-                        active
-                          ? 'border-emerald-600 bg-emerald-600 text-white'
-                          : 'border-gray-300 text-transparent dark:border-gray-600'
-                      }`}
-                    >
-                      ✓
-                    </span>
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
 

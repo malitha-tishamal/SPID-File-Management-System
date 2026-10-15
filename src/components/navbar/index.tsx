@@ -61,12 +61,13 @@ export default function Navbar({
         </button>
 
         {/* Global Search Bar (matching screenshots) */}
-        <div className="flex h-10 w-full max-w-md items-center rounded-xl bg-[#f4f7fe] px-3.5 text-navy-700 transition-all focus-within:ring-2 focus-within:ring-[#4318FF]/20 dark:bg-navy-900 dark:text-white border border-transparent dark:border-navy-700">
-          <FiSearch className="h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
+        <div className="flex h-10 w-full max-w-md items-center rounded-xl bg-[#f4f7fe] px-3.5 text-slate-900 transition-all focus-within:ring-2 focus-within:ring-[#4318FF]/20 dark:bg-navy-900 dark:text-white border border-slate-300 dark:border-navy-700">
+          <FiSearch className="h-4 w-4 text-slate-700 dark:text-gray-300 shrink-0" />
           <input
             type="text"
             placeholder="Search record numbers, files, or offices..."
-            className="ml-2 block h-full w-full bg-transparent text-xs font-medium text-navy-700 outline-none placeholder:text-gray-400 dark:bg-navy-900 dark:text-white dark:placeholder:text-gray-500"
+            style={{ backgroundColor: 'transparent' }}
+            className="ml-2 block h-full w-full !bg-transparent text-xs font-bold text-slate-950 outline-none placeholder:text-slate-600 placeholder:font-medium dark:!bg-transparent dark:text-white dark:placeholder:text-gray-400"
           />
         </div>
       </div>

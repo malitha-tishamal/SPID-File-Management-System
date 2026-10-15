@@ -11,6 +11,29 @@
     -webkit-font-smoothing: antialiased;
     letter-spacing: -0.2px;
   }
+  body {
+    color: #0f172a;
+  }
+  .dark body {
+    color: #f8fafc;
+  }
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #475569;
+}
+
+/* Prevent any browser/user-agent styling from making dark mode inputs white */
+.dark input,
+.dark textarea {
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #94a3b8 !important;
 }
 input.defaultCheckbox {
   color: white;

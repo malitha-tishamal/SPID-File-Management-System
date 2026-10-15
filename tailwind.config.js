@@ -1,3 +1,5 @@
+const { slate, emerald, sky, rose, zinc, neutral, stone, violet, fuchsia } = require('tailwindcss/colors');
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: 'class',
@@ -148,6 +150,15 @@ module.exports = {
       '4xl-max': { max: '1850px' },
     },
     colors: {
+      slate,
+      emerald,
+      sky,
+      rose,
+      zinc,
+      neutral,
+      stone,
+      violet,
+      fuchsia,
       white: '#ffffff',
       lightPrimary: '#F4F7FE',
       blueSecondary: '#4318FF',
