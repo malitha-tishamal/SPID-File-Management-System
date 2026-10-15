@@ -9,12 +9,21 @@ let lastCacheTime = 0;
 
 /** GET /api/sections — public reference list for the registration form. */
 export const GET = withErrorHandling(async () => {
-  if (cachedSections && Date.now() - lastCacheTime < 60000) {
-    return jsonOk({ sections: cachedSections });
+  try {
+    const supabase = await getSupabaseServerClient();
+    const sections = await new SectionRepository(supabase).list();
+
+    if (!sections || sections.length === 0) {
+      // Return empty array instead of error
+      return jsonOk({ sections: [] });
+    }
+
+    cachedSections = sections;
+    lastCacheTime = Date.now();
+    return jsonOk({ sections });
+  } catch (error) {
+    console.error('Error in /api/sections:', error);
+    // Return empty array on error to avoid breaking the UI
+    return jsonOk({ sections: [] });
   }
-  const supabase = await getSupabaseServerClient();
-  const sections = await new SectionRepository(supabase).list();
-  cachedSections = sections;
-  lastCacheTime = Date.now();
-  return jsonOk({ sections });
 });

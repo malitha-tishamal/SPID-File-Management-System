@@ -51,18 +51,40 @@ export default function RegisterPage() {
   } | null>(null);
 
   const [divisions, setDivisions] = useState<string[]>([]);
+  const [loadingSections, setLoadingSections] = useState(true);
 
   // Section list comes from the database (sections table) via the API.
   useEffect(() => {
-    fetch('/api/sections')
-      .then((r) => r.json())
-      .then((j) => {
-        if (j?.ok && Array.isArray(j.data?.sections)) {
-          setDivisions(j.data.sections.map((s: { name: string }) => s.name));
+    const loadSections = async () => {
+      try {
+        const response = await fetch('/api/sections');
+        const json = await response.json();
+        console.log('Sections API response:', json);
+
+        if (json?.ok && Array.isArray(json.data?.sections)) {
+          setDivisions(json.data.sections.map((s: { name: string }) => s.name));
+        } else {
+          console.error('Invalid sections response:', json);
+          showToast({
+            type: 'error',
+            title: 'Load Failed',
+            message: 'Could not load section list. Please refresh the page.',
+          });
         }
-      })
-      .catch(() => {});
-  }, []);
+      } catch (error) {
+        console.error('Error loading sections:', error);
+        showToast({
+          type: 'error',
+          title: 'Load Failed',
+          message: 'Could not load section list. Please refresh the page.',
+        });
+      } finally {
+        setLoadingSections(false);
+      }
+    };
+
+    loadSections();
+  }, [showToast]);
 
   // Real-time Phone Number Formatter & Cleaner (Enforces 9 digits after +94, stripping leading 0)
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -445,20 +467,29 @@ export default function RegisterPage() {
                     value={division}
                     onChange={(e) => setDivision(e.target.value)}
                     onBlur={() => markTouched('division')}
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-8 text-sm text-slate-800 dark:text-white border transition duration-150 focus:outline-none appearance-none cursor-pointer ${
+                    disabled={loadingSections}
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-8 text-sm text-slate-800 dark:text-white border transition duration-150 focus:outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                       touched.division && errors.division
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
                     }`}
                   >
                     <option value="" disabled>
-                      Select Section
+                      {loadingSections ? 'Loading sections...' : 'Select Section'}
                     </option>
-                    {divisions.map((div) => (
-                      <option key={div} value={div}>
-                        {div}
-                      </option>
-                    ))}
+                    {!loadingSections && divisions.length > 0 ? (
+                      divisions.map((div) => (
+                        <option key={div} value={div}>
+                          {div}
+                        </option>
+                      ))
+                    ) : (
+                      !loadingSections && (
+                        <option value="" disabled>
+                          No sections available
+                        </option>
+                      )
+                    )}
                   </select>
                   <span className="pointer-events-none absolute right-3 text-xs text-slate-400">
                     ▼
