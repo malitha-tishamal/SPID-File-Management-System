@@ -150,9 +150,6 @@ function SignInContent() {
 
       {/* Main Sign-In Card */}
       <div className="relative w-full max-w-[460px] rounded-3xl bg-white p-6 sm:p-10 shadow-xl shadow-slate-200/60 dark:bg-navy-800 dark:shadow-navy-950 border border-slate-100 dark:border-navy-700">
-        {/* Subtle decorative curved background effect */}
-        <div className="pointer-events-none absolute -top-12 -right-12 h-44 w-44 rounded-full bg-slate-50/80 dark:bg-navy-700/20 -z-0" />
-
         <div className="relative z-10">
           {/* Card Header */}
           <div className="mb-6">

@@ -318,7 +318,7 @@ export default function AccountTable({
                     </td>
 
                     <td className="px-4 py-3">
-                      <span className="rounded-full bg-[#f4f7fe] px-2.5 py-1 text-[11px] font-bold text-slate-900 dark:bg-navy-800 dark:text-gray-200 border border-slate-200 dark:border-navy-600">
+                      <span className="inline-flex items-center rounded-full bg-[#f0f5ff] text-[#1e293b] dark:bg-navy-800 dark:text-gray-200 border border-[#dbe6fe] dark:border-navy-600 px-3.5 py-1 text-xs font-bold shadow-sm">
                         {acc.section_name || '—'}
                       </span>
                     </td>
