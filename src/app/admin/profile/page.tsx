@@ -19,7 +19,7 @@ import {
   FiEdit2,
   FiClock,
 } from 'react-icons/fi';
-import { MdAdminPanelSettings, MdSecurity, MdBadge } from 'react-icons/md';
+import { MdAdminPanelSettings, MdSecurity } from 'react-icons/md';
 import type { ProfileDTO, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
 
@@ -41,7 +41,6 @@ export default function ProfileManagementPage() {
   // Profile Form state
   const [fullName, setFullName] = useState('');
   const [sectionId, setSectionId] = useState<number | null>(null);
-  const [nic, setNic] = useState('');
   const [phoneDigits, setPhoneDigits] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -82,7 +81,6 @@ export default function ProfileManagementPage() {
           setProfile(p);
           setFullName(p.full_name || '');
           setSectionId(p.section_id);
-          setNic(p.nic || '');
           const cleanPhone = (p.mobile_phone || '').replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
           setPhoneDigits(cleanPhone);
         }
@@ -151,7 +149,6 @@ export default function ProfileManagementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           full_name: fullName.trim(),
-          nic: nic.trim(),
           mobile_phone: phoneDigits,
           section_id: sectionId,
         }),
@@ -194,7 +191,6 @@ export default function ProfileManagementPage() {
     if (!profile) return;
     setFullName(profile.full_name || '');
     setSectionId(profile.section_id);
-    setNic(profile.nic || '');
     const cleanPhone = (profile.mobile_phone || '').replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
     setPhoneDigits(cleanPhone);
   };
@@ -317,8 +313,12 @@ export default function ProfileManagementPage() {
   const displayInitials = displayName.slice(0, 2).toUpperCase();
 
   const formattedUpdateDate = useMemo(() => {
-    return '14 Oct 2024';
-  }, []);
+    const raw = profile?.approved_at || profile?.created_at;
+    if (!raw) return '—';
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }, [profile?.approved_at, profile?.created_at]);
 
   return (
     <div className="mt-2 flex flex-col gap-5">
@@ -583,59 +583,35 @@ export default function ProfileManagementPage() {
                 </select>
               </div>
 
-              {/* Row 4: NIC & Mobile Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                      National Identity Card (NIC) <span className="text-red-500">*</span>
-                    </label>
+              {/* Row 4: Mobile Phone (full width) */}
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
+                    Mobile Phone Number <span className="text-red-500">*</span>
+                  </label>
+                </div>
+                <div className="flex items-center rounded-xl bg-[#f4f7fe] dark:bg-navy-900 overflow-hidden border border-transparent focus-within:border-[#4318FF] focus-within:ring-2 focus-within:ring-[#4318FF]/20 transition-all">
+                  {/* +94 Prefix pill */}
+                  <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-navy-800 px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 border-r border-slate-300 dark:border-navy-700 select-none shrink-0">
+                    <span>🇱🇰</span>
+                    <span>+94</span>
                   </div>
-                  <div className="relative">
+                  <div className="relative flex w-full items-center">
                     <input
-                      type="text"
+                      type="tel"
                       required
-                      value={nic}
-                      onChange={(e) => setNic(e.target.value.toUpperCase())}
-                      placeholder="199012345678"
-                      className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-4 text-xs font-bold font-mono text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
+                      value={formattedPhoneDisplay}
+                      onChange={handlePhoneChange}
+                      placeholder="77 123 4567"
+                      maxLength={11}
+                      className="h-11 w-full bg-transparent pl-3 pr-9 text-xs font-bold text-navy-700 dark:text-white outline-none"
                     />
-                    <MdBadge className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                    <FiPhone className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4 pointer-events-none" />
                   </div>
-                  <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                    <FiCheck className="h-3 w-3" /> Verified National Identity Card number
-                  </p>
                 </div>
-
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                      Mobile Phone Number <span className="text-red-500">*</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center rounded-xl bg-[#f4f7fe] dark:bg-navy-900 overflow-hidden border border-transparent focus-within:border-[#4318FF] focus-within:ring-2 focus-within:ring-[#4318FF]/20 transition-all">
-                    {/* +94 Prefix pill */}
-                    <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-navy-800 px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 border-r border-slate-300 dark:border-navy-700 select-none shrink-0">
-                      <span>🇱🇰</span>
-                      <span>+94</span>
-                    </div>
-                    <div className="relative flex w-full items-center">
-                      <input
-                        type="tel"
-                        required
-                        value={formattedPhoneDisplay}
-                        onChange={handlePhoneChange}
-                        placeholder="77 123 4567"
-                        maxLength={11}
-                        className="h-11 w-full bg-transparent pl-3 pr-9 text-xs font-bold text-navy-700 dark:text-white outline-none"
-                      />
-                      <FiPhone className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4 pointer-events-none" />
-                    </div>
-                  </div>
-                  <p className="mt-1 text-[10px] text-slate-400">
-                    9 digits without leading 0 (SMS notifications &amp; 2FA dispatch).
-                  </p>
-                </div>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  9 digits without leading 0 (SMS notifications &amp; 2FA dispatch).
+                </p>
               </div>
 
               {/* Bottom Actions Row */}
@@ -867,15 +843,6 @@ export default function ProfileManagementPage() {
             </form>
           </div>
 
-          {/* Bottom Security Notice Banner */}
-          <div className="rounded-2xl bg-indigo-50/60 dark:bg-navy-800 p-4 border border-indigo-100/60 dark:border-navy-700 flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#4318FF] text-white">
-              <FiShield className="h-5 w-5" />
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-              Protected by 256-Bit TLS 1.3 Archival Encryption • SPID Cybersecurity Division &amp; Government Cloud (LGC) Security Standard.
-            </p>
-          </div>
         </div>
       )}
 
