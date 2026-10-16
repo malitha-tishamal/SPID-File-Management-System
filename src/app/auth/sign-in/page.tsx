@@ -291,10 +291,19 @@ function SignInContent() {
             <p className="text-xs text-slate-600 dark:text-slate-400">
               New staff member?{' '}
               <Link
-                href="/auth/register"
+                href="/auth/register?role=Staff"
                 className="font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
               >
                 Register here
+              </Link>
+            </p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              Need administrator access?{' '}
+              <Link
+                href="/auth/register?role=Administrator"
+                className="font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
+              >
+                Admin Registration
               </Link>
             </p>
 

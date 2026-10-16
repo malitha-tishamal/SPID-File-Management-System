@@ -6,6 +6,7 @@ import { SectionRepository } from 'models/SectionRepository';
 import { LockoutService } from 'services/LockoutService';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { formatSriLankaMobile } from 'validators/authValidators';
+import { invalidateUsersCache } from 'controllers/AdminController';
 import type { ApiErrorCode, ProfileDTO, UserRole } from 'types/auth';
 
 /**
@@ -14,9 +15,9 @@ import type { ApiErrorCode, ProfileDTO, UserRole } from 'types/auth';
  */
 export class AuthService {
   /**
-   * Creates a Supabase Auth user + a `pending` Staff profile via the
-   * on_auth_user_created trigger. The requested role is stored for admin
-   * review ONLY — public registration always ends up role='Staff'.
+   * Public user registration for Staff and Administrator accounts.
+   * Both account types are registered with their designated role in a pending state,
+   * requiring email verification before access.
    */
   static async register(input: {
     role: UserRole;
@@ -55,6 +56,7 @@ export class AuthService {
         emailRedirectTo: `${SITE_URL}/auth/sign-in`,
         data: {
           full_name: input.fullName.trim(),
+          role: input.role,
           requested_role: input.role,
           section_id: section.id,
           mobile_phone: formatSriLankaMobile(input.phoneDigits),
@@ -77,6 +79,7 @@ export class AuthService {
         options: {
           data: {
             full_name: input.fullName.trim(),
+            role: input.role,
             requested_role: input.role,
             section_id: section.id,
             mobile_phone: formatSriLankaMobile(input.phoneDigits),
@@ -94,6 +97,7 @@ export class AuthService {
           email_confirm: false,
           user_metadata: {
             full_name: input.fullName.trim(),
+            role: input.role,
             requested_role: input.role,
             section_id: section.id,
             mobile_phone: formatSriLankaMobile(input.phoneDigits),
@@ -126,13 +130,43 @@ export class AuthService {
       throw new ApiError(400, 'AUTH_ERROR', signUpError.message || 'Registration failed.');
     }
 
+<<<<<<< HEAD
     if (signUpData?.user?.id) {
       try {
         await admin.from('profiles').update({
           requested_role: input.role,
         }).eq('id', signUpData.user.id);
+=======
+    const createdUserId = signUpData?.user?.id;
+    if (createdUserId) {
+      try {
+        const { data: updated, error: updateErr } = await admin
+          .from('profiles')
+          .update({
+            role: input.role,
+            requested_role: input.role,
+          })
+          .eq('id', createdUserId)
+          .select('id');
+
+        if (updateErr || !updated || updated.length === 0) {
+          await admin.from('profiles').upsert(
+            {
+              id: createdUserId,
+              email: input.email.trim().toLowerCase(),
+              full_name: input.fullName.trim(),
+              role: input.role,
+              requested_role: input.role,
+              section_id: section.id,
+              mobile_phone: formatSriLankaMobile(input.phoneDigits),
+              account_status: 'pending',
+            },
+            { onConflict: 'id' }
+          );
+        }
+>>>>>>> c0326a1a2f3e3a2c66077fe2547a81fa34bdf29c
       } catch (err) {
-        console.warn('Could not update requested_role in profile:', err);
+        console.warn('Could not ensure role in profile:', err);
       }
     }
 
@@ -244,6 +278,9 @@ export class AuthService {
     // 5. Success — reset consecutive-failure counters and stamp last login.
     await LockoutService.resetOnSuccess(profile.id);
     await new ProfileRepository(getSupabaseAdminClient()).touchLastLogin(profile.id);
+    try {
+      invalidateUsersCache();
+    } catch {}
     return profile;
   }
 

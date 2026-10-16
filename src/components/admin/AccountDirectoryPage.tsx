@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   FiUserPlus,
-  FiDownload,
   FiShield,
   FiCheckCircle,
   FiUserCheck,
@@ -304,34 +303,6 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     return { total, approved, pending, disabled, pct };
   }, [scoped]);
 
-  const handleExport = () => {
-    const header = ['Name', 'Email', 'Role', 'NIC', 'Section', 'Phone', 'Status', 'Registered', 'Last Login'];
-    const escape = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = filtered.map((a) =>
-      [
-        a.full_name,
-        a.email,
-        a.role,
-        a.nic || '',
-        a.section_name || '',
-        a.mobile_phone || '',
-        a.account_status,
-        a.created_at,
-        a.last_login_at || 'Never',
-      ]
-        .map(escape)
-        .join(',')
-    );
-    const csv = [header.map(escape).join(','), ...lines].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'spid-staff-roster.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const isProtectedRow = (acc: AdminUserRow) =>
     acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
 
@@ -379,14 +350,6 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 </span>
                 AUDIT LOG SYNC: ACTIVE
               </span>
-            )}
-            {variant === 'staff' && (
-              <button
-                onClick={handleExport}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-600 transition-colors hover:bg-gray-50 dark:border-navy-600 dark:bg-navy-700 dark:text-gray-300"
-              >
-                <FiDownload className="h-3.5 w-3.5" /> Export Roster
-              </button>
             )}
             <button
               type="button"
