@@ -130,13 +130,6 @@ export class AuthService {
       throw new ApiError(400, 'AUTH_ERROR', signUpError.message || 'Registration failed.');
     }
 
-<<<<<<< HEAD
-    if (signUpData?.user?.id) {
-      try {
-        await admin.from('profiles').update({
-          requested_role: input.role,
-        }).eq('id', signUpData.user.id);
-=======
     const createdUserId = signUpData?.user?.id;
     if (createdUserId) {
       try {
@@ -164,7 +157,6 @@ export class AuthService {
             { onConflict: 'id' }
           );
         }
->>>>>>> c0326a1a2f3e3a2c66077fe2547a81fa34bdf29c
       } catch (err) {
         console.warn('Could not ensure role in profile:', err);
       }
