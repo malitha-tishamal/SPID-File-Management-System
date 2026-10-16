@@ -78,9 +78,15 @@ export class AdminController {
     switch (action) {
       case 'approve': {
         await profiles.updateStatus(targetUserId, 'approved', actor.id);
-        const approvedRole = target.requested_role || target.role;
-        if (target.requested_role && target.requested_role !== target.role) {
-          await profiles.updateRole(targetUserId, target.requested_role);
+        const approvedRole: UserRole =
+          target.role === 'Administrator' || target.requested_role === 'Administrator'
+            ? 'Administrator'
+            : target.role === 'Staff'
+            ? 'Staff'
+            : (target.requested_role as UserRole) || 'Staff';
+
+        if (approvedRole !== target.role) {
+          await profiles.updateRole(targetUserId, approvedRole);
         }
         await audit.log({
           actorId: actor.id,

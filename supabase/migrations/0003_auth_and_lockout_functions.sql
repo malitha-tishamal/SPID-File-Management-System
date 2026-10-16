@@ -35,11 +35,19 @@ begin
     new.id,
     coalesce(nullif(new.raw_user_meta_data->>'full_name', ''), split_part(new.email, '@', 1)),
     new.email,
-    'Staff', -- Public registration can NEVER grant Administrator privileges
+    case
+      when new.raw_user_meta_data->>'role' in ('Staff', 'Administrator')
+        then new.raw_user_meta_data->>'role'
+      when new.raw_user_meta_data->>'requested_role' in ('Staff', 'Administrator')
+        then new.raw_user_meta_data->>'requested_role'
+      else 'Staff'
+    end,
     case
       when new.raw_user_meta_data->>'requested_role' in ('Staff', 'Administrator')
         then new.raw_user_meta_data->>'requested_role'
-      else null
+      when new.raw_user_meta_data->>'role' in ('Staff', 'Administrator')
+        then new.raw_user_meta_data->>'role'
+      else 'Staff'
     end,
     v_section_id,
     nullif(new.raw_user_meta_data->>'nic', ''),
