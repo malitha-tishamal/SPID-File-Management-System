@@ -299,9 +299,6 @@ export default function AccountTable({
                           </p>
                           <p className="text-[10px] font-bold text-slate-600 dark:text-gray-400">
                             {acc.role}
-                            {acc.requested_role && acc.requested_role !== acc.role
-                              ? ` • requested ${acc.requested_role}`
-                              : ''}
                           </p>
                         </div>
                       </div>
