@@ -113,7 +113,9 @@ export default function RegisterUserModal({
                 {variant === 'admin' ? 'Register New Administrator' : 'Register New User / Staff'}
               </h3>
               <p className="text-[11px] font-semibold text-slate-500 dark:text-gray-400">
-                Provision a verified account with direct system authorization.
+                {variant === 'admin'
+                  ? 'Provision a verified administrator account with direct clearance without email verification.'
+                  : 'Provision a verified account with direct system authorization.'}
               </p>
             </div>
           </div>
@@ -136,7 +138,7 @@ export default function RegisterUserModal({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <form onSubmit={handleSubmit} aria-label="Add Admin Form" data-testid="add-admin-form" className="mt-4 space-y-4">
           {/* Full Name */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-extrabold text-slate-800 dark:text-gray-200">
@@ -203,15 +205,24 @@ export default function RegisterUserModal({
               <label className="mb-1.5 flex items-center gap-1.5 text-xs font-extrabold text-slate-800 dark:text-gray-200">
                 <MdAdminPanelSettings className="h-3.5 w-3.5 text-[#4318FF]" /> System Role *
               </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as UserRole)}
-                className={`${inputBase} cursor-pointer`}
-                disabled={loading}
-              >
-                <option value="Administrator">Administrator (Super-Tier)</option>
-                <option value="Staff">Staff Member (Operational)</option>
-              </select>
+              {variant === 'admin' ? (
+                <div className="flex h-11 w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-xs font-bold text-slate-900 dark:border-navy-600 dark:bg-navy-800 dark:text-white select-none">
+                  <span className="flex items-center gap-1.5 text-[#4318FF] dark:text-brand-300">
+                    <MdAdminPanelSettings className="h-4 w-4" />
+                    Administrator (Super-Tier)
+                  </span>
+                </div>
+              ) : (
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as UserRole)}
+                  className={`${inputBase} cursor-pointer`}
+                  disabled={loading}
+                >
+                  <option value="Staff">Staff Member (Operational)</option>
+                  <option value="Administrator">Administrator (Super-Tier)</option>
+                </select>
+              )}
             </div>
 
             {/* Department / Division */}
@@ -273,7 +284,7 @@ export default function RegisterUserModal({
               ) : (
                 <>
                   <FiUserPlus className="h-4 w-4" />
-                  Register & Activate
+                  {variant === 'admin' ? 'Register & Activate Administrator' : 'Register & Activate'}
                 </>
               )}
             </button>

@@ -391,6 +391,8 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
             <button
               type="button"
               onClick={() => setShowRegisterModal(true)}
+              aria-label={copy.registerLabel}
+              data-testid="add-admin-btn"
               className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/25 transition-all hover:bg-brand-600 active:scale-95 cursor-pointer"
             >
               <FiUserPlus className="h-3.5 w-3.5" /> {copy.registerLabel}
@@ -522,6 +524,13 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               type: 'success',
               title: variant === 'admin' ? 'Administrator Registered' : 'Staff Member Registered',
               message: msg,
+            });
+            setFeedback({
+              tone: 'success',
+              icon: 'check',
+              badge: variant === 'admin' ? 'Super-Tier Provisioned' : 'Personnel Activated',
+              title: variant === 'admin' ? 'Administrator Created Successfully' : 'Account Created Successfully',
+              description: msg,
             });
             broadcastAdminSync('ACCOUNTS_UPDATED');
             loadAccounts(true);

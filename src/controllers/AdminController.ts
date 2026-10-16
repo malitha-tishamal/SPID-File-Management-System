@@ -4,6 +4,7 @@ import { ProfileRepository } from 'models/ProfileRepository';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { LockoutService } from 'services/LockoutService';
+import { isValidEmailFormat } from 'validators/authValidators';
 import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
 
 let cachedUsers: AdminUserRow[] | null = null;
@@ -326,20 +327,26 @@ export class AdminController {
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
-    const fullName = String(body.full_name ?? '').trim();
-    const email = String(body.email ?? '').trim().toLowerCase();
+    const fullName = String(body.full_name ?? body.fullName ?? '').trim();
+    const email = String(body.email ?? body.emailAddress ?? '').trim().toLowerCase();
     const password = String(body.password ?? '');
-    const role = (body.role === 'Administrator' ? 'Administrator' : 'Staff') as UserRole;
+    const rawRole = body.role ?? body.requested_role ?? body.requestedRole;
+    if (rawRole && rawRole !== 'Administrator' && rawRole !== 'Staff') {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid role selection.');
+    }
+    const role: UserRole = rawRole === 'Staff' ? 'Staff' : 'Administrator';
+    const rawSectionId = body.section_id ?? body.sectionId;
     const sectionId =
-      body.section_id !== undefined && body.section_id !== '' && body.section_id !== null
-        ? Number(body.section_id)
+      rawSectionId !== undefined && rawSectionId !== '' && rawSectionId !== null
+        ? Number(rawSectionId)
         : null;
-    const mobilePhone = body.mobile_phone ? String(body.mobile_phone).trim() : null;
+    const rawMobile = body.mobile_phone ?? body.mobilePhone;
+    const mobilePhone = rawMobile ? String(rawMobile).trim() : null;
 
     if (!fullName || fullName.length < 3) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Full name must be at least 3 characters.');
     }
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!email || !isValidEmailFormat(email)) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'A valid email address is required.');
     }
     if (!password || password.length < 8) {
@@ -355,7 +362,7 @@ export class AdminController {
       throw new ApiError(409, 'USER_EXISTS', 'An account with this email address already exists.');
     }
 
-    // Provision user via Supabase Auth Admin API (auto-confirmed)
+    // Provision user via Supabase Auth Admin API (auto-confirmed without sending verification email)
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email,
       password,
@@ -368,7 +375,17 @@ export class AdminController {
       },
     });
 
-    if (authError || !authData.user) {
+    if (authError || !authData?.user) {
+      if (
+        authError &&
+        (authError.status === 422 || /already|registered|exists/i.test(authError.message))
+      ) {
+        throw new ApiError(
+          409,
+          'USER_EXISTS',
+          'An account with this email address already exists.'
+        );
+      }
       throw new ApiError(
         400,
         'AUTH_ERROR',
@@ -380,18 +397,21 @@ export class AdminController {
     const now = new Date().toISOString();
 
     // Upsert the public.profiles record with the specified role and approved status
-    const { error: profileError } = await admin.from('profiles').upsert({
-      id: userId,
-      email,
-      full_name: fullName,
-      role,
-      requested_role: role,
-      account_status: 'approved',
-      section_id: sectionId,
-      mobile_phone: mobilePhone,
-      approved_by: actor.id,
-      approved_at: now,
-    });
+    const { error: profileError } = await admin.from('profiles').upsert(
+      {
+        id: userId,
+        email,
+        full_name: fullName,
+        role,
+        requested_role: role,
+        account_status: 'approved',
+        section_id: sectionId,
+        mobile_phone: mobilePhone,
+        approved_by: actor.id,
+        approved_at: now,
+      },
+      { onConflict: 'id' }
+    );
 
     if (profileError) {
       console.error('Failed to create/update profile row:', profileError);
