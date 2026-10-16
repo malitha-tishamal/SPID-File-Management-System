@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateSupabaseSession } from 'config/supabase/middleware';
 
-const PROTECTED_PREFIXES = ['/admin', '/rtl'];
+const PROTECTED_PREFIXES = ['/admin', '/rtl', '/staff'];
 const ADMIN_ONLY_PREFIXES = ['/admin/users', '/admin/admin-management'];
 
 /**
@@ -10,8 +10,7 @@ const ADMIN_ONLY_PREFIXES = ['/admin/users', '/admin/admin-management'];
  * - Sessions are refreshed here on every request
  * - Pending/disabled/locked/rejected accounts never reach the dashboard:
  *   enforcement reads the profile from the database, not from client state.
- * Misconfiguration falls open (API routes then report the exact missing
- * variables) so users never see a misleading "authentication failure".
+ * - Staff users are routed to /staff/default; Admins to /admin/default.
  */
 export async function middleware(request: NextRequest) {
   try {
@@ -30,6 +29,7 @@ async function guard(request: NextRequest) {
   const isAuthRoute = pathname.startsWith('/auth');
   const isRootRoute = pathname === '/';
   const isAdminOnlyRoute = ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p));
+  const isAdminRoute = pathname.startsWith('/admin');
   const isResetPassword = pathname.startsWith('/auth/reset-password');
 
   const redirect = (url: URL) => {
@@ -37,6 +37,12 @@ async function guard(request: NextRequest) {
     // Carry refreshed session cookies over to the redirect response.
     response.cookies.getAll().forEach((c) => r.cookies.set({ ...c }));
     return r;
+  };
+
+  /** Returns the correct home dashboard URL based on role */
+  const homeDashboard = (role?: string) => {
+    if (role === 'Staff') return new URL('/staff/default', request.url);
+    return new URL('/admin/default', request.url);
   };
 
   // 1. Protected routes: require an authenticated, APPROVED account.
@@ -60,8 +66,14 @@ async function guard(request: NextRequest) {
       return redirect(signInUrl);
     }
 
+    // Admin-only pages: non-admin gets bumped to their home
     if (isAdminOnlyRoute && profile.role !== 'Administrator') {
-      return redirect(new URL('/admin/default', request.url));
+      return redirect(homeDashboard(profile.role));
+    }
+
+    // Staff visiting any /admin path → redirect to staff dashboard
+    if (isAdminRoute && profile.role === 'Staff') {
+      return redirect(new URL('/staff/default', request.url));
     }
 
     return response;
@@ -69,12 +81,15 @@ async function guard(request: NextRequest) {
 
   // 2. Signed-in users skip the auth pages (reset-password keeps its session).
   if (isAuthRoute && !isResetPassword && user) {
-    return redirect(new URL('/admin/default', request.url));
+    const profile = await getProfile();
+    return redirect(homeDashboard(profile?.role));
   }
 
-  // 3. Root: entrance is sign-in for guests, dashboard for signed-in users.
+  // 3. Root: sign-in for guests, role-aware dashboard for signed-in users.
   if (isRootRoute) {
-    return redirect(new URL(user ? '/admin/default' : '/auth/sign-in', request.url));
+    if (!user) return redirect(new URL('/auth/sign-in', request.url));
+    const profile = await getProfile();
+    return redirect(homeDashboard(profile?.role));
   }
 
   return response;
@@ -86,5 +101,6 @@ export const config = {
     '/admin/:path*',
     '/rtl/:path*',
     '/auth/:path*',
+    '/staff/:path*',
   ],
 };

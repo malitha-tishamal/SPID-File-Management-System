@@ -36,7 +36,7 @@ const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string;
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/admin/default';
+  const callbackUrl = searchParams.get('callbackUrl') || '';
   const { showToast } = useToast();
 
   // Inputs are empty by default so placeholders appear like watermarks
@@ -126,6 +126,14 @@ function SignInContent() {
       }
 
       const profile = json.data.profile;
+      const isStaff = profile.role === 'Staff';
+      const defaultDest = isStaff ? '/staff/default' : '/admin/default';
+
+      // Honour callbackUrl only if it matches the user's allowed prefix
+      const allowedPrefix = isStaff ? '/staff' : '/admin';
+      const destination =
+        callbackUrl && callbackUrl.startsWith(allowedPrefix) ? callbackUrl : defaultDest;
+
       showToast({
         type: 'success',
         title: 'Login successful.',
@@ -133,7 +141,7 @@ function SignInContent() {
       });
 
       setTimeout(() => {
-        window.location.href = callbackUrl;
+        window.location.href = destination;
       }, 500);
     } catch {
       setIsLoading(false);
