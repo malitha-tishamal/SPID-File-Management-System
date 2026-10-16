@@ -41,7 +41,7 @@ const YEAR_OPTIONS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - 4 + i);
 export default function AddNewFilePage() {
   // Session & User State
   const [registrarName, setRegistrarName] = useState<string>('System Administrator (sarath_admin)');
-  const [registrarRole, setRegistrarRole] = useState<string>('Administrator / Record Room Custodian');
+  const [registrarRole, setRegistrarRole] = useState<string>('Administrator');
 
   // Form Fields
   const [fileNo, setFileNo] = useState('');
@@ -90,7 +90,7 @@ export default function AddNewFilePage() {
               const email = u.email ? u.email.split('@')[0] : 'admin';
               setRegistrarName(`${name} (${email})`);
               const role = u.role || 'Administrator';
-              setRegistrarRole(`${role} / Record Room Custodian`);
+              setRegistrarRole(role);
             }
           } catch {}
           return;
@@ -101,7 +101,7 @@ export default function AddNewFilePage() {
         const accountTag = p.email ? p.email.split('@')[0] : 'sarath_admin';
         setRegistrarName(`${displayName} (${accountTag})`);
         const userRole = p.role || 'Administrator';
-        setRegistrarRole(`${userRole} / Record Room Custodian`);
+        setRegistrarRole(userRole);
       })
       .catch(() => {
         // Fallback default remains
@@ -251,9 +251,9 @@ export default function AddNewFilePage() {
   };
 
   return (
-    <div className="w-full pb-16 font-dm">
+    <div className="w-full pb-8 font-dm">
       {/* ── BREADCRUMBS & PAGE HEADER ── */}
-      <div className="mb-6 flex flex-col gap-4">
+      <div className="mb-4 flex flex-col gap-2">
         {/* Breadcrumb Trail */}
         <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
           <Link href="/admin/default" className="hover:text-slate-600 dark:hover:text-white transition-colors">
@@ -265,70 +265,52 @@ export default function AddNewFilePage() {
           <span className="text-[#4318FF] font-bold dark:text-brand-300">Add New File</span>
         </nav>
 
-        {/* Big Page Title */}
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1B254B] dark:text-white tracking-tight">
-          Add Record
-        </h1>
-
-        {/* Subheader Row with Repository Badge */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 shadow-sm mt-0.5">
-              <FiPlus className="h-4 w-4" strokeWidth={3} />
-            </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-[#1B254B] dark:text-white leading-tight">
-                Add New File
-              </h2>
-              <p className="text-xs sm:text-sm font-medium text-slate-400 dark:text-gray-400 mt-0.5">
-                Register a new record in the physical archive repository
-              </p>
-            </div>
+        {/* Page Title & Subtitle */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 shadow-xs">
+            <FiPlus className="h-4 w-4 stroke-[3]" />
           </div>
-
-          {/* Repository Information Badge */}
-          <div className="inline-flex items-center gap-2 self-start sm:self-auto rounded-full bg-white dark:bg-navy-800 px-4 py-2 border border-slate-100 dark:border-navy-700 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-semibold text-slate-400 dark:text-gray-400">
-              Archive Repository:{' '}
-              <strong className="font-bold text-navy-800 dark:text-white">
-                Central Record Room (B-02)
-              </strong>
-            </span>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-[#1B254B] dark:text-white leading-tight">
+              Add New File
+            </h1>
+            <p className="text-xs font-medium text-slate-400 dark:text-gray-400">
+              Register a new record in the physical archive repository
+            </p>
           </div>
         </div>
       </div>
 
       {/* ── FORM CONTAINER ── */}
-      <form onSubmit={handleSave} className="flex flex-col gap-6">
+      <form onSubmit={handleSave} className="flex flex-col gap-3.5">
         {/* ─────────────────────────────────────────────────────────────
             CARD 1: SESSION & REGISTRAR IDENTIFICATION
         ────────────────────────────────────────────────────────────── */}
-        <div className="rounded-[24px] bg-white dark:bg-navy-800 p-6 sm:p-7 shadow-sm border border-slate-100 dark:border-navy-700 transition-all">
-          <div className="mb-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
-                <FiShield className="h-5 w-5" strokeWidth={2.5} />
+        <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
+                <FiShield className="h-4.5 w-4.5" strokeWidth={2.5} />
               </div>
-              <h3 className="text-base sm:text-lg font-bold text-navy-800 dark:text-white">
+              <h3 className="text-sm sm:text-base font-bold text-navy-800 dark:text-white">
                 Session & Registrar Identification
               </h3>
             </div>
 
             {/* Auto-Verified Badge */}
-            <div className="flex items-center gap-1.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/50 px-3 py-1 border border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-300 text-xs font-bold shadow-xs">
+            <div className="flex items-center gap-1.5 rounded-full bg-[#ECFDF5] dark:bg-emerald-950/50 px-2.5 py-0.5 border border-emerald-100 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-300 text-[11px] font-bold shadow-xs">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               <span>Auto-Verified</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {/* Field 1: User / Registrar Name (Read-Only) */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 USER / REGISTRAR NAME
               </label>
-              <div className="flex h-12 w-full items-center justify-between rounded-xl bg-[#F4F7FE] dark:bg-navy-900/60 px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200 border border-slate-200/50 dark:border-navy-700 select-none cursor-not-allowed">
+              <div className="flex h-10 w-full items-center justify-between rounded-xl bg-[#F4F7FE] dark:bg-navy-900/60 px-3.5 text-xs font-semibold text-slate-800 dark:text-slate-200 border border-slate-200/50 dark:border-navy-700 select-none cursor-not-allowed">
                 <span className="truncate">{registrarName}</span>
                 <FiUser className="h-4 w-4 shrink-0 text-slate-400" />
               </div>
@@ -336,10 +318,10 @@ export default function AddNewFilePage() {
 
             {/* Field 2: User Role / Designation (Read-Only) */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 USER ROLE / DESIGNATION
               </label>
-              <div className="flex h-12 w-full items-center justify-between rounded-xl bg-[#F4F7FE] dark:bg-navy-900/60 px-4 py-3 text-sm font-semibold text-slate-800 dark:text-slate-200 border border-slate-200/50 dark:border-navy-700 select-none cursor-not-allowed">
+              <div className="flex h-10 w-full items-center justify-between rounded-xl bg-[#F4F7FE] dark:bg-navy-900/60 px-3.5 text-xs font-semibold text-slate-800 dark:text-slate-200 border border-slate-200/50 dark:border-navy-700 select-none cursor-not-allowed">
                 <span className="truncate">{registrarRole}</span>
                 <FiKey className="h-4 w-4 shrink-0 text-slate-400" />
               </div>
@@ -350,21 +332,20 @@ export default function AddNewFilePage() {
         {/* ─────────────────────────────────────────────────────────────
             CARD 2: BASIC INFORMATION
         ────────────────────────────────────────────────────────────── */}
-        <div className="rounded-[24px] bg-white dark:bg-navy-800 p-6 sm:p-7 shadow-sm border border-slate-100 dark:border-navy-700 transition-all">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
-              <FiFolder className="h-5 w-5" strokeWidth={2.5} />
+        <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
+              <FiFolder className="h-4.5 w-4.5" strokeWidth={2.5} />
             </div>
-            <h3 className="text-base sm:text-lg font-bold text-navy-800 dark:text-white">
+            <h3 className="text-sm sm:text-base font-bold text-navy-800 dark:text-white">
               Basic Information
             </h3>
           </div>
 
-          {/* Row 1: File No, File Name, Section (3 columns desktop, 1 col mobile) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3.5">
             {/* File No */}
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+            <div className="sm:col-span-1 lg:col-span-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 FILE NO <span className="text-red-500 font-bold">*</span>
               </label>
               <input
@@ -375,14 +356,14 @@ export default function AddNewFilePage() {
                   if (errors.fileNo) setErrors((prev) => ({ ...prev, fileNo: '' }));
                 }}
                 placeholder="Ex: PDI/26/.."
-                className={`h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
+                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
                   errors.fileNo
                     ? 'border-red-500 ring-2 ring-red-500/10'
                     : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
                 }`}
               />
               {errors.fileNo && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.fileNo}
                 </p>
@@ -390,8 +371,8 @@ export default function AddNewFilePage() {
             </div>
 
             {/* File Name */}
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+            <div className="sm:col-span-1 lg:col-span-4">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 FILE NAME <span className="text-red-500 font-bold">*</span>
               </label>
               <input
@@ -402,14 +383,14 @@ export default function AddNewFilePage() {
                   if (errors.fileName) setErrors((prev) => ({ ...prev, fileName: '' }));
                 }}
                 placeholder="Enter File Name"
-                className={`h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
+                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
                   errors.fileName
                     ? 'border-red-500 ring-2 ring-red-500/10'
                     : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
                 }`}
               />
               {errors.fileName && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.fileName}
                 </p>
@@ -417,8 +398,8 @@ export default function AddNewFilePage() {
             </div>
 
             {/* Section */}
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+            <div className="sm:col-span-1 lg:col-span-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 SECTION <span className="text-red-500 font-bold">*</span>
               </label>
               <div className="relative">
@@ -428,7 +409,7 @@ export default function AddNewFilePage() {
                     setSection(e.target.value);
                     if (errors.section) setErrors((prev) => ({ ...prev, section: '' }));
                   }}
-                  className={`h-12 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-4 pr-10 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all ${
+                  className={`h-10 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all ${
                     errors.section
                       ? 'border-red-500 ring-2 ring-red-500/10'
                       : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
@@ -443,23 +424,21 @@ export default function AddNewFilePage() {
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
                   <FiChevronDown className="h-4 w-4" />
                 </div>
               </div>
               {errors.section && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.section}
                 </p>
               )}
             </div>
-          </div>
 
-          {/* Row 2: Year (First column desktop, stacked on mobile) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+            {/* Year */}
+            <div className="sm:col-span-1 lg:col-span-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 YEAR <span className="text-red-500 font-bold">*</span>
               </label>
               <div className="relative">
@@ -469,7 +448,7 @@ export default function AddNewFilePage() {
                     setYear(e.target.value);
                     if (errors.year) setErrors((prev) => ({ ...prev, year: '' }));
                   }}
-                  className={`h-12 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-4 pr-10 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all ${
+                  className={`h-10 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all ${
                     errors.year
                       ? 'border-red-500 ring-2 ring-red-500/10'
                       : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
@@ -484,12 +463,12 @@ export default function AddNewFilePage() {
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
                   <FiChevronDown className="h-4 w-4" />
                 </div>
               </div>
               {errors.year && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.year}
                 </p>
@@ -500,22 +479,21 @@ export default function AddNewFilePage() {
 
         {/* ─────────────────────────────────────────────────────────────
             CARD 3: STORAGE LOCATION
-            (NO CURRENT LOCATION FIELD - 3 columns in a single row)
         ────────────────────────────────────────────────────────────── */}
-        <div className="rounded-[24px] bg-white dark:bg-navy-800 p-6 sm:p-7 shadow-sm border border-slate-100 dark:border-navy-700 transition-all">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md text-[#FF5B5B] dark:text-rose-400">
-              <FiMapPin className="h-5 w-5" strokeWidth={2.5} />
+        <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#FF5B5B] dark:text-rose-400">
+              <FiMapPin className="h-4.5 w-4.5" strokeWidth={2.5} />
             </div>
-            <h3 className="text-base sm:text-lg font-bold text-navy-800 dark:text-white">
+            <h3 className="text-sm sm:text-base font-bold text-navy-800 dark:text-white">
               Storage Location
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
             {/* Locker No */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 LOCKER NO
               </label>
               <input
@@ -523,13 +501,13 @@ export default function AddNewFilePage() {
                 value={lockerNo}
                 onChange={(e) => setLockerNo(e.target.value)}
                 placeholder="Ex: L-101"
-                className="h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 text-sm font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all placeholder:text-slate-400"
+                className="h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all placeholder:text-slate-400"
               />
             </div>
 
             {/* Shelf No */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 SHELF NO
               </label>
               <input
@@ -537,26 +515,26 @@ export default function AddNewFilePage() {
                 value={shelfNo}
                 onChange={(e) => setShelfNo(e.target.value)}
                 placeholder="Ex: S-05"
-                className="h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 text-sm font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all placeholder:text-slate-400"
+                className="h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all placeholder:text-slate-400"
               />
             </div>
 
             {/* Shelf Position */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 SHELF POSITION
               </label>
               <div className="relative">
                 <select
                   value={shelfPosition}
                   onChange={(e) => setShelfPosition(e.target.value as 'Front' | 'Middle' | 'Back')}
-                  className="h-12 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-4 pr-10 text-sm font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all"
+                  className="h-10 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all"
                 >
                   <option value="Front">Front</option>
                   <option value="Middle">Middle</option>
                   <option value="Back">Back</option>
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
                   <FiChevronDown className="h-4 w-4" />
                 </div>
               </div>
@@ -567,20 +545,20 @@ export default function AddNewFilePage() {
         {/* ─────────────────────────────────────────────────────────────
             CARD 4: FILE DETAILS
         ────────────────────────────────────────────────────────────── */}
-        <div className="rounded-[24px] bg-white dark:bg-navy-800 p-6 sm:p-7 shadow-sm border border-slate-100 dark:border-navy-700 transition-all">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md text-purple-600 dark:text-purple-400">
-              <FiFileText className="h-5 w-5" strokeWidth={2.5} />
+        <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md text-purple-600 dark:text-purple-400">
+              <FiFileText className="h-4.5 w-4.5" strokeWidth={2.5} />
             </div>
-            <h3 className="text-base sm:text-lg font-bold text-navy-800 dark:text-white">
+            <h3 className="text-sm sm:text-base font-bold text-navy-800 dark:text-white">
               File Details
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {/* Total Pages */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 PAGE NUMBERS / TOTAL PAGES
               </label>
               <input
@@ -592,14 +570,14 @@ export default function AddNewFilePage() {
                   if (errors.totalPages) setErrors((prev) => ({ ...prev, totalPages: '' }));
                 }}
                 placeholder="Total pages"
-                className={`h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
+                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
                   errors.totalPages
                     ? 'border-red-500 ring-2 ring-red-500/10'
                     : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
                 }`}
               />
               {errors.totalPages && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.totalPages}
                 </p>
@@ -608,7 +586,7 @@ export default function AddNewFilePage() {
 
             {/* Minutes Sheets */}
             <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 NUMBER OF MINUTES SHEETS
               </label>
               <div className="relative">
@@ -621,18 +599,18 @@ export default function AddNewFilePage() {
                     if (errors.minuteSheets) setErrors((prev) => ({ ...prev, minuteSheets: '' }));
                   }}
                   placeholder="Minutes sheets count"
-                  className={`h-12 w-full rounded-xl bg-white dark:bg-navy-900 px-4 pr-11 text-sm font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
+                  className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
                     errors.minuteSheets
                       ? 'border-red-500 ring-2 ring-red-500/10'
                       : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
                   }`}
                 />
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
                   <FiCopy className="h-4 w-4" />
                 </div>
               </div>
               {errors.minuteSheets && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
                   {errors.minuteSheets}
                 </p>
@@ -642,15 +620,15 @@ export default function AddNewFilePage() {
         </div>
 
         {/* ─────────────────────────────────────────────────────────────
-            FORM ACTION BUTTONS (Bottom-Right)
+            FORM ACTION BUTTONS
         ────────────────────────────────────────────────────────────── */}
-        <div className="mt-2 flex items-center justify-end gap-3.5">
+        <div className="mt-1 flex items-center justify-end gap-3">
           {/* Cancel Button */}
           <button
             type="button"
             onClick={handleCancel}
             disabled={isSubmitting}
-            className="flex items-center justify-center rounded-xl bg-white dark:bg-navy-800 px-7 py-3 text-sm font-bold text-[#1B254B] dark:text-white border border-slate-200 dark:border-navy-700 shadow-xs hover:bg-slate-50 dark:hover:bg-navy-700 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+            className="flex h-10 items-center justify-center rounded-xl bg-white dark:bg-navy-800 px-6 text-xs font-bold text-[#1B254B] dark:text-white border border-slate-200 dark:border-navy-700 shadow-xs hover:bg-slate-50 dark:hover:bg-navy-700 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
           >
             Cancel
           </button>
@@ -659,35 +637,24 @@ export default function AddNewFilePage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#05CD99] hover:bg-[#04B787] px-7 py-3 text-sm font-bold text-white shadow-md shadow-[#05CD99]/30 hover:shadow-lg hover:shadow-[#05CD99]/40 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            className="flex h-10 items-center justify-center gap-2 rounded-xl bg-[#05CD99] hover:bg-[#04B787] px-6 text-xs font-bold text-white shadow-md shadow-[#05CD99]/25 hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSubmitting ? (
               <>
                 <svg
-                  className="h-4 w-4 animate-spin text-white"
+                  className="h-3.5 w-3.5 animate-spin text-white"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 <span>Saving...</span>
               </>
             ) : (
               <>
-                <FiSave className="h-4 w-4" />
+                <FiSave className="h-3.5 w-3.5" />
                 <span>Save File</span>
               </>
             )}
