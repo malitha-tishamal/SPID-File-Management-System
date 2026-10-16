@@ -111,41 +111,48 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
       </ul>
 
       {/* ── Bottom: User Profile + LOG OUT ── */}
-      <div className="mt-auto border-t border-gray-100 dark:border-navy-700 pt-2">
-        {/* User Info Row (entire card clicks to /admin/profile) */}
+      <div className="mt-auto border-t border-gray-100 dark:border-navy-700 pt-3">
+        {/* User Info Row */}
         <Link
           href="/admin/profile"
-          className="flex items-center justify-between gap-2.5 px-3 py-3 mx-2 mb-2 rounded-2xl transition-all hover:bg-slate-100/80 dark:hover:bg-navy-700 cursor-pointer group"
+          className="flex items-center justify-between gap-2.5 px-3 py-2.5 mx-3 mb-3 rounded-2xl bg-[#F4F7FE] dark:bg-navy-700/60 border border-slate-100 dark:border-navy-600 transition-all hover:bg-slate-100 dark:hover:bg-navy-700 cursor-pointer group shadow-sm"
           title="Open Profile Management"
         >
           <div className="flex items-center gap-3 min-w-0">
-            {/* Avatar matching screenshot */}
-            <div className="h-10 w-10 shrink-0 rounded-full bg-[#4318FF] flex items-center justify-center text-white text-xs font-black shadow-sm group-hover:scale-105 transition-transform">
-              {initials}
+            <div className="h-10 w-10 shrink-0 rounded-full bg-navy-800 overflow-hidden flex items-center justify-center text-white text-xs font-black shadow-sm group-hover:scale-105 transition-transform border border-slate-200 dark:border-navy-600">
+              <img
+                src="/img/avatars/avatar1.png"
+                alt="User"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                }}
+                className="h-full w-full object-cover"
+              />
+              <span className="select-none">{initials}</span>
             </div>
             <div className="min-w-0">
               <p className="truncate text-[12px] font-black text-navy-700 dark:text-white uppercase tracking-tight group-hover:text-[#4318FF] transition-colors">
                 {displayName}
               </p>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
+              <p className="text-[10px] font-extrabold text-[#4318FF] dark:text-brand-300 uppercase tracking-wider">
                 {displayRole}
               </p>
             </div>
           </div>
           {/* Settings gear */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 group-hover:text-[#4318FF] group-hover:rotate-45 transition-all">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:text-[#4318FF] group-hover:rotate-45 transition-all">
             <FiSettings className="h-4 w-4" />
           </div>
         </Link>
 
         {/* LOG OUT Button */}
-        <div className="px-4 pb-5">
+        <div className="px-3 pb-5">
           <button
             onClick={handleLogout}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl bg-red-500 py-3 text-sm font-bold text-white shadow-md shadow-red-500/25 transition-colors hover:bg-red-600 active:bg-red-700"
+            className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#FF5B5B] to-[#FF4757] py-3 text-sm font-bold text-white shadow-md shadow-red-500/25 transition-all hover:opacity-95 active:scale-[0.99]"
           >
-            <FiLogOut className="h-4 w-4" />
             LOG OUT
+            <FiLogOut className="h-4 w-4 ml-1" />
           </button>
         </div>
       </div>
