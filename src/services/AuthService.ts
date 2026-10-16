@@ -126,6 +126,16 @@ export class AuthService {
       throw new ApiError(400, 'AUTH_ERROR', signUpError.message || 'Registration failed.');
     }
 
+    if (data.user?.id) {
+      try {
+        await admin.from('profiles').update({
+          requested_role: input.role,
+        }).eq('id', data.user.id);
+      } catch (err) {
+        console.warn('Could not update requested_role in profile:', err);
+      }
+    }
+
     return {
       userId: signUpData?.user?.id ?? null,
       emailConfirmationRequired: !signUpData?.session,

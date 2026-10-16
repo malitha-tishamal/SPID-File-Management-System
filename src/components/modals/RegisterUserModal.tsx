@@ -37,6 +37,10 @@ export default function RegisterUserModal({
   const [sectionId, setSectionId] = useState<number | ''>(sections[0]?.id ?? '');
   const [mobilePhone, setMobilePhone] = useState('');
 
+  React.useEffect(() => {
+    setRole(variant === 'admin' ? 'Administrator' : 'Staff');
+  }, [variant]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

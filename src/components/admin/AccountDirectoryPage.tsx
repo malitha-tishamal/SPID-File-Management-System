@@ -23,6 +23,17 @@ import RegisterUserModal from 'components/modals/RegisterUserModal';
 import { useToast } from 'components/toast/ToastContext';
 import type { AccountStatus, AdminUserRow } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
+
+export function broadcastAdminSync(type: 'ACCOUNTS_UPDATED' | 'SECTIONS_UPDATED' = 'ACCOUNTS_UPDATED') {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    try {
+      const bc = new BroadcastChannel('spid_admin_sync');
+      bc.postMessage({ type, timestamp: Date.now() });
+      bc.close();
+    } catch {}
+  }
+}
 
 const CONFIRM_TEXT: Record<
   'disable' | 'reject' | 'delete',
@@ -115,19 +126,22 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
-  const loadAccounts = useCallback(async (force = false) => {
+  const loadAccounts = useCallback(async (force = false, silent = false) => {
     const isCached = memoryAccounts !== null;
     const isFresh = isCached && Date.now() - memoryLastFetched < CACHE_TTL_MS;
 
-    if (!isCached || force) {
-      setListLoading(true);
-    } else if (isFresh) {
-      return;
+    if (!silent) {
+      if (!isCached || force) {
+        setListLoading(true);
+      } else if (isFresh) {
+        return;
+      }
     }
 
     try {
+      const url = force ? '/api/admin/users?refresh=true' : '/api/admin/users';
       const [usersRes, sectionsRes, meRes] = await Promise.all([
-        fetch('/api/admin/users'),
+        fetch(url),
         fetch('/api/sections'),
         fetch('/api/auth/me'),
       ]);
@@ -137,7 +151,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         memoryLastFetched = Date.now();
         setAccounts(usersJson.data.users);
         setIsAdmin(true);
-      } else {
+      } else if (!silent) {
         setIsAdmin(false);
         if (usersRes.status !== 401) {
           showToast({
@@ -162,25 +176,104 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         }
       }
     } catch {
-      if (!isCached) {
+      if (!isCached && !silent) {
         showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
       }
     } finally {
-      setListLoading(false);
+      if (!silent) {
+        setListLoading(false);
+      }
     }
   }, [showToast]);
 
-  const forceReload = useCallback(() => loadAccounts(true), [loadAccounts]);
+  const forceReload = useCallback(() => {
+    broadcastAdminSync('ACCOUNTS_UPDATED');
+    return loadAccounts(true);
+  }, [loadAccounts]);
 
   const { loadingId, feedback, setFeedback, request, confirmTarget, setConfirmTarget, run, saveProfile } =
     useAccountActions(forceReload);
 
   useEffect(() => {
     loadAccounts(false);
-  }, [loadAccounts]);
+
+    // 1. Supabase Realtime Channel for live database changes
+    let channel: any = null;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      channel = supabase
+        .channel(`realtime:admin-directory-${variant}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          () => {
+            void loadAccounts(true, true);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'sections' },
+          () => {
+            void loadAccounts(true, true);
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime channel error:', err);
+    }
+
+    // 2. Cross-tab sync via BroadcastChannel
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('spid_admin_sync');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'ACCOUNTS_UPDATED' || event.data?.type === 'SECTIONS_UPDATED') {
+          void loadAccounts(true, true);
+        }
+      };
+    } catch {}
+
+    // 3. Window focus and visibility revalidation
+    const onFocus = () => void loadAccounts(true, true);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void loadAccounts(true, true);
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    // 4. Background silent polling (every 4 seconds)
+    const interval = setInterval(() => {
+      void loadAccounts(true, true);
+    }, 4000);
+
+    return () => {
+      if (channel) {
+        try {
+          const supabase = getSupabaseBrowserClient();
+          supabase.removeChannel(channel);
+        } catch {}
+      }
+      if (bc) bc.close();
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearInterval(interval);
+    };
+  }, [loadAccounts, variant]);
 
   const scoped = useMemo(
-    () => (variant === 'admin' ? accounts.filter((a) => a.role === 'Administrator') : accounts.filter((a) => a.role === 'Staff')),
+    () => {
+      if (variant === 'admin') {
+        return accounts.filter(
+          (a) => a.role === 'Administrator' || (a.account_status === 'pending' && a.requested_role === 'Administrator')
+        );
+      } else {
+        return accounts.filter(
+          (a) => a.role === 'Staff' && !(a.account_status === 'pending' && a.requested_role === 'Administrator')
+        );
+      }
+    },
     [accounts, variant]
   );
 
@@ -439,6 +532,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               title: variant === 'admin' ? 'Administrator Created Successfully' : 'Account Created Successfully',
               description: msg,
             });
+            broadcastAdminSync('ACCOUNTS_UPDATED');
             loadAccounts(true);
           }}
         />

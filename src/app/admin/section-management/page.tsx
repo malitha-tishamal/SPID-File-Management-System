@@ -10,12 +10,15 @@ import {
   FiDatabase,
   FiFolder,
   FiClock,
+  FiCheckCircle,
 } from 'react-icons/fi';
 import PageHeader from 'components/admin/PageHeader';
 import StatCard from 'components/admin/StatCard';
 import ConfirmActionModal from 'components/modals/ConfirmActionModal';
 import { useToast } from 'components/toast/ToastContext';
 import type { SectionRow, SectionStatus } from 'models/SectionRepository';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
+import { broadcastAdminSync } from 'components/admin/AccountDirectoryPage';
 
 let memorySections: SectionRow[] | null = null;
 let memoryLastFetched = 0;
@@ -40,14 +43,16 @@ export default function SectionManagementPage() {
   const [disableTarget, setDisableTarget] = useState<SectionRow | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  const loadSections = useCallback(async (force = false) => {
+  const loadSections = useCallback(async (force = false, silent = false) => {
     const isCached = memorySections !== null;
     const isFresh = isCached && Date.now() - memoryLastFetched < CACHE_TTL_MS;
 
-    if (!isCached || force) {
-      setListLoading(true);
-    } else if (isFresh) {
-      return;
+    if (!silent) {
+      if (!isCached || force) {
+        setListLoading(true);
+      } else if (isFresh) {
+        return;
+      }
     }
 
     try {
@@ -57,7 +62,7 @@ export default function SectionManagementPage() {
         memorySections = json.data.sections;
         memoryLastFetched = Date.now();
         setSections(json.data.sections);
-      } else {
+      } else if (!silent) {
         showToast({
           type: 'error',
           title: 'Load Failed',
@@ -65,16 +70,75 @@ export default function SectionManagementPage() {
         });
       }
     } catch {
-      if (!isCached) {
+      if (!isCached && !silent) {
         showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
       }
     } finally {
-      setListLoading(false);
+      if (!silent) {
+        setListLoading(false);
+      }
     }
   }, [showToast]);
 
   useEffect(() => {
     loadSections(false);
+
+    // 1. Supabase Realtime Channel for live sections database changes
+    let channel: any = null;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      channel = supabase
+        .channel('realtime:admin-sections')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'sections' },
+          () => {
+            void loadSections(true, true);
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime channel error:', err);
+    }
+
+    // 2. Cross-tab sync via BroadcastChannel
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('spid_admin_sync');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'SECTIONS_UPDATED') {
+          void loadSections(true, true);
+        }
+      };
+    } catch {}
+
+    // 3. Window focus and visibility revalidation
+    const onFocus = () => void loadSections(true, true);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void loadSections(true, true);
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    // 4. Background silent polling (every 4 seconds)
+    const interval = setInterval(() => {
+      void loadSections(true, true);
+    }, 4000);
+
+    return () => {
+      if (channel) {
+        try {
+          const supabase = getSupabaseBrowserClient();
+          supabase.removeChannel(channel);
+        } catch {}
+      }
+      if (bc) bc.close();
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearInterval(interval);
+    };
   }, [loadSections]);
 
   const filtered = useMemo(
@@ -109,6 +173,7 @@ export default function SectionManagementPage() {
           message: json.message,
         });
         invalidateSectionManagementCache();
+        broadcastAdminSync('SECTIONS_UPDATED');
         await loadSections(true);
       } else {
         showToast({
@@ -142,6 +207,7 @@ export default function SectionManagementPage() {
           message: json.message,
         });
         invalidateSectionManagementCache();
+        broadcastAdminSync('SECTIONS_UPDATED');
         await loadSections(true);
       } else {
         showToast({
@@ -155,6 +221,38 @@ export default function SectionManagementPage() {
     } finally {
       setLoadingId(null);
       setDisableTarget(null);
+    }
+  };
+
+  const handleActivate = async (section: SectionRow) => {
+    setLoadingId(section.id);
+    try {
+      const res = await fetch(`/api/admin/sections/${section.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        showToast({
+          type: 'success',
+          title: 'Section Activated',
+          message: json.message || `Section "${section.name}" is now active.`,
+        });
+        invalidateSectionManagementCache();
+        broadcastAdminSync('SECTIONS_UPDATED');
+        await loadSections(true);
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Activation Failed',
+          message: json.message || 'Could not activate section.',
+        });
+      }
+    } catch {
+      showToast({ type: 'error', title: 'Activation Failed', message: 'Could not reach the server.' });
+    } finally {
+      setLoadingId(null);
     }
   };
 
@@ -175,6 +273,7 @@ export default function SectionManagementPage() {
           message: json.message,
         });
         invalidateSectionManagementCache();
+        broadcastAdminSync('SECTIONS_UPDATED');
         await loadSections(true);
         setEditSection(null);
       } else {
@@ -207,6 +306,7 @@ export default function SectionManagementPage() {
           message: json.message,
         });
         invalidateSectionManagementCache();
+        broadcastAdminSync('SECTIONS_UPDATED');
         await loadSections(true);
         setShowAddModal(false);
       } else {
@@ -398,9 +498,20 @@ export default function SectionManagementPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {section.status !== 'approved' && (
+                          <button
+                            onClick={() => handleActivate(section)}
+                            disabled={loadingId === section.id}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 cursor-pointer"
+                            title="Activate / Approve Section"
+                          >
+                            <FiCheckCircle className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setEditSection(section)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50"
+                          disabled={loadingId === section.id}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 cursor-pointer"
                           title="Edit"
                         >
                           <FiEdit3 className="h-3.5 w-3.5" />
@@ -408,7 +519,8 @@ export default function SectionManagementPage() {
                         {section.status !== 'disabled' && (
                           <button
                             onClick={() => setDisableTarget(section)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-colors hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
+                            disabled={loadingId === section.id}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 cursor-pointer"
                             title="Disable"
                           >
                             <FiPower className="h-3.5 w-3.5" />
@@ -416,7 +528,8 @@ export default function SectionManagementPage() {
                         )}
                         <button
                           onClick={() => setDeleteTarget(section)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
+                          disabled={loadingId === section.id}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 cursor-pointer"
                           title="Delete"
                         >
                           <FiTrash2 className="h-3.5 w-3.5" />

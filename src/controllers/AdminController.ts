@@ -9,7 +9,7 @@ import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
 
 let cachedUsers: AdminUserRow[] | null = null;
 let cachedUsersTimestamp = 0;
-const USERS_CACHE_TTL_MS = 15_000;
+const USERS_CACHE_TTL_MS = 4_000;
 
 export function invalidateUsersCache() {
   cachedUsers = null;
@@ -31,12 +31,14 @@ type UserAction =
  */
 export class AdminController {
   /** GET /api/admin/users */
-  static async listUsers() {
+  static async listUsers(req?: Request) {
     requireServerEnv();
     const adminProfile = await AuthorizationService.requireAdminProfile();
 
+    const isForce = req ? new URL(req.url).searchParams.get('refresh') === 'true' : false;
+
     const now = Date.now();
-    if (cachedUsers && now - cachedUsersTimestamp < USERS_CACHE_TTL_MS) {
+    if (!isForce && cachedUsers && now - cachedUsersTimestamp < USERS_CACHE_TTL_MS) {
       return jsonOk({ users: cachedUsers, actor: adminProfile.id });
     }
 
@@ -76,13 +78,17 @@ export class AdminController {
     switch (action) {
       case 'approve': {
         await profiles.updateStatus(targetUserId, 'approved', actor.id);
+        const approvedRole = target.requested_role || target.role;
+        if (target.requested_role && target.requested_role !== target.role) {
+          await profiles.updateRole(targetUserId, target.requested_role);
+        }
         await audit.log({
           actorId: actor.id,
           targetUserId,
           action: 'account_approved',
-          details: { email: target.email },
+          details: { email: target.email, role: approvedRole },
         });
-        return jsonOk({ message: `${target.full_name}'s account has been approved.` });
+        return jsonOk({ message: `${target.full_name}'s account has been approved as ${approvedRole}.` });
       }
 
       case 'reject': {
@@ -412,6 +418,10 @@ export class AdminController {
       await admin.auth.admin.deleteUser(userId).catch(() => {});
       throw new ApiError(500, 'AUTH_ERROR', 'Failed to create user profile record.');
     }
+
+    try {
+      await profiles.updateRole(userId, role);
+    } catch {}
 
     // Write audit log
     try {
