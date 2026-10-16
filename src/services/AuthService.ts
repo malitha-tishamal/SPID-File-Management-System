@@ -45,7 +45,10 @@ export class AuthService {
     }
 
     const supabase = await getSupabaseServerClient();
-    const { data, error } = await supabase.auth.signUp({
+    let signUpData: { user: any; session: any } | null = null;
+    let signUpError: any = null;
+
+    const res = await supabase.auth.signUp({
       email: input.email.trim(),
       password: input.password,
       options: {
@@ -59,27 +62,73 @@ export class AuthService {
       },
     });
 
-    if (error) {
-      if (error.status === 422 || /already|registered|exists/i.test(error.message)) {
+    signUpData = res.data;
+    signUpError = res.error;
+
+    // When Supabase's public email/signup rate limit is reached (status 429),
+    // fallback gracefully using the admin API to provision the unconfirmed user record
+    // so registration does not fail when registering multiple times, while still enforcing
+    // email confirmation and administrator approval.
+    if (signUpError && (signUpError.status === 429 || /rate limit|too many/i.test(signUpError.message))) {
+      const linkRes = await admin.auth.admin.generateLink({
+        type: 'signup',
+        email: input.email.trim(),
+        password: input.password,
+        options: {
+          data: {
+            full_name: input.fullName.trim(),
+            requested_role: input.role,
+            section_id: section.id,
+            mobile_phone: formatSriLankaMobile(input.phoneDigits),
+          },
+        },
+      });
+
+      if (linkRes.data?.user) {
+        signUpData = { user: linkRes.data.user, session: null };
+        signUpError = null;
+      } else {
+        const createRes = await admin.auth.admin.createUser({
+          email: input.email.trim(),
+          password: input.password,
+          email_confirm: false,
+          user_metadata: {
+            full_name: input.fullName.trim(),
+            requested_role: input.role,
+            section_id: section.id,
+            mobile_phone: formatSriLankaMobile(input.phoneDigits),
+          },
+        });
+        if (createRes.data?.user) {
+          signUpData = { user: createRes.data.user, session: null };
+          signUpError = null;
+        } else if (createRes.error) {
+          signUpError = createRes.error;
+        }
+      }
+    }
+
+    if (signUpError) {
+      if (signUpError.status === 422 || /already|registered|exists/i.test(signUpError.message)) {
         throw new ApiError(
           409,
           'USER_EXISTS',
           'An account with this email is already registered in the system.'
         );
       }
-      if (error.status === 429) {
+      if (signUpError.status === 429) {
         throw new ApiError(
           429,
           'RATE_LIMITED',
           'Too many registration attempts. Please wait a few minutes and try again.'
         );
       }
-      throw new ApiError(400, 'AUTH_ERROR', error.message || 'Registration failed.');
+      throw new ApiError(400, 'AUTH_ERROR', signUpError.message || 'Registration failed.');
     }
 
     return {
-      userId: data.user?.id ?? null,
-      emailConfirmationRequired: !data.session,
+      userId: signUpData?.user?.id ?? null,
+      emailConfirmationRequired: !signUpData?.session,
     };
   }
 
@@ -223,28 +272,74 @@ export class AuthService {
     }
   }
 
-  /** Creates the first trusted Administrator (server-side provisioning only). */
+  /** Provisions a verified Administrator account server-side without email confirmation. */
   static async createAdministrator(input: {
     email: string;
     password: string;
     fullName: string;
+    sectionId?: number | null;
+    mobilePhone?: string | null;
+    actorId?: string | null;
   }): Promise<{ userId: string }> {
     const admin = getSupabaseAdminClient();
-    const { data, error } = await admin.auth.admin.createUser({
-      email: input.email.trim(),
-      password: input.password,
-      email_confirm: true,
-      user_metadata: { full_name: input.fullName.trim(), requested_role: 'Administrator' },
-    });
-    if (error) {
-      throw new ApiError(400, 'AUTH_ERROR', error.message || 'Failed to create administrator.');
+    const profiles = new ProfileRepository(admin);
+
+    const existing = await profiles.findByEmail(input.email);
+    if (existing) {
+      throw new ApiError(
+        409,
+        'USER_EXISTS',
+        'An account with this email is already registered in the system.'
+      );
     }
 
-    const profiles = new ProfileRepository(admin);
-    if (data.user) {
-      await profiles.updateStatus(data.user.id, 'approved', null);
-      await profiles.updateRole(data.user.id, 'Administrator');
+    const { data, error } = await admin.auth.admin.createUser({
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: input.fullName.trim(),
+        requested_role: 'Administrator',
+        section_id: input.sectionId ?? null,
+        mobile_phone: input.mobilePhone ?? null,
+      },
+    });
+    if (error || !data?.user) {
+      if (error && (error.status === 422 || /already|registered|exists/i.test(error.message))) {
+        throw new ApiError(
+          409,
+          'USER_EXISTS',
+          'An account with this email is already registered in the system.'
+        );
+      }
+      throw new ApiError(400, 'AUTH_ERROR', error?.message || 'Failed to create administrator.');
     }
-    return { userId: data.user?.id ?? '' };
+
+    const userId = data.user.id;
+    const now = new Date().toISOString();
+
+    const { error: profileError } = await admin.from('profiles').upsert(
+      {
+        id: userId,
+        email: input.email.trim().toLowerCase(),
+        full_name: input.fullName.trim(),
+        role: 'Administrator',
+        requested_role: 'Administrator',
+        account_status: 'approved',
+        section_id: input.sectionId ?? null,
+        mobile_phone: input.mobilePhone ?? null,
+        approved_by: input.actorId ?? null,
+        approved_at: now,
+      },
+      { onConflict: 'id' }
+    );
+
+    if (profileError) {
+      console.error('Failed to create/update profile row:', profileError);
+      await admin.auth.admin.deleteUser(userId).catch(() => {});
+      throw new ApiError(500, 'AUTH_ERROR', 'Failed to create user profile record.');
+    }
+
+    return { userId };
   }
 }

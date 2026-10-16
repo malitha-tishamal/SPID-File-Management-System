@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { updateSupabaseSession } from 'config/supabase/middleware';
 
 const PROTECTED_PREFIXES = ['/admin', '/rtl'];
-const ADMIN_ONLY_PREFIXES = ['/admin/users'];
+const ADMIN_ONLY_PREFIXES = ['/admin/users', '/admin/admin-management'];
 
 /**
  * Server-side route protection.
