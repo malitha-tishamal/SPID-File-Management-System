@@ -22,7 +22,7 @@ import { broadcastAdminSync } from 'components/admin/AccountDirectoryPage';
 
 let memorySections: SectionRow[] | null = null;
 let memoryLastFetched = 0;
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 3_000; // 3s freshness; dynamic background revalidation
 
 function invalidateSectionManagementCache() {
   memorySections = null;
@@ -56,7 +56,11 @@ export default function SectionManagementPage() {
     }
 
     try {
-      const res = await fetch('/api/admin/sections');
+      const ts = Date.now();
+      const res = await fetch(`/api/admin/sections?_t=${ts}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+      });
       const json = await res.json();
       if (res.ok && json.ok) {
         memorySections = json.data.sections;
@@ -112,7 +116,15 @@ export default function SectionManagementPage() {
       };
     } catch {}
 
-    // 3. Window focus and visibility revalidation
+    // 3. Storage event sync for multi-window / multi-tab guarantee
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'spid_admin_sync') {
+        void loadSections(true, true);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    // 4. Window focus and visibility revalidation
     const onFocus = () => void loadSections(true, true);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -122,10 +134,10 @@ export default function SectionManagementPage() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
-    // 4. Background silent polling (every 4 seconds)
+    // 5. Dynamic background silent polling (every 3 seconds)
     const interval = setInterval(() => {
       void loadSections(true, true);
-    }, 4000);
+    }, 3000);
 
     return () => {
       if (channel) {
@@ -134,7 +146,10 @@ export default function SectionManagementPage() {
           supabase.removeChannel(channel);
         } catch {}
       }
-      if (bc) bc.close();
+      if (bc) {
+        try { bc.close(); } catch {}
+      }
+      window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
       clearInterval(interval);

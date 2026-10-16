@@ -65,6 +65,11 @@ export default function ProfileManagementPage() {
   const loadData = async () => {
     setLoading(true);
     try {
+      try {
+        const storedAvatar = localStorage.getItem('spid_user_avatar');
+        if (storedAvatar) setAvatarPreview(storedAvatar);
+      } catch {}
+
       const [meRes, secRes] = await Promise.all([
         fetch('/api/auth/me'),
         fetch('/api/sections'),
@@ -277,21 +282,28 @@ export default function ProfileManagementPage() {
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
-    setAvatarPreview(previewUrl);
+    // Persist as base64 for reliable instant cross-page sync
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target?.result as string;
+      if (base64) {
+        setAvatarPreview(base64);
+        try {
+          localStorage.setItem('spid_user_avatar', base64);
+          window.dispatchEvent(new Event('spid_avatar_updated'));
+        } catch {}
+      }
+    };
+    reader.readAsDataURL(file);
 
     setAvatarUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch('/api/profile/avatar', {
+      await fetch('/api/profile/avatar', {
         method: 'POST',
         body: formData,
       });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        // Success
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -418,7 +430,13 @@ export default function ProfileManagementPage() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => setAvatarPreview(null)}
+                  onClick={() => {
+                    setAvatarPreview(null);
+                    try {
+                      localStorage.removeItem('spid_user_avatar');
+                      window.dispatchEvent(new Event('spid_avatar_updated'));
+                    } catch {}
+                  }}
                   className="flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/20 transition-colors"
                   title="Remove avatar"
                 >

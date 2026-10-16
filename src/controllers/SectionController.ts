@@ -25,7 +25,9 @@ export class SectionController {
     await AuthorizationService.requireAdminProfile();
     const admin = getSupabaseAdminClient();
     const sections = await new SectionRepository(admin).listAll();
-    return jsonOk({ sections });
+    const res = jsonOk({ sections });
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res;
   }
 
   /** POST /api/admin/sections — create a new section. */

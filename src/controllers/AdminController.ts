@@ -9,7 +9,7 @@ import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
 
 let cachedUsers: AdminUserRow[] | null = null;
 let cachedUsersTimestamp = 0;
-const USERS_CACHE_TTL_MS = 4_000;
+const USERS_CACHE_TTL_MS = 1_500;
 
 export function invalidateUsersCache() {
   cachedUsers = null;
@@ -39,14 +39,18 @@ export class AdminController {
 
     const now = Date.now();
     if (!isForce && cachedUsers && now - cachedUsersTimestamp < USERS_CACHE_TTL_MS) {
-      return jsonOk({ users: cachedUsers, actor: adminProfile.id });
+      const cachedRes = jsonOk({ users: cachedUsers, actor: adminProfile.id });
+      cachedRes.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      return cachedRes;
     }
 
     const admin = getSupabaseAdminClient();
     const users = await new ProfileRepository(admin).listAllWithLockout();
     cachedUsers = users;
     cachedUsersTimestamp = now;
-    return jsonOk({ users, actor: adminProfile.id });
+    const res = jsonOk({ users, actor: adminProfile.id });
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res;
   }
 
   /** PATCH /api/admin/users/[id]  body: { action, role? } */

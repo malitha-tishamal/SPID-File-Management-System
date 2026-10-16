@@ -20,7 +20,9 @@ export const GET = withErrorHandling(async () => {
 
     cachedSections = sections;
     lastCacheTime = Date.now();
-    return jsonOk({ sections });
+    const res = jsonOk({ sections });
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res;
   } catch (error) {
     console.error('Error in /api/sections:', error);
     // Return empty array on error to avoid breaking the UI

@@ -25,11 +25,18 @@ import type { SectionRow } from 'models/SectionRepository';
 import { getSupabaseBrowserClient } from 'config/supabase/client';
 
 export function broadcastAdminSync(type: 'ACCOUNTS_UPDATED' | 'SECTIONS_UPDATED' = 'ACCOUNTS_UPDATED') {
-  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  if (typeof window !== 'undefined') {
+    if ('BroadcastChannel' in window) {
+      try {
+        const bc = new BroadcastChannel('spid_admin_sync');
+        bc.postMessage({ type, timestamp: Date.now() });
+        setTimeout(() => {
+          try { bc.close(); } catch {}
+        }, 1000);
+      } catch {}
+    }
     try {
-      const bc = new BroadcastChannel('spid_admin_sync');
-      bc.postMessage({ type, timestamp: Date.now() });
-      bc.close();
+      localStorage.setItem('spid_admin_sync', `${type}_${Date.now()}`);
     } catch {}
   }
 }
@@ -95,7 +102,7 @@ let memoryAccounts: AdminUserRow[] | null = null;
 let memorySections: SectionRow[] | null = null;
 let memoryMeId: string | null = null;
 let memoryLastFetched = 0;
-const CACHE_TTL_MS = 60_000; // 60s freshness; background revalidation if older
+const CACHE_TTL_MS = 3_000; // 3s freshness; dynamic background revalidation
 
 export function invalidateAccountDirectoryCache() {
   memoryAccounts = null;
@@ -138,11 +145,18 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     }
 
     try {
-      const url = force ? '/api/admin/users?refresh=true' : '/api/admin/users';
+      const ts = Date.now();
+      const url = force ? `/api/admin/users?refresh=true&_t=${ts}` : `/api/admin/users?_t=${ts}`;
       const [usersRes, sectionsRes, meRes] = await Promise.all([
-        fetch(url),
-        fetch('/api/sections'),
-        fetch('/api/auth/me'),
+        fetch(url, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+        }),
+        fetch(`/api/sections?_t=${ts}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+        }),
+        fetch(`/api/auth/me?_t=${ts}`, { cache: 'no-store' }),
       ]);
       const usersJson = await usersRes.json();
       if (usersRes.ok && usersJson.ok) {
@@ -232,7 +246,15 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
       };
     } catch {}
 
-    // 3. Window focus and visibility revalidation
+    // 3. Storage event sync for multi-window / multi-tab guarantee
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'spid_admin_sync') {
+        void loadAccounts(true, true);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    // 4. Window focus and visibility revalidation
     const onFocus = () => void loadAccounts(true, true);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -242,10 +264,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
-    // 4. Background silent polling (every 4 seconds)
+    // 5. Dynamic background silent polling (every 3 seconds)
     const interval = setInterval(() => {
       void loadAccounts(true, true);
-    }, 4000);
+    }, 3000);
 
     return () => {
       if (channel) {
@@ -254,7 +276,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           supabase.removeChannel(channel);
         } catch {}
       }
-      if (bc) bc.close();
+      if (bc) {
+        try { bc.close(); } catch {}
+      }
+      window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
       clearInterval(interval);

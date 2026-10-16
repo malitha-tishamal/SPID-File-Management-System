@@ -35,20 +35,37 @@ async function fetchSession(): Promise<SessionUser | null> {
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
   const [user, setUser] = useState<SessionUser | null>(sessionCache);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (sessionCache) return;
-    fetchSession().then((profile) => {
-      if (profile) {
-        setUser(profile);
-      } else {
-        // Fallback: read from cookie/localStorage if API not available
-        try {
-          const stored = localStorage.getItem('spid_user');
-          if (stored) setUser(JSON.parse(stored));
-        } catch {}
-      }
-    });
+    const syncAvatar = () => {
+      try {
+        const stored = localStorage.getItem('spid_user_avatar');
+        setAvatarUrl(stored || null);
+      } catch {}
+    };
+
+    syncAvatar();
+    window.addEventListener('spid_avatar_updated', syncAvatar);
+    window.addEventListener('storage', syncAvatar);
+
+    if (!sessionCache) {
+      fetchSession().then((profile) => {
+        if (profile) {
+          setUser(profile);
+        } else {
+          try {
+            const stored = localStorage.getItem('spid_user');
+            if (stored) setUser(JSON.parse(stored));
+          } catch {}
+        }
+      });
+    }
+
+    return () => {
+      window.removeEventListener('spid_avatar_updated', syncAvatar);
+      window.removeEventListener('storage', syncAvatar);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -66,7 +83,15 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
 
   const displayName = user?.full_name || user?.name || 'SPID Officer';
   const displayRole = user?.role || 'Staff';
-  const initials = displayName.slice(0, 2).toUpperCase();
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase() || 'SP';
+  };
+  const initials = getInitials(displayName);
 
   return (
     <div
@@ -119,16 +144,19 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
           title="Open Profile Management"
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="h-10 w-10 shrink-0 rounded-full bg-navy-800 overflow-hidden flex items-center justify-center text-white text-xs font-black shadow-sm group-hover:scale-105 transition-transform border border-slate-200 dark:border-navy-600">
-              <img
-                src="/img/avatars/avatar1.png"
-                alt="User"
-                onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = 'none';
-                }}
-                className="h-full w-full object-cover"
-              />
-              <span className="select-none">{initials}</span>
+            <div className="h-10 w-10 shrink-0 rounded-full bg-gradient-to-tr from-[#4318FF] to-[#3B82F6] overflow-hidden flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform border border-slate-200/50 dark:border-navy-600">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName}
+                  onError={() => setAvatarUrl(null)}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="select-none font-black text-xs tracking-wider text-white">
+                  {initials}
+                </span>
+              )}
             </div>
             <div className="min-w-0">
               <p className="truncate text-[12px] font-black text-navy-700 dark:text-white uppercase tracking-tight group-hover:text-[#4318FF] transition-colors">
