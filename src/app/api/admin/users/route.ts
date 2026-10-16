@@ -3,4 +3,4 @@ import { withErrorHandling } from 'lib/apiResponse';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = withErrorHandling(async () => AdminController.listUsers());
+export const GET = withErrorHandling(async (req: Request) => AdminController.listUsers(req));

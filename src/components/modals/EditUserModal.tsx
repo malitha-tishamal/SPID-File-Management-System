@@ -205,12 +205,8 @@ export default function EditUserModal({
                 disabled={!canChangePrivileged}
                 className={`${inputBase} pr-9 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-50`}
               >
-                <option value="Staff">
-                  {isAdminVariant ? 'Administrator (Section Level)' : 'Staff Officer (Record Room Ingest & File Checkout)'}
-                </option>
-                <option value="Administrator">
-                  {isAdminVariant ? 'Super Admin (Level 1 Root Clearance)' : 'Administrator (Full System Clearance)'}
-                </option>
+                <option value="Administrator">Administrator (Super-Tier)</option>
+                <option value="Staff">Staff Member (Operational)</option>
               </select>
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                 <FiShield className="h-3.5 w-3.5" />

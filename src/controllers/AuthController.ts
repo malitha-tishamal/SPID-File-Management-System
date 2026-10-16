@@ -2,6 +2,7 @@ import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { AuthService } from 'services/AuthService';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { isValidEmailFormat, validatePasswordPair } from 'validators/authValidators';
+import type { UserRole } from 'types/auth';
 
 /**
  * Controller layer: HTTP request handling for authentication flows.
@@ -29,7 +30,7 @@ export class AuthController {
     }
 
     const result = await AuthService.register({
-      role: 'Staff', // Public registration is forced to Staff at the service layer too
+      role: role as UserRole,
       fullName: String(fullName ?? ''),
       email: String(email ?? ''),
       section: String(section ?? ''),
