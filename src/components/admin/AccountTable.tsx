@@ -327,7 +327,7 @@ export default function AccountTable({
                         </p>
                       ) : (
                         <div>
-                          <p className="text-[11px] font-bold text-slate-700 dark:text-gray-400">Never Logged In</p>
+                          <p className="text-[11px] font-bold text-slate-700 dark:text-gray-400">Never logged in</p>
                           {acc.account_status === 'pending' && (
                             <p className="text-[10px] font-bold text-amber-600 dark:text-yellow-400">(Pending Activation)</p>
                           )}

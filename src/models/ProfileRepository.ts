@@ -58,8 +58,20 @@ export class ProfileRepository {
       .select(PROFILE_SELECT)
       .eq('id', id)
       .single();
-    if (error) return null;
-    return data ? mapProfile(data as RawProfile) : null;
+    if (error || !data) return null;
+    const profile = mapProfile(data as RawProfile);
+    if (!profile.last_login_at && this.client.auth?.admin) {
+      try {
+        const { data: authUser } = await this.client.auth.admin.getUserById(id);
+        if (authUser?.user) {
+          profile.last_login_at =
+            authUser.user.last_sign_in_at ||
+            (authUser.user.user_metadata as any)?.last_login_at ||
+            null;
+        }
+      } catch {}
+    }
+    return profile;
   }
 
   async findByEmail(email: string): Promise<ProfileDTO | null> {
@@ -68,11 +80,23 @@ export class ProfileRepository {
       .select(PROFILE_SELECT)
       .ilike('email', email.trim())
       .maybeSingle();
-    if (error) return null;
-    return data ? mapProfile(data as RawProfile) : null;
+    if (error || !data) return null;
+    const profile = mapProfile(data as RawProfile);
+    if (!profile.last_login_at && this.client.auth?.admin) {
+      try {
+        const { data: authUser } = await this.client.auth.admin.getUserById(profile.id);
+        if (authUser?.user) {
+          profile.last_login_at =
+            authUser.user.last_sign_in_at ||
+            (authUser.user.user_metadata as any)?.last_login_at ||
+            null;
+        }
+      } catch {}
+    }
+    return profile;
   }
 
-  /** Admin registry listing including lockout state (service-role only). */
+  /** Admin registry listing including lockout state and authoritative last login time (service-role only). */
   async listAllWithLockout(): Promise<AdminUserRow[]> {
     const { data, error } = await this.client
       .from('profiles')
@@ -107,11 +131,32 @@ export class ProfileRepository {
       }
     }
 
+    // Fetch auth users to get authoritative last_sign_in_at / last_login_at from Supabase Auth
+    const authUserMap = new Map<string, string>();
+    try {
+      if (this.client.auth?.admin) {
+        const { data: authData } = await this.client.auth.admin.listUsers({ perPage: 1000 });
+        if (authData?.users) {
+          for (const u of authData.users) {
+            const authTime =
+              u.last_sign_in_at || (u.user_metadata as any)?.last_login_at || null;
+            if (authTime) {
+              authUserMap.set(u.id, authTime);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not query auth.admin.listUsers for last login:', err);
+    }
+
     return (data as any[]).map((row) => {
       const base = mapProfile(row);
       const sec = secMap.get(base.id);
+      const authLastLogin = authUserMap.get(base.id);
       return {
         ...base,
+        last_login_at: authLastLogin || base.last_login_at || null,
         failed_attempts: sec?.failed_attempts ?? 0,
         locked_until: sec?.locked_until ?? null,
       };
@@ -164,13 +209,25 @@ export class ProfileRepository {
 
   /** Stamp the last successful sign-in time (service-role only). */
   async touchLastLogin(id: string): Promise<void> {
-    const { error } = await this.client
-      .from('profiles')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) {
-      // Migration 0005 may not be applied yet — last-login display stays empty.
-      return;
+    const now = new Date().toISOString();
+
+    // 1. Persistently store in Supabase Auth user metadata
+    try {
+      if (this.client.auth?.admin) {
+        await this.client.auth.admin.updateUserById(id, {
+          user_metadata: { last_login_at: now },
+        });
+      }
+    } catch (err) {
+      console.warn('Could not update user_metadata.last_login_at:', err);
     }
+
+    // 2. Also update profiles table (if last_login_at column exists in schema)
+    try {
+      await this.client
+        .from('profiles')
+        .update({ last_login_at: now })
+        .eq('id', id);
+    } catch {}
   }
 }

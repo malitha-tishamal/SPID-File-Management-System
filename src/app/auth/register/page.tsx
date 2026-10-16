@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   FiUser,
   FiMail,
@@ -25,12 +25,23 @@ import { validateRegistration } from 'validators/authValidators';
 import type { UserRole } from 'types/auth';
 import { useToast } from 'components/toast/ToastContext';
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { showToast } = useToast();
 
-  // All text inputs start completely empty for true watermark appearance
-  const [role, setRole] = useState<UserRole>('Staff'); // Default is 'Staff'
+  const roleParam = searchParams.get('role');
+  const initialRole: UserRole = roleParam && /admin/i.test(roleParam) ? 'Administrator' : 'Staff';
+
+  // Role state initialized from URL param (defaulting to Staff if not specified)
+  const [role, setRole] = useState<UserRole>(initialRole);
+
+  useEffect(() => {
+    if (roleParam) {
+      if (/admin/i.test(roleParam)) setRole('Administrator');
+      else if (/staff/i.test(roleParam)) setRole('Staff');
+    }
+  }, [roleParam]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [division, setDivision] = useState('');
@@ -288,8 +299,8 @@ export default function RegisterPage() {
           {/* Card Header */}
           <div className="mb-6 flex flex-col">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Staff Registration
+              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white" data-testid="registration-title">
+                {role === 'Administrator' ? 'Admin Registration' : 'Staff Registration'}
               </h2>
               <span className="flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-950/50 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800">
                 <HiOutlineShieldCheck className="h-3.5 w-3.5 text-sky-600" />
@@ -297,7 +308,9 @@ export default function RegisterPage() {
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Create an official account to manage irrigation archives and dossiers.
+              {role === 'Administrator'
+                ? 'Create an official administrator account to oversee irrigation archives and operations.'
+                : 'Create an official account to manage irrigation archives and dossiers.'}
             </p>
           </div>
 
@@ -353,8 +366,10 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    data-testid="role-staff-btn"
+                    aria-label="Select Staff Role"
                     onClick={() => setRole('Staff')}
-                    className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 ${
+                    className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 cursor-pointer ${
                       role === 'Staff'
                         ? 'bg-[#4318FF] text-white border-[#4318FF] shadow-sm'
                         : 'bg-[#f4f7fe] dark:bg-navy-900 text-slate-600 dark:text-slate-300 border-transparent hover:bg-slate-200/50'
@@ -367,8 +382,10 @@ export default function RegisterPage() {
 
                   <button
                     type="button"
+                    data-testid="role-admin-btn"
+                    aria-label="Select Administrator Role"
                     onClick={() => setRole('Administrator')}
-                    className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 ${
+                    className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 cursor-pointer ${
                       role === 'Administrator'
                         ? 'bg-[#4318FF] text-white border-[#4318FF] shadow-sm'
                         : 'bg-[#f4f7fe] dark:bg-navy-900 text-slate-600 dark:text-slate-300 border-transparent hover:bg-slate-200/50'
@@ -722,5 +739,13 @@ export default function RegisterPage() {
       {/* Brand Footer */}
       <AuthBrandFooter />
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <RegisterPageContent />
+    </Suspense>
   );
 }
