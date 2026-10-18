@@ -78,3 +78,8 @@ next-env.d.ts
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Backup folder for ignored files
+gitignoredfiles/
+/gitignoredfiles/
+
