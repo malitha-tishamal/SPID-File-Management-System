@@ -106,7 +106,10 @@ function failureFeedback(action: AccountAction, apiMessage?: string, status?: nu
  * shows the matching feedback dialog (success / failure / restricted) and
  * gates destructive actions behind the confirm dialog.
  */
-export function useAccountActions(reload: () => void) {
+export function useAccountActions(
+  reload: () => void,
+  onOptimisticUpdate?: (acc: AdminUserRow, action: AccountAction) => () => void
+) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{
@@ -118,6 +121,7 @@ export function useAccountActions(reload: () => void) {
     async (acc: AdminUserRow, action: AccountAction) => {
       setConfirmTarget(null);
       setLoadingId(acc.id);
+      const rollback = onOptimisticUpdate ? onOptimisticUpdate(acc, action) : null;
       const isDelete = action === 'delete';
       try {
         const res = await fetch(`/api/admin/users/${acc.id}`, {
@@ -130,9 +134,11 @@ export function useAccountActions(reload: () => void) {
           setFeedback(successFeedback(action, acc.full_name, json.message));
           reload();
         } else {
+          rollback?.();
           setFeedback(failureFeedback(action, json?.message, res.status, acc.full_name));
         }
       } catch {
+        rollback?.();
         setFeedback({
           tone: 'error',
           icon: 'alert',
@@ -143,7 +149,7 @@ export function useAccountActions(reload: () => void) {
         setLoadingId(null);
       }
     },
-    [reload]
+    [reload, onOptimisticUpdate]
   );
 
   /** Destructive actions go through the confirm dialog first. */

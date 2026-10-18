@@ -5,13 +5,18 @@ import type { SectionStatus } from 'models/SectionRepository';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 
-/** Invalidate the sections cache in /api/sections after mutations. */
-let sectionsCacheInvalidator: (() => void) | null = null;
-export function registerSectionsCacheInvalidator(fn: () => void) {
-  sectionsCacheInvalidator = fn;
-}
-function invalidateSectionsCache() {
-  sectionsCacheInvalidator?.();
+import { invalidatePublicSectionsCache } from 'lib/sectionsCacheStore';
+
+let cachedAdminSections: any = null;
+let lastAdminCacheTime = 0;
+const ADMIN_SECTIONS_CACHE_TTL_MS = 10_000; // 10 seconds
+
+export function invalidateSectionsCache() {
+  cachedAdminSections = null;
+  lastAdminCacheTime = 0;
+  try {
+    invalidatePublicSectionsCache();
+  } catch {}
 }
 
 /**
@@ -20,11 +25,22 @@ function invalidateSectionsCache() {
  */
 export class SectionController {
   /** GET /api/admin/sections — list all sections with full details. */
-  static async listSections() {
+  static async listSections(req?: Request) {
     requireServerEnv();
     await AuthorizationService.requireAdminProfile();
+
+    const isForce = req ? new URL(req.url).searchParams.get('refresh') === 'true' : false;
+    const now = Date.now();
+    if (!isForce && cachedAdminSections && now - lastAdminCacheTime < ADMIN_SECTIONS_CACHE_TTL_MS) {
+      const res = jsonOk({ sections: cachedAdminSections });
+      res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      return res;
+    }
+
     const admin = getSupabaseAdminClient();
     const sections = await new SectionRepository(admin).listAll();
+    cachedAdminSections = sections;
+    lastAdminCacheTime = now;
     const res = jsonOk({ sections });
     res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     return res;

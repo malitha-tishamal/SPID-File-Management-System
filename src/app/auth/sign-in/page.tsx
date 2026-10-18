@@ -134,15 +134,25 @@ function SignInContent() {
       const destination =
         callbackUrl && callbackUrl.startsWith(allowedPrefix) ? callbackUrl : defaultDest;
 
+      try {
+        localStorage.setItem('spid_user', JSON.stringify(profile));
+      } catch {}
+
       showToast({
         type: 'success',
         title: 'Login successful.',
         message: `Welcome, ${profile.full_name} (${profile.role}). Loading portal...`,
       });
 
+      // Fast transition without full page cold reload
+      router.prefetch(destination);
+      router.replace(destination);
+      // Fallback in case client router is stalled
       setTimeout(() => {
-        window.location.href = destination;
-      }, 500);
+        if (window.location.pathname !== destination) {
+          window.location.replace(destination);
+        }
+      }, 300);
     } catch {
       setIsLoading(false);
       const msg = 'Could not reach the authentication service. Please try again.';

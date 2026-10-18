@@ -60,13 +60,35 @@ export class AuthController {
     }
 
     const profile = await AuthService.login(email, password);
-    return jsonOk({ profile, message: 'Login successful.' });
+    const res = jsonOk({ profile, message: 'Login successful.' });
+    res.cookies.set(
+      'spid_session_auth',
+      JSON.stringify({
+        id: profile.id,
+        role: profile.role,
+        status: profile.account_status,
+        t: Date.now(),
+      }),
+      {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        maxAge: 300,
+      }
+    );
+    return res;
   }
 
   /** POST /api/auth/logout */
   static async logout() {
     await AuthService.logout();
-    return jsonOk({ message: 'Logged out.' });
+    const res = jsonOk({ message: 'Logged out.' });
+    res.cookies.set('spid_session_auth', '', {
+      path: '/',
+      httpOnly: true,
+      maxAge: 0,
+    });
+    return res;
   }
 
   /** GET /api/auth/me */

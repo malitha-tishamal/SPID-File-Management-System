@@ -34,8 +34,28 @@ async function fetchSession(): Promise<SessionUser | null> {
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
-  const [user, setUser] = useState<SessionUser | null>(sessionCache);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(() => {
+    if (sessionCache) return sessionCache;
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('spid_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          sessionCache = parsed;
+          return parsed;
+        }
+      } catch {}
+    }
+    return null;
+  });
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('spid_user_avatar');
+      } catch {}
+    }
+    return null;
+  });
 
   useEffect(() => {
     const syncAvatar = () => {
@@ -45,7 +65,6 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
       } catch {}
     };
 
-    syncAvatar();
     window.addEventListener('spid_avatar_updated', syncAvatar);
     window.addEventListener('storage', syncAvatar);
 
@@ -53,10 +72,8 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
       fetchSession().then((profile) => {
         if (profile) {
           setUser(profile);
-        } else {
           try {
-            const stored = localStorage.getItem('spid_user');
-            if (stored) setUser(JSON.parse(stored));
+            localStorage.setItem('spid_user', JSON.stringify(profile));
           } catch {}
         }
       });

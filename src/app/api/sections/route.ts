@@ -1,31 +1,42 @@
 import { getSupabaseServerClient } from 'config/supabase/server';
-import { SectionRepository, SectionRow } from 'models/SectionRepository';
+import { SectionRepository } from 'models/SectionRepository';
 import { jsonOk, withErrorHandling } from 'lib/apiResponse';
+import {
+  getSectionsCache,
+  setSectionsCache,
+  SECTIONS_CACHE_TTL_MS,
+} from 'lib/sectionsCacheStore';
 
 export const dynamic = 'force-dynamic';
 
-let cachedSections: SectionRow[] | null = null;
-let lastCacheTime = 0;
-
-/** GET /api/sections — public reference list for the registration form. */
+/** GET /api/sections — public reference list for registration and selection dropdowns. */
 export const GET = withErrorHandling(async () => {
+  const now = Date.now();
+  const { sections: cachedSections, lastCacheTime } = getSectionsCache();
+  if (cachedSections && now - lastCacheTime < SECTIONS_CACHE_TTL_MS) {
+    const res = jsonOk({ sections: cachedSections });
+    res.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    return res;
+  }
+
   try {
     const supabase = await getSupabaseServerClient();
     const sections = await new SectionRepository(supabase).list();
 
     if (!sections || sections.length === 0) {
-      // Return empty array instead of error
       return jsonOk({ sections: [] });
     }
 
-    cachedSections = sections;
-    lastCacheTime = Date.now();
+    setSectionsCache(sections);
     const res = jsonOk({ sections });
-    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.headers.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
     return res;
   } catch (error) {
     console.error('Error in /api/sections:', error);
-    // Return empty array on error to avoid breaking the UI
+    const { sections: staleCache } = getSectionsCache();
+    if (staleCache) {
+      return jsonOk({ sections: staleCache });
+    }
     return jsonOk({ sections: [] });
   }
 });

@@ -125,19 +125,21 @@ export default function SectionManagementPage() {
     window.addEventListener('storage', onStorage);
 
     // 4. Window focus and visibility revalidation
-    const onFocus = () => void loadSections(true, true);
+    const onFocus = () => void loadSections(false, true);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        void loadSections(true, true);
+        void loadSections(false, true);
       }
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
-    // 5. Dynamic background silent polling (every 3 seconds)
+    // 5. Intelligent background silent polling (every 20s only when active)
     const interval = setInterval(() => {
-      void loadSections(true, true);
-    }, 3000);
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void loadSections(false, true);
+      }
+    }, 20000);
 
     return () => {
       if (channel) {
@@ -177,9 +179,14 @@ export default function SectionManagementPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setLoadingId(deleteTarget.id);
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    const prevSections = [...sections];
+    // Optimistic delete: remove immediately from UI
+    setSections((prev) => prev.filter((s) => s.id !== target.id));
+    setLoadingId(target.id);
     try {
-      const res = await fetch(`/api/admin/sections/${deleteTarget.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/sections/${target.id}`, { method: 'DELETE' });
       const json = await res.json();
       if (res.ok && json.ok) {
         showToast({
@@ -189,8 +196,8 @@ export default function SectionManagementPage() {
         });
         invalidateSectionManagementCache();
         broadcastAdminSync('SECTIONS_UPDATED');
-        await loadSections(true);
       } else {
+        setSections(prevSections);
         showToast({
           type: 'error',
           title: 'Delete Failed',
@@ -198,18 +205,25 @@ export default function SectionManagementPage() {
         });
       }
     } catch {
+      setSections(prevSections);
       showToast({ type: 'error', title: 'Delete Failed', message: 'Could not reach the server.' });
     } finally {
       setLoadingId(null);
-      setDeleteTarget(null);
     }
   };
 
   const handleDisable = async () => {
     if (!disableTarget) return;
-    setLoadingId(disableTarget.id);
+    const target = disableTarget;
+    setDisableTarget(null);
+    const prevSections = [...sections];
+    // Optimistic update: badge toggles immediately
+    setSections((prev) =>
+      prev.map((s) => (s.id === target.id ? { ...s, status: 'disabled' } : s))
+    );
+    setLoadingId(target.id);
     try {
-      const res = await fetch(`/api/admin/sections/${disableTarget.id}`, {
+      const res = await fetch(`/api/admin/sections/${target.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'disabled' }),
@@ -223,8 +237,8 @@ export default function SectionManagementPage() {
         });
         invalidateSectionManagementCache();
         broadcastAdminSync('SECTIONS_UPDATED');
-        await loadSections(true);
       } else {
+        setSections(prevSections);
         showToast({
           type: 'error',
           title: 'Disable Failed',
@@ -232,14 +246,19 @@ export default function SectionManagementPage() {
         });
       }
     } catch {
+      setSections(prevSections);
       showToast({ type: 'error', title: 'Disable Failed', message: 'Could not reach the server.' });
     } finally {
       setLoadingId(null);
-      setDisableTarget(null);
     }
   };
 
   const handleActivate = async (section: SectionRow) => {
+    const prevSections = [...sections];
+    // Optimistic activate: badge toggles immediately
+    setSections((prev) =>
+      prev.map((s) => (s.id === section.id ? { ...s, status: 'approved' } : s))
+    );
     setLoadingId(section.id);
     try {
       const res = await fetch(`/api/admin/sections/${section.id}`, {
@@ -252,12 +271,12 @@ export default function SectionManagementPage() {
         showToast({
           type: 'success',
           title: 'Section Activated',
-          message: json.message || `Section "${section.name}" is now active.`,
+          message: json.message,
         });
         invalidateSectionManagementCache();
         broadcastAdminSync('SECTIONS_UPDATED');
-        await loadSections(true);
       } else {
+        setSections(prevSections);
         showToast({
           type: 'error',
           title: 'Activation Failed',
@@ -265,11 +284,13 @@ export default function SectionManagementPage() {
         });
       }
     } catch {
+      setSections(prevSections);
       showToast({ type: 'error', title: 'Activation Failed', message: 'Could not reach the server.' });
     } finally {
       setLoadingId(null);
     }
   };
+
 
   const handleEditSave = async (payload: { name: string; section_lead?: string | null }) => {
     if (!editSection) return;

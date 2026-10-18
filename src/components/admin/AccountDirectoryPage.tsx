@@ -147,17 +147,31 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     try {
       const ts = Date.now();
       const url = force ? `/api/admin/users?refresh=true&_t=${ts}` : `/api/admin/users?_t=${ts}`;
-      const [usersRes, sectionsRes, meRes] = await Promise.all([
+      
+      // Parallelize: only fetch sections/me if not already in memory
+      const promises: Promise<any>[] = [
         fetch(url, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
         }),
-        fetch(`/api/sections?_t=${ts}`, {
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
-        }),
-        fetch(`/api/auth/me?_t=${ts}`, { cache: 'no-store' }),
-      ]);
+      ];
+      if (!memorySections) {
+        promises.push(
+          fetch(`/api/sections?_t=${ts}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+          })
+        );
+      }
+      if (!memoryMeId) {
+        promises.push(fetch(`/api/auth/me?_t=${ts}`, { cache: 'no-store' }));
+      }
+
+      const results = await Promise.all(promises);
+      const usersRes = results[0];
+      const sectionsRes = !memorySections ? results[1] : null;
+      const meRes = !memoryMeId ? (sectionsRes ? results[2] : results[1]) : null;
+
       const usersJson = await usersRes.json();
       if (usersRes.ok && usersJson.ok) {
         memoryAccounts = usersJson.data.users;
@@ -174,14 +188,14 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           });
         }
       }
-      if (sectionsRes.ok) {
+      if (sectionsRes && sectionsRes.ok) {
         const sectionsJson = await sectionsRes.json();
         if (sectionsJson.ok) {
           memorySections = sectionsJson.data.sections;
           setSections(sectionsJson.data.sections);
         }
       }
-      if (meRes.ok) {
+      if (meRes && meRes.ok) {
         const meJson = await meRes.json();
         if (meJson.ok) {
           memoryMeId = meJson.data.profile?.id ?? null;
@@ -204,13 +218,40 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     return loadAccounts(true);
   }, [loadAccounts]);
 
+  // Optimistic UI updates: row updates immediately with 0ms delay!
+  const handleOptimisticUpdate = useCallback((acc: AdminUserRow, action: AccountAction) => {
+    const previous = [...accounts];
+    if (action === 'delete') {
+      setAccounts((prev) => prev.filter((u) => u.id !== acc.id));
+    } else if (action === 'approve' || action === 'enable') {
+      setAccounts((prev) =>
+        prev.map((u) => (u.id === acc.id ? { ...u, account_status: 'approved' } : u))
+      );
+    } else if (action === 'disable') {
+      setAccounts((prev) =>
+        prev.map((u) => (u.id === acc.id ? { ...u, account_status: 'disabled' } : u))
+      );
+    } else if (action === 'reject') {
+      setAccounts((prev) =>
+        prev.map((u) => (u.id === acc.id ? { ...u, account_status: 'rejected' } : u))
+      );
+    } else if (action === 'clear_lockout') {
+      setAccounts((prev) =>
+        prev.map((u) => (u.id === acc.id ? { ...u, locked_until: null, failed_attempts: 0 } : u))
+      );
+    }
+    return () => {
+      setAccounts(previous);
+    };
+  }, [accounts]);
+
   const { loadingId, feedback, setFeedback, request, confirmTarget, setConfirmTarget, run, saveProfile } =
-    useAccountActions(forceReload);
+    useAccountActions(forceReload, handleOptimisticUpdate);
 
   useEffect(() => {
     loadAccounts(false);
 
-    // 1. Supabase Realtime Channel for live database changes
+    // 1. Supabase Realtime Channel for live database changes (0ms instant push)
     let channel: any = null;
     try {
       const supabase = getSupabaseBrowserClient();
@@ -235,7 +276,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
       console.warn('Realtime channel error:', err);
     }
 
-    // 2. Cross-tab sync via BroadcastChannel
+    // 2. Cross-tab sync via BroadcastChannel (0ms multi-tab sync)
     let bc: BroadcastChannel | null = null;
     try {
       bc = new BroadcastChannel('spid_admin_sync');
@@ -246,7 +287,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
       };
     } catch {}
 
-    // 3. Storage event sync for multi-window / multi-tab guarantee
+    // 3. Storage event sync for multi-window guarantee
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'spid_admin_sync') {
         void loadAccounts(true, true);
@@ -255,19 +296,21 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     window.addEventListener('storage', onStorage);
 
     // 4. Window focus and visibility revalidation
-    const onFocus = () => void loadAccounts(true, true);
+    const onFocus = () => void loadAccounts(false, true);
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        void loadAccounts(true, true);
+        void loadAccounts(false, true);
       }
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
-    // 5. Dynamic background silent polling (every 3 seconds)
+    // 5. Intelligent background polling (every 20s only when page is active)
     const interval = setInterval(() => {
-      void loadAccounts(true, true);
-    }, 3000);
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void loadAccounts(false, true);
+      }
+    }, 20000);
 
     return () => {
       if (channel) {

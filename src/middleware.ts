@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
 
 async function guard(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const { response, user, getProfile } = await updateSupabaseSession(request);
+  const { response, user, getProfile, cachedMeta } = await updateSupabaseSession(request);
 
   const isProtectedRoute = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthRoute = pathname.startsWith('/auth');
@@ -53,26 +53,34 @@ async function guard(request: NextRequest) {
       return redirect(signInUrl);
     }
 
-    const profile = await getProfile();
-    if (!profile) {
-      const signInUrl = new URL('/auth/sign-in', request.url);
-      signInUrl.searchParams.set('status', 'unknown');
-      return redirect(signInUrl);
+    // Fast path: use cached session metadata if valid, otherwise fetch profile
+    let role = cachedMeta?.id === user.id ? cachedMeta.role : null;
+    let status = cachedMeta?.id === user.id ? cachedMeta.status : null;
+
+    if (!role || !status) {
+      const profile = await getProfile();
+      if (!profile) {
+        const signInUrl = new URL('/auth/sign-in', request.url);
+        signInUrl.searchParams.set('status', 'unknown');
+        return redirect(signInUrl);
+      }
+      role = profile.role;
+      status = profile.account_status;
     }
 
-    if (profile.account_status !== 'approved') {
+    if (status !== 'approved') {
       const signInUrl = new URL('/auth/sign-in', request.url);
-      signInUrl.searchParams.set('status', String(profile.account_status));
+      signInUrl.searchParams.set('status', String(status));
       return redirect(signInUrl);
     }
 
     // Admin-only pages: non-admin gets bumped to their home
-    if (isAdminOnlyRoute && profile.role !== 'Administrator') {
-      return redirect(homeDashboard(profile.role));
+    if (isAdminOnlyRoute && role !== 'Administrator') {
+      return redirect(homeDashboard(role));
     }
 
     // Staff visiting any /admin path → redirect to staff dashboard
-    if (isAdminRoute && profile.role === 'Staff') {
+    if (isAdminRoute && role === 'Staff') {
       return redirect(new URL('/staff/default', request.url));
     }
 
@@ -81,15 +89,15 @@ async function guard(request: NextRequest) {
 
   // 2. Signed-in users skip the auth pages (reset-password keeps its session).
   if (isAuthRoute && !isResetPassword && user) {
-    const profile = await getProfile();
-    return redirect(homeDashboard(profile?.role));
+    const role = cachedMeta?.id === user.id ? cachedMeta.role : (await getProfile())?.role;
+    return redirect(homeDashboard(role));
   }
 
   // 3. Root: sign-in for guests, role-aware dashboard for signed-in users.
   if (isRootRoute) {
     if (!user) return redirect(new URL('/auth/sign-in', request.url));
-    const profile = await getProfile();
-    return redirect(homeDashboard(profile?.role));
+    const role = cachedMeta?.id === user.id ? cachedMeta.role : (await getProfile())?.role;
+    return redirect(homeDashboard(role));
   }
 
   return response;
