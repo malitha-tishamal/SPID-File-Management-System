@@ -379,6 +379,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const handleEditSave = async (payload: {
     full_name: string;
     section_id: number | null;
+    mobile_phone?: string;
     role?: string;
     status?: string;
   }) => {

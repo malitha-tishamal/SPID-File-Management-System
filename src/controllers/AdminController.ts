@@ -176,6 +176,23 @@ export class AdminController {
               : undefined;
         const role = body?.role as UserRole | undefined;
         const status = body?.status as AccountStatus | undefined;
+        const rawMobile = body?.mobile_phone ?? body?.mobilePhone;
+
+        let formattedMobile: string | null | undefined = undefined;
+        if (typeof rawMobile === 'string') {
+          const trimmed = rawMobile.trim();
+          if (trimmed === '') {
+            formattedMobile = null;
+          } else {
+            const digits = trimmed.replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
+            if (!/^\d{9}$/.test(digits)) {
+              throw new ApiError(400, 'VALIDATION_ERROR', 'A valid 9-digit mobile number is required.');
+            }
+            formattedMobile = `+94 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 9)}`;
+          }
+        } else if (rawMobile === null) {
+          formattedMobile = null;
+        }
 
         if (fullName !== null && fullName.length < 3) {
           throw new ApiError(400, 'VALIDATION_ERROR', 'Full name must be at least 3 characters.');
@@ -231,12 +248,30 @@ export class AdminController {
           });
         }
 
-        if (fullName !== null || sectionId !== undefined) {
-          const patch: { full_name?: string; section_id?: number | null } = {};
+        if (fullName !== null || sectionId !== undefined || formattedMobile !== undefined) {
+          const patch: { full_name?: string; section_id?: number | null; mobile_phone?: string | null } = {};
           if (fullName !== null) patch.full_name = fullName;
           if (sectionId !== undefined) patch.section_id = sectionId;
+          if (formattedMobile !== undefined) patch.mobile_phone = formattedMobile;
           await profiles.updateDetails(targetUserId, patch);
+
+          try {
+            if (admin.auth?.admin) {
+              const meta: Record<string, any> = {};
+              if (fullName !== null) meta.full_name = fullName;
+              if (formattedMobile !== undefined) meta.mobile_phone = formattedMobile;
+              if (Object.keys(meta).length > 0) {
+                await admin.auth.admin.updateUserById(targetUserId, {
+                  user_metadata: meta,
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('Could not sync user_metadata in update_profile:', e);
+          }
         }
+
+        invalidateUsersCache();
 
         await audit.log({
           actorId: actor.id,

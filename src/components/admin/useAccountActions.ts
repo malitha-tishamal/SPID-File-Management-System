@@ -168,7 +168,7 @@ export function useAccountActions(
   const saveProfile = useCallback(
     async (
       acc: AdminUserRow,
-      payload: { full_name: string; section_id: number | null; role?: string; status?: string }
+      payload: { full_name: string; section_id: number | null; mobile_phone?: string; role?: string; status?: string }
     ): Promise<boolean> => {
       setLoadingId(acc.id);
       try {

@@ -198,10 +198,10 @@ export class ProfileRepository {
     return this.findById(id);
   }
 
-  /** Service-role admin edit: name + section only (role/status go through dedicated actions). */
+  /** Service-role admin edit: name + section + mobile_phone only (role/status go through dedicated actions). */
   async updateDetails(
     id: string,
-    patch: { full_name?: string; section_id?: number | null }
+    patch: { full_name?: string; section_id?: number | null; mobile_phone?: string | null }
   ): Promise<void> {
     const { error } = await this.client.from('profiles').update(patch).eq('id', id);
     if (error) {

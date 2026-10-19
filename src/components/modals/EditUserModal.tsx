@@ -1,9 +1,10 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FiX,
   FiUser,
   FiMail,
+  FiPhone,
   FiShield,
   FiCheck,
   FiLock,
@@ -54,6 +55,7 @@ export default function EditUserModal({
   onSave: (payload: {
     full_name: string;
     section_id: number | null;
+    mobile_phone?: string;
     role?: UserRole;
     status?: AccountStatus;
   }) => void;
@@ -62,16 +64,47 @@ export default function EditUserModal({
   const [sectionId, setSectionId] = useState<number | null>(user.section_id);
   const [role, setRole] = useState<UserRole>(user.role);
 
+  // Strip non-digits and leading 94 or 0
+  const initialPhoneDigits = (user.mobile_phone || '')
+    .replace(/\D/g, '')
+    .replace(/^94/, '')
+    .replace(/^0/, '');
+  const [phoneDigits, setPhoneDigits] = useState(initialPhoneDigits);
+
+  const formattedPhoneDisplay = useMemo(() => {
+    if (!phoneDigits) return '';
+    if (phoneDigits.length <= 2) return phoneDigits;
+    if (phoneDigits.length <= 5) return `${phoneDigits.slice(0, 2)} ${phoneDigits.slice(2)}`;
+    return `${phoneDigits.slice(0, 2)} ${phoneDigits.slice(2, 5)} ${phoneDigits.slice(5, 9)}`;
+  }, [phoneDigits]);
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value.replace(/\D/g, '');
+    if (raw.startsWith('94') && raw.length > 9) raw = raw.slice(2);
+    if (raw.startsWith('0')) raw = raw.slice(1);
+    if (raw.length > 9) raw = raw.slice(0, 9);
+    setPhoneDigits(raw);
+  };
+
   const canChangePrivileged = !isSelf && !isProtected;
   const isAdminVariant = variant === 'admin';
   const nameError = fullName.trim().length > 0 && fullName.trim().length < 3;
+  const phoneError = phoneDigits.length > 0 && phoneDigits.length < 9;
 
   const handleSave = () => {
+    const formattedPhone = phoneDigits
+      ? `+94 ${phoneDigits.slice(0, 2)} ${phoneDigits.slice(2, 5)} ${phoneDigits.slice(5, 9)}`
+      : '';
     const payload: {
       full_name: string;
       section_id: number | null;
+      mobile_phone?: string;
       role?: UserRole;
-    } = { full_name: fullName.trim(), section_id: sectionId };
+    } = {
+      full_name: fullName.trim(),
+      section_id: sectionId,
+      mobile_phone: formattedPhone,
+    };
     if (canChangePrivileged && role !== user.role) payload.role = role;
     onSave(payload);
   };
@@ -173,6 +206,39 @@ export default function EditUserModal({
             </div>
           </div>
 
+          {/* Mobile Phone Number */}
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
+              <FiPhone className="h-3.5 w-3.5 text-[#4318FF]" /> Mobile Phone Number
+            </label>
+            <div
+              className={`flex items-center rounded-xl border ${
+                phoneError ? 'border-red-400' : 'border-slate-200/80 dark:border-navy-600'
+              } bg-white dark:bg-navy-900 overflow-hidden focus-within:border-[#4318FF] focus-within:ring-2 focus-within:ring-[#4318FF]/10 transition-all`}
+            >
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-navy-800 px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-200 border-r border-slate-200 dark:border-navy-700 select-none shrink-0">
+                <span>🇱🇰</span>
+                <span>+94</span>
+              </div>
+              <div className="relative flex w-full items-center">
+                <input
+                  type="tel"
+                  value={formattedPhoneDisplay}
+                  onChange={handlePhoneChange}
+                  placeholder="77 123 4567"
+                  maxLength={11}
+                  className="h-11 w-full bg-transparent pl-3 pr-9 text-xs font-semibold text-navy-700 dark:text-white outline-none placeholder:text-gray-400"
+                />
+                <FiPhone className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
+              </div>
+            </div>
+            {phoneError && (
+              <p className="mt-1 text-[10px] text-red-500">
+                Please enter a valid 9-digit mobile number.
+              </p>
+            )}
+          </div>
+
           {/* Departmental Allocation */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
@@ -193,7 +259,7 @@ export default function EditUserModal({
           </div>
 
           {/* Admin Security Role / Clearance */}
-          <div>
+          <div className="sm:col-span-2">
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
               <FiShield className="h-3.5 w-3.5 text-[#4318FF]" />
               {isAdminVariant ? 'Admin Security Role / Clearance' : 'User Access Role & Permissions'}
@@ -233,7 +299,7 @@ export default function EditUserModal({
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || fullName.trim().length < 3}
+            disabled={saving || fullName.trim().length < 3 || phoneError}
             className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/25 transition-colors hover:bg-brand-600 disabled:opacity-60 cursor-pointer"
           >
             {saving ? (
