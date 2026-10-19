@@ -3,7 +3,7 @@ import type { AccountStatus, AdminUserRow, ProfileDTO, UserRole } from 'types/au
 
 const PROFILE_SELECT = `
   id, full_name, email, role, requested_role, section_id, nic, mobile_phone,
-  account_status, approved_at, created_at, sections(name)
+  account_status, approved_at, created_at, updated_at, sections(name)
 `;
 
 // Present only after migration 0005; fall back to PROFILE_SELECT until then.
@@ -21,6 +21,7 @@ type RawProfile = {
   account_status: string;
   approved_at: string | null;
   created_at: string;
+  updated_at?: string | null;
   last_login_at?: string | null;
   sections: { name: string } | { name: string }[] | null;
 };
@@ -41,6 +42,7 @@ function mapProfile(raw: RawProfile): ProfileDTO {
     account_status: raw.account_status as AccountStatus,
     approved_at: raw.approved_at,
     created_at: raw.created_at,
+    updated_at: raw.updated_at ?? null,
     last_login_at: raw.last_login_at ?? null,
   };
 }
@@ -131,8 +133,8 @@ export class ProfileRepository {
       }
     }
 
-    // Fetch auth users to get authoritative last_sign_in_at / last_login_at from Supabase Auth
-    const authUserMap = new Map<string, string>();
+    // Fetch auth users to get authoritative last_sign_in_at / last_login_at and avatar_url from Supabase Auth
+    const authUserMap = new Map<string, { lastLogin: string | null; avatarUrl: string | null }>();
     try {
       if (this.client.auth?.admin) {
         const { data: authData } = await this.client.auth.admin.listUsers({ perPage: 1000 });
@@ -140,9 +142,8 @@ export class ProfileRepository {
           for (const u of authData.users) {
             const authTime =
               u.last_sign_in_at || (u.user_metadata as any)?.last_login_at || null;
-            if (authTime) {
-              authUserMap.set(u.id, authTime);
-            }
+            const avatar = (u.user_metadata as any)?.avatar_url || null;
+            authUserMap.set(u.id, { lastLogin: authTime, avatarUrl: avatar });
           }
         }
       }
@@ -153,10 +154,11 @@ export class ProfileRepository {
     return (data as any[]).map((row) => {
       const base = mapProfile(row);
       const sec = secMap.get(base.id);
-      const authLastLogin = authUserMap.get(base.id);
+      const authInfo = authUserMap.get(base.id);
       return {
         ...base,
-        last_login_at: authLastLogin || base.last_login_at || null,
+        last_login_at: authInfo?.lastLogin || base.last_login_at || null,
+        avatar_url: authInfo?.avatarUrl || null,
         failed_attempts: sec?.failed_attempts ?? 0,
         locked_until: sec?.locked_until ?? null,
       };

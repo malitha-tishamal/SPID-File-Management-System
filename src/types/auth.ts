@@ -15,6 +15,8 @@ export interface ProfileDTO {
   account_status: AccountStatus;
   approved_at: string | null;
   created_at: string;
+  updated_at?: string | null;
+  avatar_url?: string | null;
   last_login_at: string | null;
 }
 

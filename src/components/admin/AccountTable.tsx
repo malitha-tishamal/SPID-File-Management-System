@@ -64,6 +64,28 @@ export default function AccountTable({
 }) {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('spid_user_avatar');
+      } catch {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const syncAvatar = () => {
+      try {
+        setCurrentUserAvatar(localStorage.getItem('spid_user_avatar'));
+      } catch {}
+    };
+    window.addEventListener('spid_avatar_updated', syncAvatar);
+    window.addEventListener('storage', syncAvatar);
+    return () => {
+      window.removeEventListener('spid_avatar_updated', syncAvatar);
+      window.removeEventListener('storage', syncAvatar);
+    };
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -284,24 +306,39 @@ export default function AccountTable({
                       {start + i + 1}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-xs font-bold text-white shadow-sm">
-                          {acc.full_name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-[13px] font-bold text-slate-950 dark:text-white">
-                            {acc.full_name}
-                            {isProtected && (
-                              <span className="ml-1.5 rounded bg-purple-100 px-1 py-0.5 text-[8px] font-bold text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                                PROTECTED
-                              </span>
+                      {(() => {
+                        const avatarSrc = (currentUserId && acc.id === currentUserId && currentUserAvatar)
+                          ? currentUserAvatar
+                          : acc.avatar_url;
+                        return (
+                          <div className="flex items-center gap-2.5">
+                            {avatarSrc ? (
+                              <img
+                                src={avatarSrc}
+                                alt={acc.full_name}
+                                className="h-9 w-9 shrink-0 rounded-full object-cover border border-slate-200 dark:border-navy-600 shadow-sm"
+                              />
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-xs font-bold text-white shadow-sm">
+                                {acc.full_name.slice(0, 2).toUpperCase()}
+                              </div>
                             )}
-                          </p>
-                          <p className="text-[10px] font-bold text-slate-600 dark:text-gray-400">
-                            {acc.role}
-                          </p>
-                        </div>
-                      </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-bold text-slate-950 dark:text-white">
+                                {acc.full_name}
+                                {isProtected && (
+                                  <span className="ml-1.5 rounded bg-purple-100 px-1 py-0.5 text-[8px] font-bold text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                                    PROTECTED
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-[10px] font-bold text-slate-600 dark:text-gray-400">
+                                {acc.role}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-900 dark:text-gray-200">

@@ -56,6 +56,10 @@ export default function ProfileManagementPage() {
   // Avatar upload state
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarBase64, setPendingAvatarBase64] = useState<string | null>(null);
+  const [showAvatarConfirmModal, setShowAvatarConfirmModal] = useState(false);
+  const [showAvatarRemoveModal, setShowAvatarRemoveModal] = useState(false);
 
   // Modal feedback state
   const [feedback, setFeedback] = useState<ProfileFeedback | null>(null);
@@ -268,43 +272,108 @@ export default function ProfileManagementPage() {
     }
   };
 
-  // Handle Avatar upload
-  const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Avatar selection (Opens confirmation modal first)
+  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.size > 2 * 1024 * 1024) {
-      alert('File size exceeds 2MB limit.');
+      setFeedback({
+        type: 'profile-error',
+        badge: 'FILE SIZE EXCEEDED',
+        title: 'Image Too Large',
+        description: 'The selected image exceeds the 2MB size limit. Please select a smaller photo.',
+      });
       return;
     }
 
-    // Persist as base64 for reliable instant cross-page sync
     const reader = new FileReader();
     reader.onload = (ev) => {
       const base64 = ev.target?.result as string;
       if (base64) {
-        setAvatarPreview(base64);
-        try {
-          localStorage.setItem('spid_user_avatar', base64);
-          window.dispatchEvent(new Event('spid_avatar_updated'));
-        } catch {}
+        setPendingAvatarFile(file);
+        setPendingAvatarBase64(base64);
+        setShowAvatarConfirmModal(true);
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Confirm and persist avatar to server and client storage
+  const confirmSaveAvatar = async () => {
+    if (!pendingAvatarFile || !pendingAvatarBase64) return;
 
     setAvatarUploading(true);
     try {
       const formData = new FormData();
-      formData.append('file', file);
-      await fetch('/api/profile/avatar', {
+      formData.append('file', pendingAvatarFile);
+      const res = await fetch('/api/profile/avatar', {
         method: 'POST',
         body: formData,
       });
-    } catch (err) {
-      console.error(err);
+
+      const json = await res.json().catch(() => null);
+
+      if (res.ok && json?.ok) {
+        setAvatarPreview(pendingAvatarBase64);
+        try {
+          localStorage.setItem('spid_user_avatar', pendingAvatarBase64);
+          window.dispatchEvent(new Event('spid_avatar_updated'));
+        } catch {}
+
+        const newUpdateIso = json?.data?.updated_at || new Date().toISOString();
+        setProfile((prev) => (prev ? { ...prev, updated_at: newUpdateIso } : null));
+
+        setShowAvatarConfirmModal(false);
+        setPendingAvatarFile(null);
+        setPendingAvatarBase64(null);
+
+        setFeedback({
+          type: 'profile-success',
+          badge: 'AVATAR SYNCHRONIZED',
+          title: 'Profile Picture Updated',
+          description:
+            'Your official profile photograph has been successfully updated and synchronized across all SPID systems and directories.',
+        });
+      } else {
+        setFeedback({
+          type: 'profile-error',
+          badge: 'UPLOAD FAILED',
+          title: 'Avatar Update Failed',
+          description: json?.message || 'Could not save your new profile picture. Please try again.',
+        });
+      }
+    } catch {
+      setFeedback({
+        type: 'profile-error',
+        badge: 'NETWORK DISCREPANCY',
+        title: 'Connection Error',
+        description: 'Could not connect to the image storage service. Please check your network.',
+      });
     } finally {
       setAvatarUploading(false);
     }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarPreview(null);
+    setPendingAvatarFile(null);
+    setPendingAvatarBase64(null);
+    setShowAvatarRemoveModal(false);
+    try {
+      localStorage.removeItem('spid_user_avatar');
+      window.dispatchEvent(new Event('spid_avatar_updated'));
+    } catch {}
+
+    const nowIso = new Date().toISOString();
+    setProfile((prev) => (prev ? { ...prev, updated_at: nowIso } : null));
+    setFeedback({
+      type: 'profile-success',
+      badge: 'AVATAR REMOVED',
+      title: 'Profile Picture Reset',
+      description: 'Your profile picture has been reset to default initials.',
+    });
   };
 
   const displayName = profile?.full_name || 'Malitha Tishamal';
@@ -313,12 +382,12 @@ export default function ProfileManagementPage() {
   const displayInitials = displayName.slice(0, 2).toUpperCase();
 
   const formattedUpdateDate = useMemo(() => {
-    const raw = profile?.approved_at || profile?.created_at;
+    const raw = profile?.updated_at || profile?.approved_at || profile?.created_at;
     if (!raw) return '—';
     const d = new Date(raw);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  }, [profile?.approved_at, profile?.created_at]);
+  }, [profile?.updated_at, profile?.approved_at, profile?.created_at]);
 
   return (
     <div className="mt-2 flex flex-col gap-5">
@@ -422,28 +491,47 @@ export default function ProfileManagementPage() {
               </div>
 
               {/* Upload buttons */}
-              <div className="mt-4 flex items-center gap-2">
-                <label className="flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-600 cursor-pointer transition-colors">
-                  <FiUploadCloud className="h-4 w-4" />
-                  <span>Upload New Avatar</span>
-                  <input type="file" accept="image/*" onChange={handleAvatarFile} className="hidden" />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAvatarPreview(null);
-                    try {
-                      localStorage.removeItem('spid_user_avatar');
-                      window.dispatchEvent(new Event('spid_avatar_updated'));
-                    } catch {}
-                  }}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/20 transition-colors"
-                  title="Remove avatar"
-                >
-                  <FiTrash2 className="h-4 w-4" />
-                </button>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-600 cursor-pointer transition-colors active:scale-95">
+                    <FiUploadCloud className="h-4 w-4" />
+                    <span>Upload New Avatar</span>
+                    <input type="file" accept="image/*" onChange={handleAvatarFile} className="hidden" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAvatarRemoveModal(true)}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/20 transition-colors cursor-pointer"
+                    title="Remove avatar"
+                  >
+                    <FiTrash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {pendingAvatarBase64 && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAvatarConfirmModal(true)}
+                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
+                    >
+                      <FiCheck className="h-3.5 w-3.5" />
+                      <span>Save New Avatar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingAvatarFile(null);
+                        setPendingAvatarBase64(null);
+                      }}
+                      className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                <p className="mt-1 text-[11px] font-medium text-slate-400">JPG, PNG or GIF. Max size 2MB.</p>
               </div>
-              <p className="mt-1.5 text-[11px] font-medium text-slate-400">JPG, PNG or GIF. Max size 2MB.</p>
             </div>
 
             {/* Officer Name & Badges */}
@@ -915,6 +1003,116 @@ export default function ProfileManagementPage() {
             <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               {feedback.description}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Avatar Update Modal ── */}
+      {showAvatarConfirmModal && pendingAvatarBase64 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="relative w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl dark:bg-navy-800 border border-slate-100 dark:border-navy-700 text-center animate-scaleUp">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowAvatarConfirmModal(false);
+                setPendingAvatarFile(null);
+                setPendingAvatarBase64(null);
+              }}
+              className="absolute right-5 top-5 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-navy-700 dark:hover:text-white transition-colors cursor-pointer"
+            >
+              <FiX className="h-5 w-5" />
+            </button>
+
+            {/* Circular Preview with Glow */}
+            <div className="mx-auto mt-2 flex flex-col items-center">
+              <div className="relative">
+                <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-[#4318FF] shadow-xl shadow-indigo-500/20 bg-slate-100 dark:bg-navy-900">
+                  <img
+                    src={pendingAvatarBase64}
+                    alt="Pending Avatar Preview"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <span className="absolute bottom-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md ring-2 ring-white dark:ring-navy-800">
+                  <FiCheck className="h-4 w-4 stroke-[3]" />
+                </span>
+              </div>
+            </div>
+
+            {/* Title & Description */}
+            <h3 className="mt-5 text-xl font-black text-navy-700 dark:text-white">
+              Confirm Profile Picture Update
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              Are you sure you want to save this new photograph? Your profile picture and last update timestamp will be synchronized immediately across all portals and directories.
+            </p>
+
+            {/* Action buttons */}
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                disabled={avatarUploading}
+                onClick={() => {
+                  setShowAvatarConfirmModal(false);
+                  setPendingAvatarFile(null);
+                  setPendingAvatarBase64(null);
+                }}
+                className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+              >
+                Discard Changes
+              </button>
+              <button
+                type="button"
+                disabled={avatarUploading}
+                onClick={confirmSaveAvatar}
+                className="flex-1 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] py-3 text-xs font-bold text-white shadow-md shadow-indigo-500/25 hover:opacity-95 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50"
+              >
+                {avatarUploading ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <FiCheck className="h-4 w-4 stroke-[3]" />
+                    <span>Confirm &amp; Save</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Avatar Remove Modal ── */}
+      {showAvatarRemoveModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="relative w-full max-w-sm rounded-[28px] bg-white p-6 shadow-2xl dark:bg-navy-800 border border-slate-100 dark:border-navy-700 text-center animate-scaleUp">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400">
+              <FiTrash2 className="h-7 w-7" />
+            </div>
+            <h3 className="mt-4 text-lg font-black text-navy-700 dark:text-white">
+              Remove Profile Picture?
+            </h3>
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              Your profile picture will be removed and your avatar will revert to your name initials.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAvatarRemoveModal(false)}
+                className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveAvatar}
+                className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-2.5 text-xs font-bold text-white shadow-md shadow-red-600/20 transition-all cursor-pointer"
+              >
+                Remove Photo
+              </button>
+            </div>
           </div>
         </div>
       )}

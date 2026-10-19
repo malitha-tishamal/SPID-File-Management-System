@@ -66,6 +66,26 @@ export class ProfileController {
     }
 
     const result = await StorageService.uploadProfileImage(profile.id, file);
-    return jsonOk({ ...result, message: 'Profile image uploaded.' });
+
+    const admin = getSupabaseAdminClient();
+    const nowIso = new Date().toISOString();
+
+    // 1. Sync avatar URL into user_metadata so directory lists and auth reflect it immediately
+    try {
+      await admin.auth.admin.updateUserById(profile.id, {
+        user_metadata: { avatar_url: result.publicUrl },
+      });
+    } catch (e) {
+      console.warn('Could not update user_metadata avatar_url:', e);
+    }
+
+    // 2. Touch updated_at in profiles table so "Last Update" timestamp updates
+    try {
+      await admin.from('profiles').update({ updated_at: nowIso }).eq('id', profile.id);
+    } catch (e) {
+      console.warn('Could not update profile updated_at:', e);
+    }
+
+    return jsonOk({ ...result, updated_at: nowIso, message: 'Profile image uploaded.' });
   }
 }

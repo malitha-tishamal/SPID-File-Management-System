@@ -9,6 +9,8 @@ import {
   FiUserX,
   FiSearch,
   FiRefreshCw,
+  FiPrinter,
+  FiDownload,
 } from 'react-icons/fi';
 import { MdAdminPanelSettings } from 'react-icons/md';
 import PageHeader from 'components/admin/PageHeader';
@@ -387,6 +389,143 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
 
   const confirm = confirmTarget ? CONFIRM_TEXT[confirmTarget.action as 'disable' | 'reject' | 'delete'] : null;
 
+  // Export to Excel (CSV with UTF-8 BOM)
+  const handleExportExcel = () => {
+    const list = isAdmin ? filtered : [];
+    if (!list.length) {
+      showToast({ type: 'error', title: 'Export Empty', message: 'No records to export.' });
+      return;
+    }
+
+    const headers = [
+      'Index',
+      'User ID',
+      'Full Name',
+      'Role',
+      'Email',
+      'Mobile Phone',
+      'Department / Section',
+      'Account Status',
+      'Last Login'
+    ];
+
+    const rows = list.map((u, i) => [
+      i + 1,
+      `"${u.id}"`,
+      `"${(u.full_name || '').replace(/"/g, '""')}"`,
+      `"${u.role}"`,
+      `"${u.email}"`,
+      `"${u.mobile_phone || ''}"`,
+      `"${(u.section_name || 'Unassigned').replace(/"/g, '""')}"`,
+      `"${u.account_status}"`,
+      `"${u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never'}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `SPID_${variant === 'admin' ? 'Administrators' : 'Staff_Directory'}_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast({ type: 'success', title: 'Export Successful', message: 'Directory exported to Excel.' });
+  };
+
+  // Print to PDF (Opens print-ready window)
+  const handlePrintPDF = () => {
+    const list = isAdmin ? filtered : [];
+    if (!list.length) {
+      showToast({ type: 'error', title: 'Print Empty', message: 'No records to print.' });
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast({ type: 'error', title: 'Popup Blocked', message: 'Please allow popups to print directory.' });
+      return;
+    }
+
+    const titleText = variant === 'admin' ? 'SPID - Verified System Administrators Roster' : 'SPID - Staff & Personnel Directory';
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${titleText}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #1e293b; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4318FF; padding-bottom: 12px; margin-bottom: 20px; }
+            .logo-title { font-size: 20px; font-weight: 800; color: #1e293b; }
+            .sub { font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+            .meta { font-size: 11px; color: #64748b; text-align: right; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+            th { background: #f1f5f9; text-align: left; padding: 8px 10px; border-bottom: 1px solid #cbd5e1; font-weight: 700; color: #0f172a; text-transform: uppercase; font-size: 10px; }
+            td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
+            .status-approved { color: #15803d; font-weight: 700; }
+            .status-disabled { color: #c2410c; font-weight: 700; }
+            .status-pending { color: #b45309; font-weight: 700; }
+            @media print {
+              body { padding: 0; }
+              @page { size: landscape; margin: 12mm; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="logo-title">${titleText}</div>
+              <div class="sub">Southern Provincial Irrigation Department • Official Personnel Record</div>
+            </div>
+            <div class="meta">
+              <div>Total Records: <strong>${list.length}</strong></div>
+              <div>Generated: ${dateStr}</div>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 30px;">#</th>
+                <th>Full Name</th>
+                <th>Role</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Department / Section</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((u, i) => `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td><strong>${u.full_name}</strong></td>
+                  <td>${u.role}</td>
+                  <td>${u.email}</td>
+                  <td>${u.mobile_phone || '—'}</td>
+                  <td>${u.section_name || 'Unassigned'}</td>
+                  <td class="status-${u.account_status}">${u.account_status.toUpperCase()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   const statCards =
     variant === 'admin'
       ? [
@@ -480,6 +619,28 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                   </option>
                 ))}
               </select>
+              {/* Export to Excel Button */}
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="flex h-9 items-center gap-1.5 rounded-xl bg-[#f4f7fe] px-3 border border-slate-300 dark:border-navy-700 text-xs font-bold text-slate-800 transition-all hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer shadow-sm active:scale-95"
+                title="Export to Excel"
+              >
+                <FiDownload className="h-3.5 w-3.5 text-emerald-600" />
+                <span className="hidden sm:inline">Export Excel</span>
+              </button>
+
+              {/* Print to PDF Button */}
+              <button
+                type="button"
+                onClick={handlePrintPDF}
+                className="flex h-9 items-center gap-1.5 rounded-xl bg-[#f4f7fe] px-3 border border-slate-300 dark:border-navy-700 text-xs font-bold text-slate-800 transition-all hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer shadow-sm active:scale-95"
+                title="Print to PDF"
+              >
+                <FiPrinter className="h-3.5 w-3.5 text-[#4318FF]" />
+                <span className="hidden sm:inline">Print PDF</span>
+              </button>
+
               <button
                 onClick={() => loadAccounts(true)}
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] border border-slate-300 dark:border-navy-700 text-slate-900 transition-colors hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
