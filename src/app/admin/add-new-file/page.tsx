@@ -14,7 +14,7 @@ import {
   FiCopy,
   FiPlus,
   FiAlertCircle,
-  FiCheck,
+  FiCalendar,
 } from 'react-icons/fi';
 import GlassNotification, { GlassNotificationType } from 'components/notifications/GlassNotification';
 
@@ -35,9 +35,6 @@ const DEFAULT_SECTIONS: SectionOption[] = [
   { id: 9, name: 'Hambantota Regional Engineering Office' },
 ];
 
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - 4 + i); // e.g. 2022..2036
-
 export default function AddNewFilePage() {
   // Session & User State
   const [registrarName, setRegistrarName] = useState<string>('System Administrator (sarath_admin)');
@@ -47,9 +44,12 @@ export default function AddNewFilePage() {
   const [fileNo, setFileNo] = useState('');
   const [fileName, setFileName] = useState('');
   const [section, setSection] = useState('');
-  const [year, setYear] = useState<string>(String(CURRENT_YEAR));
+  // Start Date & End Date (replaces Year)
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [lockerNo, setLockerNo] = useState('');
-  const [shelfNo, setShelfNo] = useState('');
+  // shelfName replaces shelfNo
+  const [shelfName, setShelfName] = useState('');
   const [shelfPosition, setShelfPosition] = useState<'Front' | 'Middle' | 'Back'>('Front');
   const [totalPages, setTotalPages] = useState('');
   const [minuteSheets, setMinuteSheets] = useState('');
@@ -123,7 +123,7 @@ export default function AddNewFilePage() {
     };
   }, []);
 
-  // Validation
+  // ── Validation ──────────────────────────────────────────────────────────────
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
 
@@ -136,8 +136,14 @@ export default function AddNewFilePage() {
     if (!section.trim()) {
       errs.section = 'Section is required.';
     }
-    if (!year || isNaN(Number(year))) {
-      errs.year = 'Please select a valid Year.';
+    if (!startDate) {
+      errs.startDate = 'Start Date is required.';
+    }
+    if (!endDate) {
+      errs.endDate = 'End Date is required.';
+    }
+    if (startDate && endDate && endDate < startDate) {
+      errs.endDate = 'End date must be on or after the start date.';
     }
 
     if (totalPages && (isNaN(Number(totalPages)) || Number(totalPages) < 0)) {
@@ -151,27 +157,33 @@ export default function AddNewFilePage() {
     return Object.keys(errs).length === 0;
   };
 
+  // ── Reset helpers ────────────────────────────────────────────────────────────
+  const resetForm = () => {
+    setFileNo('');
+    setFileName('');
+    setSection('');
+    setStartDate('');
+    setEndDate('');
+    setLockerNo('');
+    setShelfName('');
+    setShelfPosition('Front');
+    setTotalPages('');
+    setMinuteSheets('');
+    setErrors({});
+  };
+
   // Handle Cancel
   const handleCancel = () => {
-    if (fileNo || fileName || section || lockerNo || shelfNo || totalPages || minuteSheets) {
+    if (fileNo || fileName || section || lockerNo || shelfName || totalPages || minuteSheets) {
       if (window.confirm('Are you sure you want to discard your changes?')) {
-        setFileNo('');
-        setFileName('');
-        setSection('');
-        setYear(String(CURRENT_YEAR));
-        setLockerNo('');
-        setShelfNo('');
-        setShelfPosition('Front');
-        setTotalPages('');
-        setMinuteSheets('');
-        setErrors({});
+        resetForm();
       }
     } else {
       setErrors({});
     }
   };
 
-  // Handle Submit
+  // ── Handle Submit ────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -186,9 +198,10 @@ export default function AddNewFilePage() {
         file_no: fileNo.trim(),
         file_name: fileName.trim(),
         section: section.trim(),
-        year: parseInt(year, 10),
+        start_date: startDate,
+        end_date: endDate,
         locker_no: lockerNo.trim() || null,
-        shelf_no: shelfNo.trim() || null,
+        shelf_name: shelfName.trim() || null,
         shelf_position: shelfPosition,
         page_numbers: totalPages ? parseInt(totalPages, 10) : 0,
         minute_sheets_count: minuteSheets ? parseInt(minuteSheets, 10) : 0,
@@ -203,32 +216,31 @@ export default function AddNewFilePage() {
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
-        // Success
+        // ── Success ──────────────────────────────────────────────────────────
+        const successMsg = json.data?.message || 'File added successfully and approved.';
         setNotification({
           isOpen: true,
           type: 'success',
           title: 'File Added Successfully',
-          message: 'The file has been successfully added to the system.',
+          message: successMsg,
         });
-
-        // Reset form
-        setFileNo('');
-        setFileName('');
-        setSection('');
-        setYear(String(CURRENT_YEAR));
-        setLockerNo('');
-        setShelfNo('');
-        setShelfPosition('Front');
-        setTotalPages('');
-        setMinuteSheets('');
-        setErrors({});
+        resetForm();
       } else {
-        // Failure from server response
-        const errorMsg =
-          json?.error?.message ||
-          (res.status === 409
-            ? `File No "${fileNo}" already exists in the system.`
-            : 'The file could not be added at this time. Please try again.');
+        // ── Server-side failure ──────────────────────────────────────────────
+        let errorMsg: string;
+
+        if (res.status === 409) {
+          errorMsg = 'File name already exists. Please enter a unique file name.';
+        } else if (res.status === 400) {
+          const serverMsg = json?.error?.message ?? '';
+          if (serverMsg.toLowerCase().includes('end date')) {
+            errorMsg = 'End date must be on or after the start date.';
+          } else {
+            errorMsg = serverMsg || 'Failed to add file. Please try again.';
+          }
+        } else {
+          errorMsg = json?.error?.message || 'Failed to add file. Please try again.';
+        }
 
         setNotification({
           isOpen: true,
@@ -237,7 +249,7 @@ export default function AddNewFilePage() {
           message: errorMsg,
         });
       }
-    } catch (err: any) {
+    } catch {
       // Network or connection failure
       setNotification({
         isOpen: true,
@@ -249,6 +261,14 @@ export default function AddNewFilePage() {
       setIsSubmitting(false);
     }
   };
+
+  // ── Shared input class builder ───────────────────────────────────────────────
+  const inputClass = (errorKey: string) =>
+    `h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
+      errors[errorKey]
+        ? 'border-red-500 ring-2 ring-red-500/10'
+        : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
+    }`;
 
   return (
     <div className="w-full pb-8 font-dm">
@@ -293,7 +313,7 @@ export default function AddNewFilePage() {
                 <FiShield className="h-4.5 w-4.5" strokeWidth={2.5} />
               </div>
               <h3 className="text-sm sm:text-base font-bold text-navy-800 dark:text-white">
-                Session & Registrar Identification
+                Session &amp; Registrar Identification
               </h3>
             </div>
 
@@ -331,6 +351,7 @@ export default function AddNewFilePage() {
 
         {/* ─────────────────────────────────────────────────────────────
             CARD 2: BASIC INFORMATION
+            Fields: File No, File Name, Section, Start Date, End Date
         ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
@@ -342,7 +363,8 @@ export default function AddNewFilePage() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3.5">
+          {/* Row 1: File No, File Name, Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3.5 mb-3.5">
             {/* File No */}
             <div className="sm:col-span-1 lg:col-span-3">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
@@ -356,11 +378,7 @@ export default function AddNewFilePage() {
                   if (errors.fileNo) setErrors((prev) => ({ ...prev, fileNo: '' }));
                 }}
                 placeholder="Ex: PDI/26/.."
-                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
-                  errors.fileNo
-                    ? 'border-red-500 ring-2 ring-red-500/10'
-                    : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                }`}
+                className={inputClass('fileNo')}
               />
               {errors.fileNo && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
@@ -383,11 +401,7 @@ export default function AddNewFilePage() {
                   if (errors.fileName) setErrors((prev) => ({ ...prev, fileName: '' }));
                 }}
                 placeholder="Enter File Name"
-                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
-                  errors.fileName
-                    ? 'border-red-500 ring-2 ring-red-500/10'
-                    : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                }`}
+                className={inputClass('fileName')}
               />
               {errors.fileName && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
@@ -398,7 +412,7 @@ export default function AddNewFilePage() {
             </div>
 
             {/* Section */}
-            <div className="sm:col-span-1 lg:col-span-3">
+            <div className="sm:col-span-2 lg:col-span-5">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 SECTION <span className="text-red-500 font-bold">*</span>
               </label>
@@ -435,42 +449,70 @@ export default function AddNewFilePage() {
                 </p>
               )}
             </div>
+          </div>
 
-            {/* Year */}
-            <div className="sm:col-span-1 lg:col-span-2">
+          {/* Row 2: Start Date, End Date */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* Start Date */}
+            <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                YEAR <span className="text-red-500 font-bold">*</span>
+                START DATE <span className="text-red-500 font-bold">*</span>
               </label>
               <div className="relative">
-                <select
-                  value={year}
+                <input
+                  type="date"
+                  value={startDate}
                   onChange={(e) => {
-                    setYear(e.target.value);
-                    if (errors.year) setErrors((prev) => ({ ...prev, year: '' }));
+                    setStartDate(e.target.value);
+                    if (errors.startDate) setErrors((prev) => ({ ...prev, startDate: '' }));
+                    // Re-validate end date if already set
+                    if (endDate && e.target.value && endDate < e.target.value) {
+                      setErrors((prev) => ({
+                        ...prev,
+                        endDate: 'End date must be on or after the start date.',
+                      }));
+                    } else if (errors.endDate) {
+                      setErrors((prev) => ({ ...prev, endDate: '' }));
+                    }
                   }}
-                  className={`h-10 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all ${
-                    errors.year
-                      ? 'border-red-500 ring-2 ring-red-500/10'
-                      : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                  }`}
-                >
-                  <option value="" disabled>
-                    Ex: 2024
-                  </option>
-                  {YEAR_OPTIONS.map((y) => (
-                    <option key={y} value={String(y)} className="text-slate-800 dark:text-white">
-                      {y}
-                    </option>
-                  ))}
-                </select>
+                  className={`${inputClass('startDate')} pr-9`}
+                />
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-                  <FiChevronDown className="h-4 w-4" />
+                  <FiCalendar className="h-4 w-4" />
                 </div>
               </div>
-              {errors.year && (
+              {errors.startDate && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
-                  {errors.year}
+                  {errors.startDate}
+                </p>
+              )}
+            </div>
+
+            {/* End Date */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                END DATE <span className="text-red-500 font-bold">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    if (errors.endDate) setErrors((prev) => ({ ...prev, endDate: '' }));
+                  }}
+                  className={`${inputClass('endDate')} pr-9`}
+                />
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                  <FiCalendar className="h-4 w-4" />
+                </div>
+              </div>
+              {errors.endDate && (
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
+                  <FiAlertCircle className="h-3.5 w-3.5" />
+                  {errors.endDate}
                 </p>
               )}
             </div>
@@ -479,6 +521,7 @@ export default function AddNewFilePage() {
 
         {/* ─────────────────────────────────────────────────────────────
             CARD 3: STORAGE LOCATION
+            Fields: Locker No, Shelf Name (was Shelf No), Shelf Position
         ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
@@ -505,16 +548,16 @@ export default function AddNewFilePage() {
               />
             </div>
 
-            {/* Shelf No */}
+            {/* Shelf Name (renamed from Shelf No) */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                SHELF NO
+                SHELF NAME
               </label>
               <input
                 type="text"
-                value={shelfNo}
-                onChange={(e) => setShelfNo(e.target.value)}
-                placeholder="Ex: S-05"
+                value={shelfName}
+                onChange={(e) => setShelfName(e.target.value)}
+                placeholder="Enter Shelf Name"
                 className="h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400 transition-all placeholder:text-slate-400"
               />
             </div>
@@ -570,11 +613,7 @@ export default function AddNewFilePage() {
                   if (errors.totalPages) setErrors((prev) => ({ ...prev, totalPages: '' }));
                 }}
                 placeholder="Total pages"
-                className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
-                  errors.totalPages
-                    ? 'border-red-500 ring-2 ring-red-500/10'
-                    : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                }`}
+                className={inputClass('totalPages')}
               />
               {errors.totalPages && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
@@ -599,11 +638,7 @@ export default function AddNewFilePage() {
                     if (errors.minuteSheets) setErrors((prev) => ({ ...prev, minuteSheets: '' }));
                   }}
                   placeholder="Minutes sheets count"
-                  className={`h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
-                    errors.minuteSheets
-                      ? 'border-red-500 ring-2 ring-red-500/10'
-                      : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                  }`}
+                  className={`${inputClass('minuteSheets')} pr-9`}
                 />
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
                   <FiCopy className="h-4 w-4" />
