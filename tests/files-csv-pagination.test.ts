@@ -334,5 +334,50 @@ describe('FileRepository Pagination & Filtering Logic', () => {
     expect(text).not.toContain('<button');
     expect(text).not.toContain('<svg');
   });
+
+  it('exports complete available file location including locker, shelf, and position without truncation', async () => {
+    const fileWithFullLocation = {
+      file_no: 'FL-2026-0042',
+      file_name: 'Hydro Basin Survey',
+      section_name: 'Land & Hydrology',
+      locker_no: 'Rack A-04',
+      shelf_name: 'Shelf 02',
+      shelf_position: 'Front',
+      created_at: '2026-10-09T10:00:00.000Z',
+    };
+
+    const location = [
+      fileWithFullLocation.locker_no,
+      fileWithFullLocation.shelf_name,
+      `Position: ${fileWithFullLocation.shelf_position}`,
+    ].join(' / ');
+
+    const headers = ['File Number', 'File Location'];
+    const rows = [[fileWithFullLocation.file_no, location]];
+
+    const blob = buildCsvBlob(headers, rows);
+    const text = await blob.text();
+
+    expect(text).toContain('Rack A-04 / Shelf 02 / Position: Front');
+    expect(text).not.toContain('...');
+  });
+
+  it('exports administrator attribution accurately in Admin Action column', async () => {
+    const rows = [
+      ['FL-2026-0001', 'Approved by Malitha Tishamal'],
+      ['FL-2026-0002', 'Approved (Auto-Logged)'],
+      ['FL-2026-0003', 'Disabled by Malitha Tishamal'],
+      ['FL-2026-0004', 'Pending Review'],
+    ];
+    const headers = ['File Number', 'Admin Action'];
+
+    const blob = buildCsvBlob(headers, rows);
+    const text = await blob.text();
+
+    expect(text).toContain('Approved by Malitha Tishamal');
+    expect(text).toContain('Approved (Auto-Logged)');
+    expect(text).toContain('Disabled by Malitha Tishamal');
+    expect(text).toContain('Pending Review');
+  });
 });
 

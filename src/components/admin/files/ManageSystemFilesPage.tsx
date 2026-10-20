@@ -234,8 +234,12 @@ export default function ManageSystemFilesPage() {
         ];
         const rows = exportFiles.map((f) => {
           const location =
-            [f.locker_no, f.shelf_name, f.shelf_position].filter(Boolean).join(' / ') ||
-            'Central Record Room';
+            [
+              f.locker_no,
+              f.shelf_name,
+              f.shelf_position ? `Position: ${f.shelf_position}` : null,
+              !f.locker_no && !f.shelf_name ? f.archive_repository : null,
+            ].filter(Boolean).join(' / ') || 'Central Record Room';
           return [
             f.file_no,
             f.file_name,
@@ -263,16 +267,32 @@ export default function ManageSystemFilesPage() {
         ];
         const rows = exportFiles.map((f) => {
           const location =
-            [f.locker_no, f.shelf_name, f.shelf_position].filter(Boolean).join(' / ') ||
-            'Central Record Room';
+            [
+              f.locker_no,
+              f.shelf_name,
+              f.shelf_position ? `Position: ${f.shelf_position}` : null,
+              !f.locker_no && !f.shelf_name ? f.archive_repository : null,
+            ].filter(Boolean).join(' / ') || 'Central Record Room';
+
+          const adminName =
+            f.approved_by_name ||
+            (f.approved_by && !f.approved_by.includes('-') ? f.approved_by : null);
+
           let adminAction = 'System Verified';
-          if (f.approved_by || f.approved_at) {
-            adminAction = f.approved_by
-              ? `Approved by ${f.approved_by}`
-              : 'Approved by Administrator';
-          } else if (f.registrar_role === 'Administrator') {
+          if (f.status === 'PENDING') {
+            adminAction = 'Pending Review';
+          } else if (f.status === 'disabled' || f.status === 'disposed') {
+            adminAction = adminName ? `Disabled by ${adminName}` : 'Disabled';
+          } else if (f.status === 'REJECTED') {
+            adminAction = adminName ? `Rejected by ${adminName}` : 'Rejected';
+          } else if (adminName) {
+            adminAction = `Approved by ${adminName}`;
+          } else if (f.registrar_role === 'Administrator' || !f.approved_by) {
             adminAction = 'Approved (Auto-Logged)';
+          } else if (f.approved_by || f.approved_at) {
+            adminAction = 'Approved by Administrator';
           }
+
           return [
             f.file_no,
             f.file_name,
@@ -642,7 +662,7 @@ export default function ManageSystemFilesPage() {
               onChange={(e) => handleFilterChange(setSelectedStorage, e.target.value)}
               className="h-9 w-full appearance-none rounded-xl bg-slate-50/70 dark:bg-navy-900/70 px-3 pr-8 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none border border-transparent focus:border-[#4318FF] cursor-pointer"
             >
-              <option value="all">All Storage Units (35)</option>
+              <option value="all">All Storage Units</option>
               <option value="Rack A">Rack A-04</option>
               <option value="Vault B">Vault B</option>
               <option value="Wing C">Wing C</option>

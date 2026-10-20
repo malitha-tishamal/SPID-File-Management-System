@@ -7,7 +7,8 @@ export type FileStatus =
   | 'active'
   | 'archived'
   | 'issued'
-  | 'disposed';
+  | 'disposed'
+  | 'disabled';
 
 export interface FileRecordRow {
   id?: number;
@@ -31,6 +32,7 @@ export interface FileRecordRow {
   /** Alias: created_by */
   created_by?: string | null;
   approved_by?: string | null;
+  approved_by_name?: string | null;
   approved_at?: string | null;
   archive_repository?: string;
   status?: FileStatus;
@@ -170,26 +172,45 @@ export class FileRepository {
       throw new Error(`Cannot approve file request with status "${existing.status}".`);
     }
 
+    const updatePayload: Record<string, any> = {
+      status: 'APPROVED',
+      approved_by: adminId,
+      approved_at: now,
+      updated_at: now,
+    };
+    if (adminName) {
+      updatePayload.approved_by_name = adminName;
+    }
+
     const { data, error } = await this.client
       .from('files')
-      .update({
-        status: 'APPROVED',
-        approved_by: adminId,
-        approved_at: now,
-        updated_at: now,
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
 
     if (error) {
+      // Fallback if approved_by_name column does not exist in DB table yet
+      if (error.message?.includes('approved_by_name')) {
+        delete updatePayload.approved_by_name;
+        const retry = await this.client
+          .from('files')
+          .update(updatePayload)
+          .eq('id', id)
+          .select()
+          .single();
+        if (retry.error) throw retry.error;
+        const result = retry.data as FileRecordRow;
+        result.approved_by_name = adminName || null;
+        return result;
+      }
       throw error;
     }
     return data as FileRecordRow;
   }
 
   /** Reject a pending file request */
-  async reject(id: number, adminId: string, reason?: string): Promise<FileRecordRow> {
+  async reject(id: number, adminId: string, reason?: string, adminName?: string): Promise<FileRecordRow> {
     const now = new Date().toISOString();
     const existing = await this.findById(id);
     if (!existing) {
@@ -199,19 +220,37 @@ export class FileRepository {
       throw new Error(`Cannot reject file request with status "${existing.status}".`);
     }
 
+    const updatePayload: Record<string, any> = {
+      status: 'REJECTED',
+      approved_by: adminId,
+      approved_at: now,
+      updated_at: now,
+    };
+    if (adminName) {
+      updatePayload.approved_by_name = adminName;
+    }
+
     const { data, error } = await this.client
       .from('files')
-      .update({
-        status: 'REJECTED',
-        approved_by: adminId,
-        approved_at: now,
-        updated_at: now,
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
 
     if (error) {
+      if (error.message?.includes('approved_by_name')) {
+        delete updatePayload.approved_by_name;
+        const retry = await this.client
+          .from('files')
+          .update(updatePayload)
+          .eq('id', id)
+          .select()
+          .single();
+        if (retry.error) throw retry.error;
+        const result = retry.data as FileRecordRow;
+        result.approved_by_name = adminName || null;
+        return result;
+      }
       throw error;
     }
     return data as FileRecordRow;
@@ -332,9 +371,45 @@ export class FileRepository {
 
     const total = count ?? (data?.length || 0);
     const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+    const files: FileRecordRow[] = ((data as FileRecordRow[]) ?? []).map((f) => ({ ...f }));
+
+    // Resolve approver display names from profiles table for any records where approved_by_name is missing
+    const approverIdsToResolve = Array.from(
+      new Set(
+        files
+          .filter((f) => f.approved_by && !f.approved_by_name)
+          .map((f) => f.approved_by as string)
+      )
+    );
+
+    if (approverIdsToResolve.length > 0) {
+      try {
+        const { data: profiles } = await this.client
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', approverIdsToResolve);
+
+        if (profiles && profiles.length > 0) {
+          const profileMap = new Map<string, string>();
+          for (const p of profiles) {
+            if (p.full_name || p.email) {
+              profileMap.set(p.id, p.full_name || p.email);
+            }
+          }
+          for (const file of files) {
+            if (!file.approved_by_name && file.approved_by && profileMap.has(file.approved_by)) {
+              file.approved_by_name = profileMap.get(file.approved_by) || null;
+            }
+          }
+        }
+      } catch (err) {
+        // Non-blocking enrichment
+        console.warn('FileRepository.listFiltered: error resolving approver profiles', err);
+      }
+    }
 
     return {
-      files: (data as FileRecordRow[]) ?? [],
+      files,
       total,
       page: safePage,
       limit: safeLimit,

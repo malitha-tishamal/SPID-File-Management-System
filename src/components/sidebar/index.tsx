@@ -34,30 +34,28 @@ async function fetchSession(): Promise<SessionUser | null> {
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
-  const [user, setUser] = useState<SessionUser | null>(() => {
-    if (sessionCache) return sessionCache;
-    if (typeof window !== 'undefined') {
-      try {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Read cached user & avatar immediately after mounting (browser only)
+    try {
+      const storedAvatar = localStorage.getItem('spid_user_avatar');
+      if (storedAvatar) {
+        setAvatarUrl(storedAvatar);
+      }
+      if (sessionCache) {
+        setUser(sessionCache);
+      } else {
         const stored = localStorage.getItem('spid_user');
         if (stored) {
           const parsed = JSON.parse(stored);
           sessionCache = parsed;
-          return parsed;
+          setUser(parsed);
         }
-      } catch {}
-    }
-    return null;
-  });
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('spid_user_avatar');
-      } catch {}
-    }
-    return null;
-  });
+      }
+    } catch {}
 
-  useEffect(() => {
     const syncAvatar = () => {
       try {
         const stored = localStorage.getItem('spid_user_avatar');
