@@ -1,0 +1,356 @@
+'use client';
+
+import React from 'react';
+import {
+  FiEye,
+  FiEdit2,
+  FiTrash2,
+  FiArchive,
+  FiCheckCircle,
+  FiChevronLeft,
+  FiChevronRight,
+  FiFileText,
+} from 'react-icons/fi';
+import type { FileRecordRow } from 'models/FileRepository';
+
+function getInitials(name?: string | null): string {
+  if (!name) return 'SO';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getSectionBadge(section?: string | null) {
+  const s = (section || '').toLowerCase();
+  if (s.includes('legal') || s.includes('contract')) {
+    return 'bg-[#FAF5FF] text-[#A855F7] border-[#F3E8FF] dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800';
+  }
+  if (s.includes('land') || s.includes('hydrology') || s.includes('water')) {
+    return 'bg-[#ECFDF5] text-[#05CD99] border-[#A7F3D0] dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800';
+  }
+  if (s.includes('engineering') || s.includes('irrigation')) {
+    return 'bg-[#EFF6FF] text-[#3B82F6] border-[#BFDBFE] dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800';
+  }
+  if (s.includes('finance') || s.includes('account') || s.includes('audit')) {
+    return 'bg-[#F0F9FF] text-[#0284C7] border-[#BAE6FD] dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800';
+  }
+  if (s.includes('hr') || s.includes('admin')) {
+    return 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800';
+  }
+  return 'bg-[#F4F7FE] text-[#4318FF] border-[#E0E5F2] dark:bg-navy-900 dark:text-brand-300 dark:border-navy-700';
+}
+
+function formatDateTimeParts(iso?: string | null): { date: string; time: string } {
+  if (!iso) return { date: '—', time: '' };
+  try {
+    const d = new Date(iso);
+    const dateStr = d.toISOString().split('T')[0];
+    const timeStr = d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return { date: dateStr, time: timeStr };
+  } catch {
+    return { date: iso, time: '' };
+  }
+}
+
+export default function AllFilesTable({
+  files,
+  total,
+  page,
+  limit,
+  totalPages,
+  loading = false,
+  isFiltered = false,
+  onPageChange,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  files: FileRecordRow[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  loading?: boolean;
+  isFiltered?: boolean;
+  onPageChange: (newPage: number) => void;
+  onView: (file: FileRecordRow) => void;
+  onEdit: (file: FileRecordRow) => void;
+  onDelete: (file: FileRecordRow) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700">
+        <span className="h-8 w-8 animate-spin rounded-full border-3 border-[#4318FF] border-t-transparent" />
+        <p className="mt-3 text-xs font-semibold text-slate-400">Loading files repository...</p>
+      </div>
+    );
+  }
+
+  if (files.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700 text-center px-4">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 mb-3">
+          <FiFileText className="h-7 w-7" />
+        </div>
+        <h4 className="text-sm font-bold text-slate-800 dark:text-white">No Files Found</h4>
+        <p className="mt-1 text-xs text-slate-400 max-w-sm">
+          No records match the current filter or search criteria. Try resetting filters or adding a new file.
+        </p>
+      </div>
+    );
+  }
+
+  const startRecord = total === 0 ? 0 : (page - 1) * limit + 1;
+  const endRecord = Math.min(page * limit, total);
+
+  return (
+    <div className="w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+      <div className="w-full overflow-x-auto">
+        <table className="w-full text-left border-collapse table-auto min-w-[980px] xl:min-w-0">
+          <thead>
+            <tr className="border-b border-slate-100 dark:border-navy-700 bg-slate-50/60 dark:bg-navy-900/40 text-[10px] font-black uppercase tracking-wider text-slate-400">
+              <th className="py-2.5 px-2 w-9 text-center">NO</th>
+              <th className="py-2.5 px-2 w-[112px]">FILE NUMBER</th>
+              <th className="py-2.5 px-2 min-w-[180px]">FILE NAME</th>
+              <th className="py-2.5 px-2 w-[115px]">SECTION</th>
+              <th className="py-2.5 px-2 w-[115px]">FILE LOCATION</th>
+              <th className="py-2.5 px-2 w-[115px]">ADDED BY</th>
+              <th className="py-2.5 px-2 text-center w-12">ROLE</th>
+              <th className="py-2.5 px-2 w-[85px]">ADDED DATE &amp; TIME</th>
+              <th className="py-2.5 px-2 w-[135px]">ADMIN ACTION</th>
+              <th className="py-2.5 px-2 text-center w-[85px]">ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-navy-700 text-xs">
+            {files.map((file, idx) => {
+              const locationStr =
+                [file.locker_no, file.shelf_name, file.shelf_position]
+                  .filter(Boolean)
+                  .join(' / ') || 'Central Record Room';
+
+              const isAdmin = file.registrar_role === 'Administrator';
+              const rowNo = String((page - 1) * limit + idx + 1).padStart(2, '0');
+              const dt = formatDateTimeParts(file.created_at);
+
+              // Admin Action badge text
+              let adminActionText = 'System Verified';
+              if (file.approved_by || file.approved_at) {
+                adminActionText = file.approved_by ? `Approved by ${file.approved_by}` : 'Approved by Administrator';
+              } else if (isAdmin) {
+                adminActionText = 'Approved (Auto-Logged)';
+              }
+
+              return (
+                <tr
+                  key={file.id ?? idx}
+                  className="hover:bg-slate-50/80 dark:hover:bg-navy-700/50 transition-colors"
+                >
+                  {/* NO */}
+                  <td className="py-2.5 px-2 text-center font-bold text-slate-400 text-xs">
+                    {rowNo}
+                  </td>
+
+                  {/* FILE NUMBER */}
+                  <td className="py-2.5 px-2 whitespace-nowrap">
+                    <span className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight">
+                      {file.file_no}
+                    </span>
+                  </td>
+
+                  {/* FILE NAME */}
+                  <td className="py-2.5 px-2">
+                    <div
+                      className="font-bold text-slate-800 dark:text-white leading-snug line-clamp-2 text-xs"
+                      title={file.file_name}
+                    >
+                      {file.file_name}
+                    </div>
+                    <div className="text-[10px] font-medium text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                      <span>Recordroom Ingest</span>
+                      <span>•</span>
+                      <span>Horizon RMS</span>
+                    </div>
+                  </td>
+
+                  {/* SECTION */}
+                  <td className="py-2.5 px-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border truncate max-w-[115px] ${getSectionBadge(
+                        file.section_name
+                      )}`}
+                      title={file.section_name}
+                    >
+                      <span className="truncate">{file.section_name}</span>
+                    </span>
+                  </td>
+
+                  {/* FILE LOCATION */}
+                  <td className="py-2.5 px-2">
+                    <div
+                      className="flex items-center gap-1 text-slate-600 dark:text-slate-300 text-[11px] font-medium"
+                      title={locationStr}
+                    >
+                      <FiArchive className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span className="truncate max-w-[100px]">{locationStr}</span>
+                    </div>
+                  </td>
+
+                  {/* ADDED BY */}
+                  <td className="py-2.5 px-2">
+                    <div
+                      className="flex items-center gap-1.5"
+                      title={file.registrar_name || 'System Officer'}
+                    >
+                      <div
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                          isAdmin
+                            ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                            : 'bg-slate-100 text-slate-700 dark:bg-navy-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {getInitials(file.registrar_name)}
+                      </div>
+                      <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate max-w-[85px]">
+                        {file.registrar_name || 'System Officer'}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* ROLE */}
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                    {isAdmin ? (
+                      <span className="inline-block rounded-full bg-[#E11D48] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                        Admin
+                      </span>
+                    ) : (
+                      <span className="inline-block rounded-full bg-[#05CD99] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                        User
+                      </span>
+                    )}
+                  </td>
+
+                  {/* ADDED DATE & TIME (Stacked cleanly) */}
+                  <td className="py-2.5 px-2 whitespace-nowrap">
+                    <div className="font-semibold text-slate-700 dark:text-slate-200 text-[11px] leading-tight">
+                      {dt.date}
+                    </div>
+                    {dt.time && (
+                      <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                        {dt.time}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* ADMIN ACTION */}
+                  <td className="py-2.5 px-2">
+                    <div className="flex items-start gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 leading-tight">
+                      <FiCheckCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span className="truncate max-w-[115px]" title={adminActionText}>
+                        {adminActionText}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* ACTIONS */}
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onView(file)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title="View details"
+                      >
+                        <FiEye className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEdit(file)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title="Edit file"
+                      >
+                        <FiEdit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(file)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title="Delete file"
+                      >
+                        <FiTrash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination Footer — hidden when a search/filter is active (all matches shown) */}
+      {!isFiltered && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 dark:border-navy-700 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
+          <div>
+            Showing {startRecord}–{endRecord} of {total} files
+          </div>
+
+          {totalPages >= 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onPageChange(page - 1)}
+                disabled={page <= 1}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <FiChevronLeft className="h-3.5 w-3.5" />
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                if (
+                  totalPages > 7 &&
+                  p !== 1 &&
+                  p !== totalPages &&
+                  Math.abs(p - page) > 1
+                ) {
+                  if (p === 2 || p === totalPages - 1) {
+                    return (
+                      <span key={p} className="px-1 text-slate-400 text-xs">
+                        ...
+                      </span>
+                    );
+                  }
+                  return null;
+                }
+
+                return (
+                  <button
+                    key={p}
+                    onClick={() => onPageChange(p)}
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg font-bold text-xs transition-colors cursor-pointer ${
+                      page === p
+                        ? 'bg-[#4318FF] text-white shadow-xs'
+                        : 'border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+
+              <button
+                onClick={() => onPageChange(page + 1)}
+                disabled={page >= totalPages}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                <FiChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
