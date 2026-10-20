@@ -87,6 +87,37 @@ export class FileRepository {
     return data as FileRecordRow;
   }
 
+  /** Batch insert multiple file records */
+  async createMany(
+    payloads: Array<Omit<FileRecordRow, 'id' | 'created_at' | 'updated_at'>>,
+  ): Promise<FileRecordRow[]> {
+    if (!payloads.length) return [];
+    const { data, error } = await this.client
+      .from('files')
+      .insert(payloads)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+    return (data as FileRecordRow[]) ?? [];
+  }
+
+  /** Find existing file names in a batch for duplicate checking */
+  async findExistingFileNames(fileNames: string[]): Promise<Set<string>> {
+    if (!fileNames.length) return new Set();
+    const cleanNames = fileNames.map((n) => n.trim()).filter(Boolean);
+    if (!cleanNames.length) return new Set();
+
+    const { data, error } = await this.client
+      .from('files')
+      .select('file_name')
+      .in('file_name', cleanNames);
+
+    if (error || !data) return new Set();
+    return new Set(data.map((r: { file_name: string }) => r.file_name.toLowerCase()));
+  }
+
   async list(limit = 100): Promise<FileRecordRow[]> {
     const { data, error } = await this.client
       .from('files')
