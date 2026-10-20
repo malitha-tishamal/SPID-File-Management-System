@@ -2,6 +2,7 @@ import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
 import { FileRepository, FileRecordRow } from 'models/FileRepository';
 import { SectionRepository } from 'models/SectionRepository';
+import { SettingsRepository } from 'models/SettingsRepository';
 import { parseAndValidateImportBuffer } from 'utils/fileImport';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';

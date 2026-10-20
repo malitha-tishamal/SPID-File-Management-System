@@ -281,6 +281,78 @@ export class FileRepository {
     };
   }
 
+  /** Update an existing file record by id */
+  async update(id: number, patch: Partial<FileRecordRow>): Promise<FileRecordRow> {
+    const { data, error } = await this.client
+      .from('files')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.update error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
+  /** Delete a file record by id */
+  async delete(id: number): Promise<void> {
+    const { error } = await this.client
+      .from('files')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(`FileRepository.delete error: ${error.message}`);
+    }
+  }
+
+  /** Approve a pending file submission */
+  async approve(id: number, actorId: string, approverName: string): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const { data, error } = await this.client
+      .from('files')
+      .update({
+        status: 'APPROVED',
+        approved_by: actorId,
+        approved_at: now,
+        updated_at: now,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.approve error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
+  /** Reject a pending file submission */
+  async reject(id: number, actorId: string, reason?: string): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      status: 'REJECTED',
+      approved_by: actorId,
+      approved_at: now,
+      updated_at: now,
+    };
+    if (reason) patch['reject_reason'] = reason;
+
+    const { data, error } = await this.client
+      .from('files')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.reject error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
   /** Aggregated KPI summary counts for top cards and tab badges */
   async getSummaryCounts(): Promise<FileCountsSummary> {
     try {
