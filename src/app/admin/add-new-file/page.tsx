@@ -15,8 +15,12 @@ import {
   FiPlus,
   FiAlertCircle,
   FiCalendar,
+  FiUploadCloud,
 } from 'react-icons/fi';
 import GlassNotification, { GlassNotificationType } from 'components/notifications/GlassNotification';
+import SectionCombobox from 'components/admin/SectionCombobox';
+import AddSectionModal from 'components/modals/AddSectionModal';
+import BulkImportModal from 'components/modals/BulkImportModal';
 
 interface SectionOption {
   id?: number | string;
@@ -71,6 +75,39 @@ export default function AddNewFilePage() {
     isOpen: false,
     type: 'success',
   });
+
+  // Bulk Import & Add Section Modals State
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isAddSectionOpen, setIsAddSectionOpen] = useState(false);
+
+  const handleSectionCreated = (newSec: SectionOption) => {
+    setSectionsList((prev) => {
+      const exists = prev.some(
+        (s) => s.name.toLowerCase() === newSec.name.toLowerCase(),
+      );
+      if (exists) return prev;
+      return [...prev, newSec].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    setSection(newSec.name);
+    if (errors.section) {
+      setErrors((prev) => ({ ...prev, section: '' }));
+    }
+    setNotification({
+      isOpen: true,
+      type: 'success',
+      title: 'Section Created',
+      message: `Section "${newSec.name}" was created successfully and selected.`,
+    });
+  };
+
+  const handleBulkImportSuccess = (count: number) => {
+    setNotification({
+      isOpen: true,
+      type: 'success',
+      title: 'Bulk Import Successful',
+      message: `${count} file records have been imported and approved in the archive repository.`,
+    });
+  };
 
   // Fetch session & sections on load
   useEffect(() => {
@@ -273,31 +310,48 @@ export default function AddNewFilePage() {
   return (
     <div className="w-full pb-8 font-dm">
       {/* ── BREADCRUMBS & PAGE HEADER ── */}
-      <div className="mb-4 flex flex-col gap-2">
-        {/* Breadcrumb Trail */}
-        <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
-          <Link href="/admin/default" className="hover:text-slate-600 dark:hover:text-white transition-colors">
-            Pages
-          </Link>
-          <span>/</span>
-          <span className="text-slate-500 dark:text-gray-300">Record Room</span>
-          <span>/</span>
-          <span className="text-[#4318FF] font-bold dark:text-brand-300">Add New File</span>
-        </nav>
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {/* Left: Breadcrumbs & Title */}
+        <div className="flex flex-col gap-2">
+          {/* Breadcrumb Trail */}
+          <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
+            <Link href="/admin/default" className="hover:text-slate-600 dark:hover:text-white transition-colors">
+              Pages
+            </Link>
+            <span>/</span>
+            <span className="text-slate-500 dark:text-gray-300">Record Room</span>
+            <span>/</span>
+            <span className="text-[#4318FF] font-bold dark:text-brand-300">Add New File</span>
+          </nav>
 
-        {/* Page Title & Subtitle */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 shadow-xs">
-            <FiPlus className="h-4 w-4 stroke-[3]" />
+          {/* Page Title & Subtitle */}
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 shadow-xs">
+              <FiPlus className="h-4 w-4 stroke-[3]" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-[#1B254B] dark:text-white leading-tight">
+                Add New File
+              </h1>
+              <p className="text-xs font-medium text-slate-400 dark:text-gray-400">
+                Register a new record in the physical archive repository
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-[#1B254B] dark:text-white leading-tight">
-              Add New File
-            </h1>
-            <p className="text-xs font-medium text-slate-400 dark:text-gray-400">
-              Register a new record in the physical archive repository
-            </p>
-          </div>
+        </div>
+
+        {/* Right (R1): Bulk Import (CSV) Button */}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setIsBulkImportOpen(true)}
+            className="flex h-10 items-center gap-2 rounded-xl bg-white dark:bg-navy-800 px-4 text-xs font-bold text-[#1B254B] dark:text-white border border-slate-200 dark:border-navy-700 shadow-xs hover:bg-[#F4F2FF] dark:hover:bg-navy-700 hover:border-[#4318FF]/30 hover:text-[#4318FF] dark:hover:text-brand-300 active:scale-[0.98] transition-all cursor-pointer"
+            title="Import multiple file records via CSV or Excel"
+            aria-label="Bulk Import (CSV)"
+          >
+            <FiUploadCloud className="h-4 w-4 text-[#4318FF] dark:text-brand-300 stroke-[2.5]" />
+            <span>Bulk Import (CSV)</span>
+          </button>
         </div>
       </div>
 
@@ -411,37 +465,21 @@ export default function AddNewFilePage() {
               )}
             </div>
 
-            {/* Section */}
+            {/* Section (R2) */}
             <div className="sm:col-span-2 lg:col-span-5">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                 SECTION <span className="text-red-500 font-bold">*</span>
               </label>
-              <div className="relative">
-                <select
-                  value={section}
-                  onChange={(e) => {
-                    setSection(e.target.value);
-                    if (errors.section) setErrors((prev) => ({ ...prev, section: '' }));
-                  }}
-                  className={`h-10 w-full appearance-none rounded-xl bg-white dark:bg-navy-900 px-3.5 pr-9 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all ${
-                    errors.section
-                      ? 'border-red-500 ring-2 ring-red-500/10'
-                      : 'border-slate-200 dark:border-navy-700 focus:border-[#4318FF] dark:focus:border-brand-400'
-                  } ${!section ? 'text-slate-400' : ''}`}
-                >
-                  <option value="" disabled>
-                    Ex: Admin, Development, Account
-                  </option>
-                  {sectionsList.map((s, idx) => (
-                    <option key={s.id ?? idx} value={s.name} className="text-slate-800 dark:text-white">
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-                  <FiChevronDown className="h-4 w-4" />
-                </div>
-              </div>
+              <SectionCombobox
+                sections={sectionsList}
+                value={section}
+                onChange={(val) => {
+                  setSection(val);
+                  if (errors.section) setErrors((prev) => ({ ...prev, section: '' }));
+                }}
+                onOpenAddSection={() => setIsAddSectionOpen(true)}
+                error={errors.section}
+              />
               {errors.section && (
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-red-500">
                   <FiAlertCircle className="h-3.5 w-3.5" />
@@ -696,6 +734,21 @@ export default function AddNewFilePage() {
           </button>
         </div>
       </form>
+
+      {/* ── ADD NEW SECTION MODAL (R2) ── */}
+      <AddSectionModal
+        isOpen={isAddSectionOpen}
+        onClose={() => setIsAddSectionOpen(false)}
+        onCreated={handleSectionCreated}
+      />
+
+      {/* ── BULK IMPORT MODAL (R1) ── */}
+      <BulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onSuccess={handleBulkImportSuccess}
+        activeSections={sectionsList}
+      />
 
       {/* ── GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL ── */}
       <GlassNotification

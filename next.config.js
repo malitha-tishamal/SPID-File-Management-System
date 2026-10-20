@@ -8,8 +8,12 @@
 //   '@fullcalendar/react',
 
 const nextConfig = {
-  basePath: process.env.NEXT_PUBLIC_BASE_PATH,
-  assetPrefix: process.env.NEXT_PUBLIC_BASE_PATH,
+  ...(process.env.NEXT_PUBLIC_BASE_PATH
+    ? {
+        basePath: process.env.NEXT_PUBLIC_BASE_PATH,
+        assetPrefix: process.env.NEXT_PUBLIC_BASE_PATH,
+      }
+    : {}),
   images: {
     domains: [
       'images.unsplash.com',
@@ -18,6 +22,14 @@ const nextConfig = {
     ],
     // Make ENV
     unoptimized: true,
+  },
+  webpack: (config, { dev, isServer }) => {
+    // Increase chunk load timeout to prevent premature ChunkLoadError timeouts on Windows
+    if (dev && !isServer) {
+      config.output = config.output || {};
+      config.output.chunkLoadTimeout = 300000; // 5 minutes
+    }
+    return config;
   },
 };
 

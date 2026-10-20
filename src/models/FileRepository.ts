@@ -128,97 +128,27 @@ export class FileRepository {
     return data as FileRecordRow;
   }
 
-  /** Update an existing file record */
-  async update(id: number, patch: Partial<FileRecordRow>): Promise<FileRecordRow> {
-    const updatePayload = {
-      ...patch,
-      updated_at: new Date().toISOString(),
-    };
-
+  /** Batch insert multiple file records */
+  async createMany(
+    payloads: Array<Omit<FileRecordRow, 'id' | 'created_at' | 'updated_at'>>,
+  ): Promise<FileRecordRow[]> {
+    if (!payloads.length) return [];
     const { data, error } = await this.client
       .from('files')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
+      .insert(payloads)
+      .select();
 
     if (error) {
       throw error;
     }
-    return data as FileRecordRow;
+    return (data as FileRecordRow[]) ?? [];
   }
 
-  /** Delete a file record */
-  async delete(id: number): Promise<boolean> {
-    const { error } = await this.client
-      .from('files')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      throw error;
-    }
-    return true;
-  }
-
-  /** Approve a pending file request */
-  async approve(id: number, adminId: string, adminName?: string): Promise<FileRecordRow> {
-    const now = new Date().toISOString();
-    const existing = await this.findById(id);
-    if (!existing) {
-      throw new Error('File request not found.');
-    }
-    if (existing.status !== 'PENDING') {
-      throw new Error(`Cannot approve file request with status "${existing.status}".`);
-    }
-
-    const updatePayload: Record<string, any> = {
-      status: 'APPROVED',
-      approved_by: adminId,
-      approved_at: now,
-      updated_at: now,
-    };
-    if (adminName) {
-      updatePayload.approved_by_name = adminName;
-    }
-
-    const { data, error } = await this.client
-      .from('files')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      // Fallback if approved_by_name column does not exist in DB table yet
-      if (error.message?.includes('approved_by_name')) {
-        delete updatePayload.approved_by_name;
-        const retry = await this.client
-          .from('files')
-          .update(updatePayload)
-          .eq('id', id)
-          .select()
-          .single();
-        if (retry.error) throw retry.error;
-        const result = retry.data as FileRecordRow;
-        result.approved_by_name = adminName || null;
-        return result;
-      }
-      throw error;
-    }
-    return data as FileRecordRow;
-  }
-
-  /** Reject a pending file request */
-  async reject(id: number, adminId: string, reason?: string, adminName?: string): Promise<FileRecordRow> {
-    const now = new Date().toISOString();
-    const existing = await this.findById(id);
-    if (!existing) {
-      throw new Error('File request not found.');
-    }
-    if (existing.status !== 'PENDING') {
-      throw new Error(`Cannot reject file request with status "${existing.status}".`);
-    }
+  /** Find existing file names in a batch for duplicate checking */
+  async findExistingFileNames(fileNames: string[]): Promise<Set<string>> {
+    if (!fileNames.length) return new Set();
+    const cleanNames = fileNames.map((n) => n.trim()).filter(Boolean);
+    if (!cleanNames.length) return new Set();
 
     const updatePayload: Record<string, any> = {
       status: 'REJECTED',
@@ -232,31 +162,13 @@ export class FileRepository {
 
     const { data, error } = await this.client
       .from('files')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single();
+      .select('file_name')
+      .in('file_name', cleanNames);
 
-    if (error) {
-      if (error.message?.includes('approved_by_name')) {
-        delete updatePayload.approved_by_name;
-        const retry = await this.client
-          .from('files')
-          .update(updatePayload)
-          .eq('id', id)
-          .select()
-          .single();
-        if (retry.error) throw retry.error;
-        const result = retry.data as FileRecordRow;
-        result.approved_by_name = adminName || null;
-        return result;
-      }
-      throw error;
-    }
-    return data as FileRecordRow;
+    if (error || !data) return new Set();
+    return new Set(data.map((r: { file_name: string }) => r.file_name.toLowerCase()));
   }
 
-  /** List all files with optional limit */
   async list(limit = 100): Promise<FileRecordRow[]> {
     const { data, error } = await this.client
       .from('files')
@@ -415,6 +327,78 @@ export class FileRepository {
       limit: safeLimit,
       totalPages,
     };
+  }
+
+  /** Update an existing file record by id */
+  async update(id: number, patch: Partial<FileRecordRow>): Promise<FileRecordRow> {
+    const { data, error } = await this.client
+      .from('files')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.update error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
+  /** Delete a file record by id */
+  async delete(id: number): Promise<void> {
+    const { error } = await this.client
+      .from('files')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(`FileRepository.delete error: ${error.message}`);
+    }
+  }
+
+  /** Approve a pending file submission */
+  async approve(id: number, actorId: string, approverName: string): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const { data, error } = await this.client
+      .from('files')
+      .update({
+        status: 'APPROVED',
+        approved_by: actorId,
+        approved_at: now,
+        updated_at: now,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.approve error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
+  /** Reject a pending file submission */
+  async reject(id: number, actorId: string, reason?: string): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      status: 'REJECTED',
+      approved_by: actorId,
+      approved_at: now,
+      updated_at: now,
+    };
+    if (reason) patch['reject_reason'] = reason;
+
+    const { data, error } = await this.client
+      .from('files')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`FileRepository.reject error: ${error.message}`);
+    }
+    return data as FileRecordRow;
   }
 
   /** Aggregated KPI summary counts for top cards and tab badges */

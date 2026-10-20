@@ -6,6 +6,7 @@ import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 
 import { invalidatePublicSectionsCache } from 'lib/sectionsCacheStore';
+import { capitalizeFirstLetter } from 'utils/fileImport';
 
 let cachedAdminSections: any = null;
 let lastAdminCacheTime = 0;
@@ -53,7 +54,7 @@ export class SectionController {
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
-    const name = String(body.name ?? '').trim();
+    const name = capitalizeFirstLetter(String(body.name ?? ''));
     const sectionLead = body.section_lead ? String(body.section_lead).trim() : undefined;
 
     if (!name || name.length < 3) {
