@@ -188,6 +188,7 @@ export class FileController {
       registered_by: actor.id,
       created_by: actor.id,
       approved_by: approvedBy,
+      approved_by_name: isAdmin ? (actor.full_name || actor.email || 'Administrator') : null,
       approved_at: approvedAt,
       archive_repository: 'Central Record Room (B-02)',
       status: fileStatus,
@@ -378,7 +379,8 @@ export class FileController {
       );
     }
 
-    const rejected = await repo.reject(id, actor.id, reason);
+    const adminDisplayName = actor.full_name || actor.email || 'Administrator';
+    const rejected = await repo.reject(id, actor.id, reason, adminDisplayName);
 
     try {
       await new AuditLogRepository(admin).log({

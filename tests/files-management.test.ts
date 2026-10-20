@@ -29,6 +29,7 @@ interface MockFile {
   registered_by: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'active';
   approved_by: string | null;
+  approved_by_name?: string | null;
   approved_at: string | null;
   created_at: string;
   updated_at: string;
@@ -124,6 +125,7 @@ vi.mock('config/supabase/server', () => ({
                   registered_by: row.registered_by ?? 'user-id',
                   status: row.status ?? 'PENDING',
                   approved_by: row.approved_by ?? null,
+                  approved_by_name: row.approved_by_name ?? null,
                   approved_at: row.approved_at ?? null,
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
@@ -241,6 +243,7 @@ describe('Manage System Files — Full Workflow Suite', () => {
         registered_by: 'admin-1',
         status: 'APPROVED',
         approved_by: 'admin-1',
+        approved_by_name: 'Malitha Tishamal',
         approved_at: '2026-10-01T10:00:00.000Z',
         created_at: '2026-10-01T10:00:00.000Z',
         updated_at: '2026-10-01T10:00:00.000Z',
@@ -323,6 +326,7 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(json.ok).toBe(true);
     expect(json.data.file.status).toBe('APPROVED');
     expect(json.data.file.approved_by).toBe('admin-1');
+    expect(json.data.file.approved_by_name).toBe('Malitha Tishamal');
     expect(json.data.file.approved_at).toBeDefined();
 
     // Verify file now appears in All Files

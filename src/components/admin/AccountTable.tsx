@@ -64,16 +64,14 @@ export default function AccountTable({
 }) {
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('spid_user_avatar');
-      } catch {}
-    }
-    return null;
-  });
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null);
 
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem('spid_user_avatar');
+      if (stored) setCurrentUserAvatar(stored);
+    } catch {}
+
     const syncAvatar = () => {
       try {
         setCurrentUserAvatar(localStorage.getItem('spid_user_avatar'));

@@ -102,22 +102,28 @@ export default function FileRequestsTable({
           <thead>
             <tr className="border-b border-slate-100 dark:border-navy-700 bg-slate-50/60 dark:bg-navy-900/40 text-[10px] font-black uppercase tracking-wider text-slate-400">
               <th className="py-2.5 px-2 w-9 text-center">NO</th>
-              <th className="py-2.5 px-2 w-[112px]">FILE NUMBER</th>
-              <th className="py-2.5 px-2 min-w-[180px]">FILE NAME</th>
-              <th className="py-2.5 px-2 w-[115px]">SECTION</th>
+              <th className="py-2.5 px-2 w-[108px]">FILE NUMBER</th>
+              <th className="py-2.5 px-2 min-w-[155px]">FILE NAME</th>
+              <th className="py-2.5 px-2 w-[130px]">SECTION</th>
               <th className="py-2.5 px-2 w-[115px]">FILE LOCATION</th>
-              <th className="py-2.5 px-2 w-[115px]">SUBMITTED BY</th>
-              <th className="py-2.5 px-2 text-center w-12">ROLE</th>
-              <th className="py-2.5 px-2 w-[85px]">SUBMITTED DATE &amp; TIME</th>
-              <th className="py-2.5 px-2 text-center w-[105px]">REQUEST STATUS</th>
+              <th className="py-2.5 px-2 w-[100px]">SUBMITTED BY</th>
+              <th className="py-2.5 px-2 text-center w-10">ROLE</th>
+              <th className="py-2.5 px-2 w-[80px]">SUBMITTED DATE &amp; TIME</th>
+              <th className="py-2.5 px-2 text-center w-[100px]">REQUEST STATUS</th>
               <th className="py-2.5 px-2 text-center w-[155px]">ADMIN ACTIONS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-navy-700 text-xs">
             {files.map((file, idx) => {
               const locationStr =
-                [file.locker_no, file.shelf_name].filter(Boolean).join(' / ') ||
-                'Central Record Room';
+                [
+                  file.locker_no,
+                  file.shelf_name,
+                  file.shelf_position ? `Position: ${file.shelf_position}` : null,
+                  !file.locker_no && !file.shelf_name ? file.archive_repository : null,
+                ]
+                  .filter(Boolean)
+                  .join(' / ') || 'Central Record Room';
 
               const roleLabel = file.registrar_role === 'Administrator' ? 'Admin' : 'User';
               const dt = formatDateTimeParts(file.created_at);
@@ -158,23 +164,49 @@ export default function FileRequestsTable({
                   {/* SECTION */}
                   <td className="py-2.5 px-2">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border truncate max-w-[115px] ${getSectionBadge(
+                      className={`inline-flex items-start rounded-2xl px-2 py-1 text-[10px] font-bold border leading-snug ${getSectionBadge(
                         file.section_name
                       )}`}
-                      title={file.section_name}
                     >
-                      <span className="truncate">{file.section_name}</span>
+                      {file.section_name}
                     </span>
                   </td>
 
-                  {/* FILE LOCATION */}
+                  {/* FILE LOCATION (Complete multiline display) */}
                   <td className="py-2.5 px-2">
                     <div
-                      className="flex items-center gap-1 text-slate-600 dark:text-slate-300 text-[11px] font-medium"
+                      className="flex items-start gap-1.5 text-[11px] leading-tight text-slate-700 dark:text-slate-200"
                       title={locationStr}
                     >
-                      <FiArchive className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span className="truncate max-w-[100px]">{locationStr}</span>
+                      <FiArchive className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                      <div className="min-w-0 space-y-0.5">
+                        {file.locker_no && (
+                          <div
+                            className="font-bold text-slate-800 dark:text-white leading-tight truncate max-w-[110px]"
+                            title={file.locker_no}
+                          >
+                            {file.locker_no}
+                          </div>
+                        )}
+                        {file.shelf_name && (
+                          <div
+                            className="text-slate-600 dark:text-slate-300 leading-tight truncate max-w-[110px]"
+                            title={file.shelf_name}
+                          >
+                            {file.shelf_name}
+                          </div>
+                        )}
+                        {file.shelf_position && (
+                          <div className="text-[10px] text-slate-400 dark:text-slate-400 font-medium leading-tight">
+                            Position: {file.shelf_position}
+                          </div>
+                        )}
+                        {!file.locker_no && !file.shelf_name && (
+                          <div className="font-medium text-slate-600 dark:text-slate-300 leading-tight">
+                            {file.archive_repository || 'Central Record Room'}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
 

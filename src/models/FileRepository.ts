@@ -7,7 +7,8 @@ export type FileStatus =
   | 'active'
   | 'archived'
   | 'issued'
-  | 'disposed';
+  | 'disposed'
+  | 'disabled';
 
 export interface FileRecordRow {
   id?: number;
@@ -31,6 +32,7 @@ export interface FileRecordRow {
   /** Alias: created_by */
   created_by?: string | null;
   approved_by?: string | null;
+  approved_by_name?: string | null;
   approved_at?: string | null;
   archive_repository?: string;
   status?: FileStatus;
@@ -147,6 +149,16 @@ export class FileRepository {
     if (!fileNames.length) return new Set();
     const cleanNames = fileNames.map((n) => n.trim()).filter(Boolean);
     if (!cleanNames.length) return new Set();
+
+    const updatePayload: Record<string, any> = {
+      status: 'REJECTED',
+      approved_by: adminId,
+      approved_at: now,
+      updated_at: now,
+    };
+    if (adminName) {
+      updatePayload.approved_by_name = adminName;
+    }
 
     const { data, error } = await this.client
       .from('files')
@@ -271,9 +283,45 @@ export class FileRepository {
 
     const total = count ?? (data?.length || 0);
     const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+    const files: FileRecordRow[] = ((data as FileRecordRow[]) ?? []).map((f) => ({ ...f }));
+
+    // Resolve approver display names from profiles table for any records where approved_by_name is missing
+    const approverIdsToResolve = Array.from(
+      new Set(
+        files
+          .filter((f) => f.approved_by && !f.approved_by_name)
+          .map((f) => f.approved_by as string)
+      )
+    );
+
+    if (approverIdsToResolve.length > 0) {
+      try {
+        const { data: profiles } = await this.client
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', approverIdsToResolve);
+
+        if (profiles && profiles.length > 0) {
+          const profileMap = new Map<string, string>();
+          for (const p of profiles) {
+            if (p.full_name || p.email) {
+              profileMap.set(p.id, p.full_name || p.email);
+            }
+          }
+          for (const file of files) {
+            if (!file.approved_by_name && file.approved_by && profileMap.has(file.approved_by)) {
+              file.approved_by_name = profileMap.get(file.approved_by) || null;
+            }
+          }
+        }
+      } catch (err) {
+        // Non-blocking enrichment
+        console.warn('FileRepository.listFiltered: error resolving approver profiles', err);
+      }
+    }
 
     return {
-      files: (data as FileRecordRow[]) ?? [],
+      files,
       total,
       page: safePage,
       limit: safeLimit,
@@ -330,7 +378,7 @@ export class FileRepository {
   }
 
   /** Reject a pending file submission */
-  async reject(id: number, actorId: string, reason?: string): Promise<FileRecordRow> {
+  async reject(id: number, actorId: string, reason?: string, adminName?: string): Promise<FileRecordRow> {
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
       status: 'REJECTED',
@@ -339,6 +387,7 @@ export class FileRepository {
       updated_at: now,
     };
     if (reason) patch['reject_reason'] = reason;
+    if (adminName) patch['approved_by_name'] = adminName;
 
     const { data, error } = await this.client
       .from('files')
