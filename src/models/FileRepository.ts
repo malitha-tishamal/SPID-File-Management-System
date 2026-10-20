@@ -378,7 +378,7 @@ export class FileRepository {
   }
 
   /** Reject a pending file submission */
-  async reject(id: number, actorId: string, reason?: string): Promise<FileRecordRow> {
+  async reject(id: number, actorId: string, reason?: string, adminName?: string): Promise<FileRecordRow> {
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
       status: 'REJECTED',
@@ -387,6 +387,7 @@ export class FileRepository {
       updated_at: now,
     };
     if (reason) patch['reject_reason'] = reason;
+    if (adminName) patch['approved_by_name'] = adminName;
 
     const { data, error } = await this.client
       .from('files')
