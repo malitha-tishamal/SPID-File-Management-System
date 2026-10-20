@@ -59,3 +59,53 @@
 - Supabase Auth User Metadata integration and synchronization.
 - Client-side document generation (CSV data blobs, dynamic HTML print streams).
 - Real-time cross-component event broadcasting (`window.dispatchEvent` + `BroadcastChannel`).
+
+
+---
+
+### Day 2: Tuesday, 20 October 2026
+
+#### 1. Tasks & Objectives
+- Implemented **Mobile Contact Editing & Validation** in the Admin/Staff Personnel Edit Modal (`EditUserModal`).
+- Added strict Sri Lankan mobile phone format enforcement (`+94 XX XXX XXXX` / 9 digits) with client-side interactive masking and validation feedback.
+- Synchronized profile updates across database tables (`profiles`) and Supabase Auth metadata (`auth.users.user_metadata`).
+- Resolved CI/CD build issues on Vercel: integrated `SettingsRepository`, added missing `FileRepository` lifecycle methods (`update`, `delete`, `approve`, `reject`), and validated full Next.js production builds.
+
+#### 2. Technical Implementation Details
+1. **Interactive Mobile Phone Input in Personnel Modal (`EditUserModal.tsx`):**
+   - Engineered dedicated phone input field with national flag (`🇱🇰`) and prefix pill (`+94`).
+   - Implemented dynamic input masking and digit sanitization via `useMemo` formatting to ensure standardized storage.
+   - Added validation indicators preventing form submission when mobile digits are incomplete.
+   - Reorganized modal layout to a clean 2-column grid structure with full-width security clearance allocation.
+
+2. **Backend Profile & Metadata Persistence (`AdminController.ts` & `ProfileRepository.ts`):**
+   - Updated `ProfileRepository.updateDetails` to support `mobile_phone` persistence.
+   - Enhanced `AdminController.update_profile` to sanitize, validate 9-digit formats, and commit changes to `profiles`.
+   - Connected `admin.auth.admin.updateUserById` to sync `full_name` and `mobile_phone` into auth metadata.
+   - Added automatic cache invalidation (`invalidateUsersCache()`) ensuring changes reflect immediately across the system.
+
+3. **Production Build & CI/CD Pipeline Rectification:**
+   - Diagnosed and resolved missing `SettingsRepository` imports in `FileController.ts`.
+   - Implemented missing record lifecycle methods in `FileRepository.ts` (`update`, `delete`, `approve`, `reject`).
+   - Ensured `xlsx` library resolution and configured production build scripts.
+   - Executed full local Next.js production build (`next build`), verifying static generation across all 29 routes without errors.
+
+#### 3. Files Modified & Added
+- `src/components/modals/EditUserModal.tsx`: Added mobile phone input, formatting hooks, and validation.
+- `src/components/admin/useAccountActions.ts`: Extended `saveProfile` payload to include `mobile_phone`.
+- `src/components/admin/AccountDirectoryPage.tsx`: Connected `handleEditSave` to pass updated mobile numbers.
+- `src/controllers/AdminController.ts`: Added mobile number parsing, validation, metadata sync, and cache invalidation.
+- `src/models/ProfileRepository.ts`: Added `mobile_phone` to `updateDetails` patch definition.
+- `src/controllers/FileController.ts`: Fixed missing `SettingsRepository` import.
+- `src/models/FileRepository.ts`: Added file lifecycle methods (`update`, `delete`, `approve`, `reject`).
+
+#### 4. Testing & Verification
+- `npx tsc --noEmit`: 0 errors.
+- `npm run build`: Compiled successfully across all 29 app routes with full static and dynamic route optimization.
+- Verified mobile number input formatting and validation in `EditUserModal`.
+- Verified server response and cache invalidation upon saving user updates.
+
+#### 5. Competencies & Skills Gained
+- Input masking and regex validation for regional telephone standards (E.164 / Sri Lankan format).
+- Full-stack synchronization between SQL relational tables and Supabase Auth JSON metadata.
+- Production build debugging, bundle analysis, and CI/CD error resolution in Next.js 15.
