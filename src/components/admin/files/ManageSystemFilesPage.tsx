@@ -43,8 +43,8 @@ export default function ManageSystemFilesPage() {
   // Active Tab: 'requests' (File Requests) is active by default
   const [activeTab, setActiveTab] = useState<'requests' | 'all' | 'rejected'>('requests');
 
-  // Global Approval Toggle State
-  const [requireApproval, setRequireApproval] = useState<boolean>(true);
+  // Global Auto Approval Toggle State (default: false / Auto approval off)
+  const [autoApproval, setAutoApproval] = useState<boolean>(false);
   const [isTogglingApproval, setIsTogglingApproval] = useState<boolean>(false);
 
   // Data & Summary Counts
@@ -174,8 +174,10 @@ export default function ManageSystemFilesPage() {
           if (json.data.counts) {
             setCounts(json.data.counts);
           }
-          if (typeof json.data.requireApproval === 'boolean') {
-            setRequireApproval(json.data.requireApproval);
+          if (typeof json.data.auto_approval === 'boolean') {
+            setAutoApproval(json.data.auto_approval);
+          } else if (typeof json.data.requireApproval === 'boolean') {
+            setAutoApproval(!json.data.requireApproval);
           }
         } else {
           showToast({
@@ -230,7 +232,7 @@ export default function ManageSystemFilesPage() {
     setPage(1);
   };
 
-  // â”€â”€ CSV Export Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ CSV Export Handler Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleExportCsv = async () => {
     if (isExporting) return;
     setIsExporting(true);
@@ -267,7 +269,7 @@ export default function ManageSystemFilesPage() {
       const today = sriLankaTodayInput();
 
       if (activeTab === 'requests') {
-        // â”€â”€ File Requests CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Ã¢â€â‚¬Ã¢â€â‚¬ File Requests CSV Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         const headers = [
           'File Number',
           'File Name',
@@ -301,7 +303,7 @@ export default function ManageSystemFilesPage() {
         });
         exportToCsv(headers, rows, `file-requests-${today}.csv`);
       } else {
-        // â”€â”€ All Files CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Ã¢â€â‚¬Ã¢â€â‚¬ All Files CSV Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
         const headers = [
           'File Number',
           'File Name',
@@ -379,40 +381,42 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // â”€â”€ Approval Setting Toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Approval Setting Toggle Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleToggleApprovalSetting = async () => {
     if (isTogglingApproval) return;
-    const previous = requireApproval;
+    const previous = autoApproval;
     const next = !previous;
 
     // Optimistic UI update
-    setRequireApproval(next);
+    setAutoApproval(next);
     setIsTogglingApproval(true);
 
     try {
       const res = await fetch('/api/admin/files/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ require_approval: next }),
+        body: JSON.stringify({ auto_approval: next, require_approval: !next }),
       });
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
-        if (typeof json.data?.require_approval === 'boolean') {
-          setRequireApproval(json.data.require_approval);
-        }
+        const serverAuto =
+          typeof json.data?.auto_approval === 'boolean'
+            ? json.data.auto_approval
+            : typeof json.data?.require_approval === 'boolean'
+            ? !json.data.require_approval
+            : next;
+        setAutoApproval(serverAuto);
         showToast({
           type: 'success',
           title: 'System Setting Updated',
-          message:
-            json.data?.message ||
-            `File submission approval requirement ${
-              next ? 'enabled' : 'disabled'
-            }.`,
+          message: serverAuto
+            ? 'Auto approval enabled. Staff file submissions will be approved automatically.'
+            : 'Auto approval disabled. Staff file submissions now require administrator review.',
         });
       } else {
         // Rollback
-        setRequireApproval(previous);
+        setAutoApproval(previous);
         showToast({
           type: 'error',
           title: 'Failed to Update Setting',
@@ -420,7 +424,7 @@ export default function ManageSystemFilesPage() {
         });
       }
     } catch {
-      setRequireApproval(previous);
+      setAutoApproval(previous);
       showToast({
         type: 'error',
         title: 'Network Error',
@@ -431,7 +435,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // â”€â”€ Approve File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Approve File Action Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleApproveConfirm = async () => {
     if (!approvingFile || isApproving) return;
     setIsApproving(true);
@@ -473,7 +477,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // â”€â”€ Reject File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Reject File Action Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleRejectConfirm = async (reason?: string) => {
     if (!rejectingFile || isRejecting) return;
     setIsRejecting(true);
@@ -517,7 +521,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // â”€â”€ Edit File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Edit File Action Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleEditSave = async (payload: Partial<FileRecordRow>) => {
     if (!editingFile || isSavingEdit) return;
     setIsSavingEdit(true);
@@ -559,7 +563,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // â”€â”€ Delete File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Delete File Action Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const handleDeleteConfirm = async () => {
     if (!deletingFile || isDeleting) return;
     setIsDeleting(true);
@@ -616,7 +620,7 @@ export default function ManageSystemFilesPage() {
 
   return (
     <div className="w-full pb-10 font-dm">
-      {/* â”€â”€ BREADCRUMBS & TOP BAR â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ BREADCRUMBS & TOP BAR Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
           <Link
@@ -642,7 +646,7 @@ export default function ManageSystemFilesPage() {
         </Link>
       </div>
 
-      {/* â”€â”€ HEADING & TOP SUMMARY METRIC CARDS â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ HEADING & TOP SUMMARY METRIC CARDS Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#1B254B] dark:text-white sm:text-3xl">
@@ -724,7 +728,7 @@ export default function ManageSystemFilesPage() {
         </div>
       </div>
 
-      {/* â”€â”€ SEARCH & FILTER CONTROLS BAR â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ SEARCH & FILTER CONTROLS BAR Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="shadow-xs mb-4 rounded-2xl border border-slate-100 bg-white p-3 dark:border-navy-700 dark:bg-navy-800">
         <div className="flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
           {/* Search input */}
@@ -843,16 +847,16 @@ export default function ManageSystemFilesPage() {
             ) : (
               <FiDownload className="h-3.5 w-3.5" />
             )}
-            <span>{isExporting ? 'Exportingâ€¦' : 'Export CSV'}</span>
+            <span>{isExporting ? 'ExportingÃ¢â‚¬Â¦' : 'Export CSV'}</span>
           </button>
         </div>
       </div>
 
-      {/* â”€â”€ SECURE REPOSITORY BANNER â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECURE REPOSITORY BANNER Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200/50 bg-[#F4F7FE] px-4 py-2 dark:border-navy-700 dark:bg-navy-900/80">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
           <FiShield className="h-4 w-4 text-[#4318FF] dark:text-brand-300" />
-          <span>Secure repository â€¢ Access managed for your administrator</span>
+          <span>Secure repository Ã¢â‚¬Â¢ Access managed for your administrator</span>
         </div>
         <div className="flex items-center gap-1.5 rounded-full bg-[#EBF3FE] px-2.5 py-0.5 text-[10px] font-bold text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4318FF] dark:bg-brand-300" />
@@ -860,7 +864,7 @@ export default function ManageSystemFilesPage() {
         </div>
       </div>
 
-      {/* â”€â”€ TABS BAR & ADMIN APPROVAL TOGGLE SWITCH â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ TABS BAR & ADMIN APPROVAL TOGGLE SWITCH Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
         {/* Left: Two Mutually Exclusive Tabs */}
         <div className="flex items-center gap-2">
@@ -943,27 +947,27 @@ export default function ManageSystemFilesPage() {
           </button>
         </div>
 
-        {/* Right: Global Approval Setting Switch */}
+        {/* Right: Global Auto-Approval Setting Switch */}
         <div className="shadow-xs flex items-center gap-3 self-end rounded-2xl border border-slate-100 bg-white px-4 py-2 dark:border-navy-700 dark:bg-navy-800 md:self-auto">
           <div className="text-right">
             <div className="flex items-center justify-end gap-1.5">
               <span className="text-xs font-bold text-slate-800 dark:text-white">
-                Require Admin Approval for Staff File Submissions
+                Auto Approval for Staff File Submissions
               </span>
               <span
                 className={`py-0.2 rounded px-1.5 text-[9px] font-black tracking-wide ${
-                  requireApproval
+                  autoApproval
                     ? 'border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
                     : 'border border-slate-200 bg-slate-100 text-slate-500 dark:bg-navy-900 dark:text-slate-400'
                 }`}
               >
-                {requireApproval ? 'ENABLED' : 'DISABLED'}
+                {autoApproval ? 'AUTO APPROVAL ON' : 'AUTO APPROVAL OFF'}
               </span>
             </div>
             <p className="text-[10px] text-slate-400">
-              {requireApproval
-                ? 'Staff submissions require administrator approval.'
-                : 'Staff submissions are added directly to the active archive repository.'}
+              {autoApproval
+                ? 'Staff file requests are automatically approved upon submission.'
+                : 'Staff submissions require administrator review and approval.'}
             </p>
           </div>
 
@@ -971,23 +975,24 @@ export default function ManageSystemFilesPage() {
           <button
             type="button"
             role="switch"
-            aria-checked={requireApproval}
+            aria-checked={autoApproval}
             disabled={isTogglingApproval}
             onClick={handleToggleApprovalSetting}
             className={`border-transparent relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-in-out focus:outline-none ${
-              requireApproval ? 'bg-[#4318FF]' : 'bg-slate-300 dark:bg-navy-600'
+              autoApproval ? 'bg-[#05CD99]' : 'bg-slate-300 dark:bg-navy-600'
             } ${isTogglingApproval ? 'cursor-not-allowed opacity-60' : ''}`}
+            title={autoApproval ? 'Auto approval is ON' : 'Auto approval is OFF'}
           >
             <span
               className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                requireApproval ? 'translate-x-5' : 'translate-x-0'
+                autoApproval ? 'translate-x-5' : 'translate-x-0'
               }`}
             />
           </button>
         </div>
       </div>
 
-      {/* â”€â”€ SECTION HEADER BELOW TABS â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ SECTION HEADER BELOW TABS Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {activeTab === 'requests' ? (
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1060,7 +1065,7 @@ export default function ManageSystemFilesPage() {
         </div>
       )}
 
-      {/* â”€â”€ TAB CONTENT TABLE â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ TAB CONTENT TABLE Ã¢â€â‚¬Ã¢â€â‚¬ */}
       {activeTab === 'requests' ? (
         <FileRequestsTable
           files={files}
@@ -1105,7 +1110,7 @@ export default function ManageSystemFilesPage() {
         />
       )}
 
-      {/* â”€â”€ MODALS â”€â”€ */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ MODALS Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <ViewFileModal file={viewingFile} onClose={() => setViewingFile(null)} />
 
       <ConfirmApproveModal

@@ -324,7 +324,9 @@ export default function AllFilesTable({
                           <span>Approved</span>
                         </span>
                         <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                          Admin ({file.approved_by_name || 'Admin'})
+                          {file.approved_by_name?.toLowerCase().includes('auto') || (!file.approved_by && !file.approved_by_name && !isAdmin)
+                            ? '(Reason: Auto approval on)'
+                            : `Admin (${file.approved_by_name || 'Admin'})`}
                         </span>
                       </div>
                     )}

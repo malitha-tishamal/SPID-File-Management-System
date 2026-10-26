@@ -25,7 +25,7 @@ export class FileController {
   }
 
   /**
-   * GET /api/admin/files — list files with filters, pagination, summary counts,
+   * GET /api/admin/files â€” list files with filters, pagination, summary counts,
    * and the current approval setting.
    */
   static async listFiles(req: Request) {
@@ -64,7 +64,7 @@ export class FileController {
         fileRepo.getSummaryCounts(),
         settingsRepo.getRequireFileApproval(),
       ]);
-      return jsonOk({ counts, requireApproval });
+      return jsonOk({ counts, requireApproval, auto_approval: !requireApproval });
     }
 
     const [filteredResult, counts, requireApproval] = await Promise.all([
@@ -94,13 +94,13 @@ export class FileController {
       limit: filteredResult.limit,
       totalPages: filteredResult.totalPages,
       ...(counts && requireApproval !== null
-        ? { counts, requireApproval }
+        ? { counts, requireApproval, auto_approval: !requireApproval }
         : {}),
     });
   }
 
   /**
-   * POST /api/admin/files — create a new file record or submit for approval.
+   * POST /api/admin/files â€” create a new file record or submit for approval.
    * Enforces server-side setting: staff submissions become PENDING if approval is enabled,
    * or APPROVED if disabled. Admin submissions are always APPROVED.
    */
@@ -190,17 +190,19 @@ export class FileController {
     const registrarName = actor.full_name || actor.email || 'System Officer';
     const registrarRole = actor.role || 'Staff';
 
-    // ── Enforce Approval Workflow based on Role & System Setting ──────────────
+    // â”€â”€ Enforce Approval Workflow based on Role & System Setting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const isAdmin = actor.role === 'Administrator';
     let fileStatus: 'APPROVED' | 'PENDING' = 'APPROVED';
     let approvedBy: string | null = null;
     let approvedAt: string | null = null;
     let message = '';
 
+    let approvedByName: string | null = null;
     if (isAdmin) {
       // Administrators bypass approval workflow
       fileStatus = 'APPROVED';
       approvedBy = actor.id;
+      approvedByName = actor.full_name || actor.email || 'Administrator';
       approvedAt = new Date().toISOString();
       message = 'File added successfully and approved.';
     } else {
@@ -209,15 +211,17 @@ export class FileController {
       if (requireApproval) {
         fileStatus = 'PENDING';
         approvedBy = null;
+        approvedByName = null;
         approvedAt = null;
         message =
           'Your file submission has been sent to the administrator for review. It will be added to the file repository after approval.';
       } else {
         fileStatus = 'APPROVED';
         approvedBy = null;
+        approvedByName = 'Auto approval on';
         approvedAt = new Date().toISOString();
         message =
-          'Your file has been added to the file repository successfully.';
+          'Your file has been added to the file repository successfully (Auto approved).';
       }
     }
 
@@ -237,9 +241,7 @@ export class FileController {
       registered_by: actor.id,
       created_by: actor.id,
       approved_by: approvedBy,
-      approved_by_name: isAdmin
-        ? actor.full_name || actor.email || 'Administrator'
-        : null,
+      approved_by_name: approvedByName,
       approved_at: approvedAt,
       archive_repository: 'Central Record Room (B-02)',
       status: fileStatus,
@@ -277,7 +279,7 @@ export class FileController {
     );
   }
 
-  /** GET /api/admin/files/[id] — get a single file's complete details */
+  /** GET /api/admin/files/[id] â€” get a single file's complete details */
   static async getFile(id: number) {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -290,7 +292,7 @@ export class FileController {
     return jsonOk({ file });
   }
 
-  /** PUT /api/admin/files/[id] — admin edit of an existing file record */
+  /** PUT /api/admin/files/[id] â€” admin edit of an existing file record */
   static async updateFile(id: number, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -386,7 +388,7 @@ export class FileController {
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[id] — admin delete of a file record */
+  /** DELETE /api/admin/files/[id] â€” admin delete of a file record */
   static async deleteFile(id: number) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -416,7 +418,7 @@ export class FileController {
     return jsonOk({ message: 'File deleted successfully.' });
   }
 
-  /** POST /api/admin/files/[id]/approve — approve pending submission */
+  /** POST /api/admin/files/[id]/approve â€” approve pending submission */
   static async approveFile(id: number) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -458,7 +460,7 @@ export class FileController {
     });
   }
 
-  /** POST /api/admin/files/[id]/reject — reject pending submission */
+  /** POST /api/admin/files/[id]/reject â€” reject pending submission */
   static async rejectFile(id: number, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -502,7 +504,7 @@ export class FileController {
     });
   }
 
-  /** GET /api/admin/files/settings — get current approval toggle value */
+  /** GET /api/admin/files/settings â€” get current approval toggle value */
   static async getApprovalSetting() {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -511,7 +513,10 @@ export class FileController {
     const requireApproval = await new SettingsRepository(
       admin,
     ).getRequireFileApproval();
-    return jsonOk({ require_approval: requireApproval });
+    return jsonOk({
+      require_approval: requireApproval,
+      auto_approval: !requireApproval,
+    });
   }
 
   /** POST /api/admin/files/settings — toggle approval setting (admin only) */
@@ -520,11 +525,16 @@ export class FileController {
     const actor = await AuthorizationService.requireAdminProfile();
     const body = await req.json().catch(() => null);
 
-    if (!body || typeof body.require_approval !== 'boolean') {
+    let requireApprovalValue: boolean;
+    if (body && typeof body.auto_approval === 'boolean') {
+      requireApprovalValue = !body.auto_approval;
+    } else if (body && typeof body.require_approval === 'boolean') {
+      requireApprovalValue = body.require_approval;
+    } else {
       throw new ApiError(
         400,
         'VALIDATION_ERROR',
-        'require_approval must be a boolean (true or false).',
+        'require_approval or auto_approval boolean is required.',
       );
     }
 
@@ -532,7 +542,7 @@ export class FileController {
     let updated: boolean;
     try {
       updated = await new SettingsRepository(admin).setRequireFileApproval(
-        body.require_approval,
+        requireApprovalValue,
         actor.id,
       );
     } catch (err) {
@@ -547,13 +557,14 @@ export class FileController {
 
     return jsonOk({
       require_approval: updated,
-      message: `Admin approval requirement has been ${
-        updated ? 'enabled' : 'disabled'
-      }.`,
+      auto_approval: !updated,
+      message: !updated
+        ? 'Auto approval enabled. Staff file submissions will be approved automatically.'
+        : 'Auto approval disabled. Staff file submissions now require administrator review.',
     });
   }
 
-  /** POST /api/admin/files/bulk-import — bulk import file records (admin or approved staff).
+  /** POST /api/admin/files/bulk-import â€” bulk import file records (admin or approved staff).
    * Staff imports honour the approval setting: PENDING when approval is required, else APPROVED. */
   static async bulkImportFiles(req: Request) {
     requireServerEnv();
@@ -669,6 +680,9 @@ export class FileController {
     const registrarRole = actor.role || 'Staff';
     const nowIso = new Date().toISOString();
     const bulkApprovedBy = isStaffActor ? null : actor.id;
+    const bulkApprovedByName = !isStaffActor
+      ? actor.full_name || actor.email || 'Administrator'
+      : (staffBulkStatus === 'APPROVED' ? 'Auto approval on' : null);
     const bulkApprovedAt = staffBulkStatus === 'PENDING' ? null : nowIso;
 
     rawRecords.forEach((record, index) => {
@@ -804,6 +818,7 @@ export class FileController {
         registered_by: actor.id,
         created_by: actor.id,
         approved_by: bulkApprovedBy,
+        approved_by_name: bulkApprovedByName,
         approved_at: bulkApprovedAt,
         archive_repository: 'Central Record Room (B-02)',
         status: staffBulkStatus,
@@ -849,9 +864,9 @@ export class FileController {
           : `Bulk import processed: ${importedRecords.length} records imported successfully, ${errors.length} failed.`,
     });
   }
-  // ── File-No-based methods (File No. as the public-facing primary key) ──────
+  // â”€â”€ File-No-based methods (File No. as the public-facing primary key) â”€â”€â”€â”€â”€â”€
 
-  /** GET /api/admin/files/[file_no] — get a single file by file_no */
+  /** GET /api/admin/files/[file_no] â€” get a single file by file_no */
   static async getFileByFileNo(fileNo: string) {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -864,7 +879,7 @@ export class FileController {
     return jsonOk({ file });
   }
 
-  /** PUT /api/admin/files/[file_no] — admin edit of an existing file record by file_no */
+  /** PUT /api/admin/files/[file_no] â€” admin edit of an existing file record by file_no */
   static async updateFileByFileNo(fileNo: string, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -960,7 +975,7 @@ export class FileController {
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[file_no] — admin delete of a file record by file_no */
+  /** DELETE /api/admin/files/[file_no] â€” admin delete of a file record by file_no */
   static async deleteFileByFileNo(fileNo: string) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -989,7 +1004,7 @@ export class FileController {
     return jsonOk({ message: 'File deleted successfully.' });
   }
 
-  /** POST /api/admin/files/[file_no]/approve — approve pending submission by file_no */
+  /** POST /api/admin/files/[file_no]/approve â€” approve pending submission by file_no */
   static async approveFileByFileNo(fileNo: string) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -1039,7 +1054,7 @@ export class FileController {
     });
   }
 
-  /** POST /api/admin/files/[file_no]/reject — reject pending submission by file_no */
+  /** POST /api/admin/files/[file_no]/reject â€” reject pending submission by file_no */
   static async rejectFileByFileNo(fileNo: string, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();

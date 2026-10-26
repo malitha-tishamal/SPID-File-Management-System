@@ -77,7 +77,9 @@ export default function ViewFileModal({
                 ) : isApproved ? (
                   <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                     <FiCheckCircle className="h-3 w-3" />
-                    {isViewerStaff ? 'Approved (Admin)' : `Approved (Admin: ${file.approved_by_name || 'Admin'})`}
+                    {file.approved_by_name?.toLowerCase().includes('auto') || (!file.approved_by && !file.approved_by_name && !isAdmin)
+                      ? 'Approved (Reason: Auto approval on)'
+                      : (isViewerStaff ? 'Approved (Admin)' : `Approved (Admin: ${file.approved_by_name || 'Admin'})`)}
                   </span>
                 ) : isPending ? (
                   <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
@@ -174,7 +176,9 @@ export default function ViewFileModal({
             </p>
             {isApproved && file.approved_at && (
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                Approved: {formatSriLankaDateTime(file.approved_at)}
+                {file.approved_by_name?.toLowerCase().includes('auto') || (!file.approved_by && !file.approved_by_name && !isAdmin)
+                  ? `Approved: ${formatSriLankaDateTime(file.approved_at)} (Auto approval on)`
+                  : `Approved: ${formatSriLankaDateTime(file.approved_at)}`}
               </p>
             )}
             {isRejected && (file.rejected_at || file.approved_at) && (
