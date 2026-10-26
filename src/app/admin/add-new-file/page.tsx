@@ -21,6 +21,8 @@ import GlassNotification, { GlassNotificationType } from 'components/notificatio
 import SectionCombobox from 'components/admin/SectionCombobox';
 import AddSectionModal from 'components/modals/AddSectionModal';
 import BulkImportModal from 'components/modals/BulkImportModal';
+import { useProfile } from 'contexts/ProfileContext';
+import { fetchClientSections } from 'lib/sectionsClient';
 
 interface SectionOption {
   id?: number | string;
@@ -109,48 +111,25 @@ export default function AddNewFilePage() {
     });
   };
 
-  // Fetch session & sections on load
+  const { profile } = useProfile();
+
+  useEffect(() => {
+    if (profile) {
+      const displayName = profile.full_name || 'System Administrator';
+      const accountTag = profile.email ? profile.email.split('@')[0] : 'sarath_admin';
+      setRegistrarName(`${displayName} (${accountTag})`);
+      setRegistrarRole(profile.role || 'Administrator');
+    }
+  }, [profile]);
+
+  // Fetch sections on load using deduplicated client
   useEffect(() => {
     let mounted = true;
-
-    // Fetch session data
-    fetch('/api/auth/me')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (!mounted || !json?.ok || !json.data?.profile) {
-          // Fallback to localStorage if available
-          try {
-            const stored = localStorage.getItem('spid_user');
-            if (stored) {
-              const u = JSON.parse(stored);
-              const name = u.full_name || u.name || 'System Administrator';
-              const email = u.email ? u.email.split('@')[0] : 'admin';
-              setRegistrarName(`${name} (${email})`);
-              const role = u.role || 'Administrator';
-              setRegistrarRole(role);
-            }
-          } catch {}
-          return;
-        }
-
-        const p = json.data.profile;
-        const displayName = p.full_name || 'System Administrator';
-        const accountTag = p.email ? p.email.split('@')[0] : 'sarath_admin';
-        setRegistrarName(`${displayName} (${accountTag})`);
-        const userRole = p.role || 'Administrator';
-        setRegistrarRole(userRole);
-      })
-      .catch(() => {
-        // Fallback default remains
-      });
-
-    // Fetch Sections
-    fetch('/api/sections')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
+    fetchClientSections()
+      .then((sections) => {
         if (!mounted) return;
-        if (json?.ok && Array.isArray(json.data?.sections) && json.data.sections.length > 0) {
-          setSectionsList(json.data.sections);
+        if (Array.isArray(sections) && sections.length > 0) {
+          setSectionsList(sections);
         }
       })
       .catch(() => {});
@@ -160,7 +139,7 @@ export default function AddNewFilePage() {
     };
   }, []);
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  // â”€â”€ Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
 
@@ -194,7 +173,7 @@ export default function AddNewFilePage() {
     return Object.keys(errs).length === 0;
   };
 
-  // ── Reset helpers ────────────────────────────────────────────────────────────
+  // â”€â”€ Reset helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const resetForm = () => {
     setFileNo('');
     setFileName('');
@@ -220,7 +199,7 @@ export default function AddNewFilePage() {
     }
   };
 
-  // ── Handle Submit ────────────────────────────────────────────────────────────
+  // â”€â”€ Handle Submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -253,7 +232,7 @@ export default function AddNewFilePage() {
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
-        // ── Success ──────────────────────────────────────────────────────────
+        // â”€â”€ Success â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const successMsg = json.data?.message || 'File added successfully and approved.';
         setNotification({
           isOpen: true,
@@ -263,20 +242,21 @@ export default function AddNewFilePage() {
         });
         resetForm();
       } else {
-        // ── Server-side failure ──────────────────────────────────────────────
+        // â”€â”€ Server-side failure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // API errors come back flat as { ok:false, code, message } (see lib/apiResponse)
+        const serverMsg: string = json?.message || json?.error?.message || '';
         let errorMsg: string;
 
         if (res.status === 409) {
-          errorMsg = 'File name already exists. Please enter a unique file name.';
+          errorMsg = serverMsg || 'File name already exists. Please enter a unique file name.';
         } else if (res.status === 400) {
-          const serverMsg = json?.error?.message ?? '';
           if (serverMsg.toLowerCase().includes('end date')) {
             errorMsg = 'End date must be on or after the start date.';
           } else {
             errorMsg = serverMsg || 'Failed to add file. Please try again.';
           }
         } else {
-          errorMsg = json?.error?.message || 'Failed to add file. Please try again.';
+          errorMsg = serverMsg || 'Failed to add file. Please try again.';
         }
 
         setNotification({
@@ -299,7 +279,7 @@ export default function AddNewFilePage() {
     }
   };
 
-  // ── Shared input class builder ───────────────────────────────────────────────
+  // â”€â”€ Shared input class builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const inputClass = (errorKey: string) =>
     `h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
       errors[errorKey]
@@ -309,13 +289,13 @@ export default function AddNewFilePage() {
 
   return (
     <div className="w-full pb-8 font-dm">
-      {/* ── BREADCRUMBS & PAGE HEADER ── */}
+      {/* â”€â”€ BREADCRUMBS & PAGE HEADER â”€â”€ */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         {/* Left: Breadcrumbs & Title */}
         <div className="flex flex-col gap-2">
           {/* Breadcrumb Trail */}
           <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
-            <Link href="/admin/default" className="hover:text-slate-600 dark:hover:text-white transition-colors">
+            <Link href="/admin/dashboard" className="hover:text-slate-600 dark:hover:text-white transition-colors">
               Pages
             </Link>
             <span>/</span>
@@ -355,11 +335,11 @@ export default function AddNewFilePage() {
         </div>
       </div>
 
-      {/* ── FORM CONTAINER ── */}
+      {/* â”€â”€ FORM CONTAINER â”€â”€ */}
       <form onSubmit={handleSave} className="flex flex-col gap-3.5">
-        {/* ─────────────────────────────────────────────────────────────
+        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             CARD 1: SESSION & REGISTRAR IDENTIFICATION
-        ────────────────────────────────────────────────────────────── */}
+        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -403,10 +383,10 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* ─────────────────────────────────────────────────────────────
+        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             CARD 2: BASIC INFORMATION
             Fields: File No, File Name, Section, Start Date, End Date
-        ────────────────────────────────────────────────────────────── */}
+        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
@@ -557,10 +537,10 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* ─────────────────────────────────────────────────────────────
+        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             CARD 3: STORAGE LOCATION
             Fields: Locker No, Shelf Name (was Shelf No), Shelf Position
-        ────────────────────────────────────────────────────────────── */}
+        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#FF5B5B] dark:text-rose-400">
@@ -623,9 +603,9 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* ─────────────────────────────────────────────────────────────
+        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             CARD 4: FILE DETAILS
-        ────────────────────────────────────────────────────────────── */}
+        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-purple-600 dark:text-purple-400">
@@ -692,9 +672,9 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* ─────────────────────────────────────────────────────────────
+        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             FORM ACTION BUTTONS
-        ────────────────────────────────────────────────────────────── */}
+        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="mt-1 flex items-center justify-end gap-3">
           {/* Cancel Button */}
           <button
@@ -735,14 +715,14 @@ export default function AddNewFilePage() {
         </div>
       </form>
 
-      {/* ── ADD NEW SECTION MODAL (R2) ── */}
+      {/* â”€â”€ ADD NEW SECTION MODAL (R2) â”€â”€ */}
       <AddSectionModal
         isOpen={isAddSectionOpen}
         onClose={() => setIsAddSectionOpen(false)}
         onCreated={handleSectionCreated}
       />
 
-      {/* ── BULK IMPORT MODAL (R1) ── */}
+      {/* â”€â”€ BULK IMPORT MODAL (R1) â”€â”€ */}
       <BulkImportModal
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
@@ -750,7 +730,7 @@ export default function AddNewFilePage() {
         activeSections={sectionsList}
       />
 
-      {/* ── GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL ── */}
+      {/* â”€â”€ GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL â”€â”€ */}
       <GlassNotification
         isOpen={notification.isOpen}
         type={notification.type}

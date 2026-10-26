@@ -230,7 +230,7 @@ export default function ManageSystemFilesPage() {
     setPage(1);
   };
 
-  // ── CSV Export Handler ─────────────────────────────────────────────────────
+  // â”€â”€ CSV Export Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleExportCsv = async () => {
     if (isExporting) return;
     setIsExporting(true);
@@ -267,7 +267,7 @@ export default function ManageSystemFilesPage() {
       const today = sriLankaTodayInput();
 
       if (activeTab === 'requests') {
-        // ── File Requests CSV ──────────────────────────────────────────────
+        // â”€â”€ File Requests CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const headers = [
           'File Number',
           'File Name',
@@ -301,7 +301,7 @@ export default function ManageSystemFilesPage() {
         });
         exportToCsv(headers, rows, `file-requests-${today}.csv`);
       } else {
-        // ── All Files CSV ──────────────────────────────────────────────────
+        // â”€â”€ All Files CSV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const headers = [
           'File Number',
           'File Name',
@@ -379,7 +379,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // ── Approval Setting Toggle ────────────────────────────────────────────────
+  // â”€â”€ Approval Setting Toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleToggleApprovalSetting = async () => {
     if (isTogglingApproval) return;
     const previous = requireApproval;
@@ -431,7 +431,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // ── Approve File Action ────────────────────────────────────────────────────
+  // â”€â”€ Approve File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleApproveConfirm = async () => {
     if (!approvingFile || isApproving) return;
     setIsApproving(true);
@@ -473,7 +473,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // ── Reject File Action ─────────────────────────────────────────────────────
+  // â”€â”€ Reject File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleRejectConfirm = async (reason?: string) => {
     if (!rejectingFile || isRejecting) return;
     setIsRejecting(true);
@@ -517,7 +517,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // ── Edit File Action ───────────────────────────────────────────────────────
+  // â”€â”€ Edit File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleEditSave = async (payload: Partial<FileRecordRow>) => {
     if (!editingFile || isSavingEdit) return;
     setIsSavingEdit(true);
@@ -559,7 +559,7 @@ export default function ManageSystemFilesPage() {
     }
   };
 
-  // ── Delete File Action ─────────────────────────────────────────────────────
+  // â”€â”€ Delete File Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleDeleteConfirm = async () => {
     if (!deletingFile || isDeleting) return;
     setIsDeleting(true);
@@ -616,11 +616,11 @@ export default function ManageSystemFilesPage() {
 
   return (
     <div className="w-full pb-10 font-dm">
-      {/* ── BREADCRUMBS & TOP BAR ── */}
+      {/* â”€â”€ BREADCRUMBS & TOP BAR â”€â”€ */}
       <div className="mb-4 flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400 dark:text-gray-400">
           <Link
-            href="/admin/default"
+            href="/admin/dashboard"
             className="transition-colors hover:text-slate-600 dark:hover:text-white"
           >
             Pages
@@ -634,7 +634,7 @@ export default function ManageSystemFilesPage() {
         </nav>
 
         <Link
-          href="/admin/default"
+          href="/admin/dashboard"
           className="inline-flex items-center gap-1.5 text-xs font-bold text-[#4318FF] hover:underline dark:text-brand-300"
         >
           <FiArrowLeft className="h-3.5 w-3.5" />
@@ -642,7 +642,7 @@ export default function ManageSystemFilesPage() {
         </Link>
       </div>
 
-      {/* ── HEADING & TOP SUMMARY METRIC CARDS ── */}
+      {/* â”€â”€ HEADING & TOP SUMMARY METRIC CARDS â”€â”€ */}
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#1B254B] dark:text-white sm:text-3xl">
@@ -724,7 +724,7 @@ export default function ManageSystemFilesPage() {
         </div>
       </div>
 
-      {/* ── SEARCH & FILTER CONTROLS BAR ── */}
+      {/* â”€â”€ SEARCH & FILTER CONTROLS BAR â”€â”€ */}
       <div className="shadow-xs mb-4 rounded-2xl border border-slate-100 bg-white p-3 dark:border-navy-700 dark:bg-navy-800">
         <div className="flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
           {/* Search input */}
@@ -843,16 +843,16 @@ export default function ManageSystemFilesPage() {
             ) : (
               <FiDownload className="h-3.5 w-3.5" />
             )}
-            <span>{isExporting ? 'Exporting…' : 'Export CSV'}</span>
+            <span>{isExporting ? 'Exportingâ€¦' : 'Export CSV'}</span>
           </button>
         </div>
       </div>
 
-      {/* ── SECURE REPOSITORY BANNER ── */}
+      {/* â”€â”€ SECURE REPOSITORY BANNER â”€â”€ */}
       <div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200/50 bg-[#F4F7FE] px-4 py-2 dark:border-navy-700 dark:bg-navy-900/80">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
           <FiShield className="h-4 w-4 text-[#4318FF] dark:text-brand-300" />
-          <span>Secure repository • Access managed for your administrator</span>
+          <span>Secure repository â€¢ Access managed for your administrator</span>
         </div>
         <div className="flex items-center gap-1.5 rounded-full bg-[#EBF3FE] px-2.5 py-0.5 text-[10px] font-bold text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4318FF] dark:bg-brand-300" />
@@ -860,7 +860,7 @@ export default function ManageSystemFilesPage() {
         </div>
       </div>
 
-      {/* ── TABS BAR & ADMIN APPROVAL TOGGLE SWITCH ── */}
+      {/* â”€â”€ TABS BAR & ADMIN APPROVAL TOGGLE SWITCH â”€â”€ */}
       <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
         {/* Left: Two Mutually Exclusive Tabs */}
         <div className="flex items-center gap-2">
@@ -987,7 +987,7 @@ export default function ManageSystemFilesPage() {
         </div>
       </div>
 
-      {/* ── SECTION HEADER BELOW TABS ── */}
+      {/* â”€â”€ SECTION HEADER BELOW TABS â”€â”€ */}
       {activeTab === 'requests' ? (
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1060,7 +1060,7 @@ export default function ManageSystemFilesPage() {
         </div>
       )}
 
-      {/* ── TAB CONTENT TABLE ── */}
+      {/* â”€â”€ TAB CONTENT TABLE â”€â”€ */}
       {activeTab === 'requests' ? (
         <FileRequestsTable
           files={files}
@@ -1100,10 +1100,12 @@ export default function ManageSystemFilesPage() {
           onView={(file) => setViewingFile(file)}
           onEdit={(file) => setEditingFile(file)}
           onDelete={(file) => setDeletingFile(file)}
+          onApprove={(file) => setApprovingFile(file)}
+          onReject={(file) => setRejectingFile(file)}
         />
       )}
 
-      {/* ── MODALS ── */}
+      {/* â”€â”€ MODALS â”€â”€ */}
       <ViewFileModal file={viewingFile} onClose={() => setViewingFile(null)} />
 
       <ConfirmApproveModal

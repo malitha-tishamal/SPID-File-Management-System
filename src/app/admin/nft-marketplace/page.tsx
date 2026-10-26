@@ -1,8 +1,12 @@
 'use client';
 
-import React from 'react';
-import ManageSystemFilesPage from 'components/admin/files/ManageSystemFilesPage';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function AdminManageSystemFilesPage() {
-  return <ManageSystemFilesPage />;
+export default function LegacyNftMarketplaceRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/admin/manage-system-files');
+  }, [router]);
+  return null;
 }

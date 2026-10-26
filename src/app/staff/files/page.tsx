@@ -260,7 +260,7 @@ export default function StaffFilesPage() {
                   const rowNo = String((page - 1) * LIMIT + idx + 1).padStart(2, '0');
                   const dateFormatted = file.created_at
                     ? formatSriLankaDateTimeCompact(file.created_at)
-                    : '—';
+                    : 'â€”';
 
                   return (
                     <tr
@@ -301,12 +301,13 @@ export default function StaffFilesPage() {
                       </td>
 
                       {/* FILE LOCATION */}
-                      <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          <FiMapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[130px] text-[11px]" title={locationStr}>
-                            {locationStr}
-                          </span>
+                      <td className="py-2.5 px-2">
+                        <div
+                          className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] break-words leading-tight"
+                          title={locationStr}
+                        >
+                          <FiMapPin className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300 shrink-0 mt-0.5" />
+                          <span className="break-words">{locationStr}</span>
                         </div>
                       </td>
 
@@ -341,7 +342,7 @@ export default function StaffFilesPage() {
                           </div>
                         ) : isPending ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2.5 py-0.5 text-[10px] font-bold">
-                            <span className="text-[9px]">⏳</span>
+                            <span className="text-[9px]">â³</span>
                             <span>Pending Review</span>
                           </span>
                         ) : isRejected ? (
@@ -350,11 +351,9 @@ export default function StaffFilesPage() {
                               <FiX className="h-3 w-3 stroke-[3]" />
                               <span>Rejected</span>
                             </span>
-                            {(file.rejected_by_name || file.approved_by_name) && (
-                              <span className="text-[9px] font-semibold text-rose-500 dark:text-rose-400">
-                                By {file.rejected_by_name || file.approved_by_name}
-                              </span>
-                            )}
+                            <span className="text-[9px] font-semibold text-rose-500 dark:text-rose-400">
+                              By Admin
+                            </span>
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center gap-0.5">
@@ -393,7 +392,7 @@ export default function StaffFilesPage() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-slate-100 dark:border-navy-700 pt-4 mt-4 text-xs text-slate-500">
             <div>
-              Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total} files
+              Showing {(page - 1) * LIMIT + 1}â€“{Math.min(page * LIMIT, total)} of {total} files
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -422,7 +421,7 @@ export default function StaffFilesPage() {
 
       {/* View File Modal */}
       {viewingFile && (
-        <ViewFileModal file={viewingFile} onClose={() => setViewingFile(null)} />
+        <ViewFileModal file={viewingFile} onClose={() => setViewingFile(null)} isStaffView={true} />
       )}
     </div>
   );

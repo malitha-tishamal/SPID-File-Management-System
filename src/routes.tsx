@@ -19,13 +19,13 @@ const routes = [
   {
     name: 'Dashboard',
     layout: '/admin',
-    path: 'default',
+    path: 'dashboard',
     icon: <MdHome className="h-5 w-5" />,
   },
   {
     name: 'Manage System Files',
     layout: '/admin',
-    path: 'nft-marketplace',
+    path: 'manage-system-files',
     icon: <MdFolder className="h-5 w-5" />,
     secondary: true,
   },

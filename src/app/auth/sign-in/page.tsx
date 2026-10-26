@@ -8,6 +8,7 @@ import { HiOutlineIdentification } from 'react-icons/hi';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
 import { useToast } from 'components/toast/ToastContext';
+import { useProfile } from 'contexts/ProfileContext';
 import type { ApiErrorCode } from 'types/auth';
 
 const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string; text: string }> = {
@@ -26,6 +27,16 @@ const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string;
     title: 'ACCOUNT LOCKED:',
     text: 'Your account is temporarily locked due to security restrictions. Please try again later or contact the administrator.',
   },
+  inactivity: {
+    type: 'warning',
+    title: 'SESSION EXPIRED:',
+    text: 'You have been signed out due to 2 hours of inactivity. Please sign in again.',
+  },
+  unknown: {
+    type: 'warning',
+    title: 'SESSION EXPIRED:',
+    text: 'You have been signed out due to 2 hours of inactivity. Please sign in again.',
+  },
   rejected: {
     type: 'error',
     title: 'REGISTRATION DECLINED:',
@@ -38,6 +49,7 @@ function SignInContent() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '';
   const { showToast } = useToast();
+  const { applyProfile } = useProfile();
 
   // Inputs are empty by default so placeholders appear like watermarks
   const [email, setEmail] = useState('');
@@ -46,18 +58,15 @@ function SignInContent() {
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
-  const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; text: string } | null>(null);
+  const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; title: string; text: string } | null>(null);
 
-  // Arriving from middleware with a status denial (e.g. pending account)
+  // Arriving from middleware/session watchdog with a status denial
   useEffect(() => {
     const status = searchParams.get('status');
     if (status && STATUS_BANNERS[status]) {
       const banner = STATUS_BANNERS[status];
-      setErrorBanner({ type: banner.type, text: banner.text });
+      setErrorBanner({ type: banner.type, title: banner.title, text: banner.text });
       showToast({ type: banner.type, title: banner.title.replace(':', ''), message: banner.text, duration: 6000 });
-    } else if (status === 'unknown') {
-      const msg = 'Your session could not be verified. Please sign in again.';
-      setErrorBanner({ type: 'error', text: msg });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,21 +85,21 @@ function SignInContent() {
     const inputEmail = email.trim();
     if (!inputEmail) {
       const msg = 'Please enter your official email address.';
-      setErrorBanner({ type: 'error', text: msg });
+      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
       showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
     }
 
     if (!password) {
       const msg = 'Please enter your password.';
-      setErrorBanner({ type: 'error', text: msg });
+      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
       showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
     }
 
     if (lockoutSeconds > 0) {
       const msg = `Login is temporarily locked. Please try again in ${lockoutSeconds}s.`;
-      setErrorBanner({ type: 'error', text: msg });
+      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
       showToast({ type: 'error', title: 'Login Locked', message: msg });
       return;
     }
@@ -111,11 +120,14 @@ function SignInContent() {
         const msg: string = json.message || 'Invalid email or password.';
 
         if (code === 'LOGIN_LOCKED_OUT' && typeof json.remaining_seconds === 'number') {
-          setLockoutSeconds(json.remaining_seconds);
+          // A permanent lock has no countdown â€” it only ends when an administrator clears it.
+          if (!json.permanent) {
+            setLockoutSeconds(json.remaining_seconds);
+          }
         }
 
         const isWarning = code === 'ACCOUNT_PENDING' || code === 'EMAIL_NOT_CONFIRMED';
-        setErrorBanner({ type: isWarning ? 'warning' : 'error', text: msg });
+        setErrorBanner({ type: isWarning ? 'warning' : 'error', title: isWarning ? 'NOTICE:' : 'ERROR:', text: msg });
         showToast({
           type: isWarning ? 'warning' : 'error',
           title: isWarning ? 'Account Notice' : code === 'LOGIN_LOCKED_OUT' ? 'Login Locked' : 'Sign In Failed',
@@ -127,16 +139,16 @@ function SignInContent() {
 
       const profile = json.data.profile;
       const isStaff = profile.role === 'Staff';
-      const defaultDest = isStaff ? '/staff/default' : '/admin/default';
+      const defaultDest = isStaff ? '/staff/default' : '/admin/dashboard';
 
       // Honour callbackUrl only if it matches the user's allowed prefix
       const allowedPrefix = isStaff ? '/staff' : '/admin';
       const destination =
         callbackUrl && callbackUrl.startsWith(allowedPrefix) ? callbackUrl : defaultDest;
 
-      try {
-        localStorage.setItem('spid_user', JSON.stringify(profile));
-      } catch {}
+      // Populate shared state immediately so the sidebar/navbar show the
+      // authenticated user's own avatar without waiting for a page reload.
+      applyProfile(profile);
 
       showToast({
         type: 'success',
@@ -156,7 +168,7 @@ function SignInContent() {
     } catch {
       setIsLoading(false);
       const msg = 'Could not reach the authentication service. Please try again.';
-      setErrorBanner({ type: 'error', text: msg });
+      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
       showToast({ type: 'error', title: 'Sign In Failed', message: msg });
     }
   };
@@ -194,9 +206,7 @@ function SignInContent() {
               }`}
             >
               <div className="flex items-start gap-2">
-                <span className="font-bold">
-                  {errorBanner.type === 'warning' ? '⚠️ PENDING APPROVAL:' : '✕ ERROR:'}
-                </span>
+                <span className="font-bold">{errorBanner.title}</span>
                 <span>{errorBanner.text}</span>
               </div>
             </div>
@@ -251,7 +261,7 @@ function SignInContent() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
                 />
                 <button
@@ -327,7 +337,7 @@ function SignInContent() {
 
             <div className="mt-4 flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-navy-900/60 px-3 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-navy-700">
               <FiShield className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>Official Government Record Portal • 256-Bit SSL Secured</span>
+              <span>Official Government Record Portal â€¢ 256-Bit SSL Secured</span>
             </div>
           </div>
         </div>

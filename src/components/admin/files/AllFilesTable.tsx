@@ -14,6 +14,9 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiFileText,
+  FiCheck,
+  FiX,
+  FiMapPin,
 } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
 import FilesTableSkeleton from './FilesTableSkeleton';
@@ -46,7 +49,7 @@ function getSectionBadge(section?: string | null) {
 }
 
 function formatDateTimeParts(iso?: string | null): { date: string; time: string } {
-  if (!iso) return { date: '—', time: '' };
+  if (!iso) return { date: 'Ã¢â‚¬â€', time: '' };
   try {
     return {
       date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
@@ -70,6 +73,8 @@ export default function AllFilesTable({
   onView,
   onEdit,
   onDelete,
+  onApprove,
+  onReject,
 }: {
   files: FileRecordRow[];
   total: number;
@@ -83,6 +88,8 @@ export default function AllFilesTable({
   onView: (file: FileRecordRow) => void;
   onEdit: (file: FileRecordRow) => void;
   onDelete: (file: FileRecordRow) => void;
+  onApprove?: (file: FileRecordRow) => void;
+  onReject?: (file: FileRecordRow) => void;
 }) {
   if (loading) {
     return <FilesTableSkeleton />;
@@ -118,12 +125,12 @@ export default function AllFilesTable({
               <th className="py-2.5 px-2 w-[108px]">FILE NUMBER</th>
               <th className="py-2.5 px-2 min-w-[155px]">FILE NAME</th>
               <th className="py-2.5 px-2 w-[130px]">SECTION</th>
-              <th className="py-2.5 px-2 w-[115px]">FILE LOCATION</th>
-              <th className="py-2.5 px-2 w-[100px]">ADDED BY</th>
-              <th className="py-2.5 px-2 text-center w-10">ROLE</th>
-              <th className="py-2.5 px-2 w-[80px]">ADDED DATE &amp; TIME</th>
-              <th className="py-2.5 px-2 w-[155px]">ADMIN ACTION</th>
-              <th className="py-2.5 px-2 text-center w-[80px]">ACTIONS</th>
+              <th className="py-2.5 px-2">FILE LOCATION</th>
+              <th className="py-2.5 px-2">ADDED BY</th>
+              <th className="py-2.5 px-2 text-center w-16">ROLE</th>
+              <th className="py-2.5 px-2 whitespace-nowrap">ADDED DATE &amp; TIME</th>
+              <th className="py-2.5 px-2 text-center w-[130px] whitespace-nowrap">REQUEST STATUS</th>
+              <th className="py-2.5 px-2 text-center min-w-[190px] whitespace-nowrap">ADMIN ACTIONS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-navy-700 text-xs">
@@ -172,12 +179,13 @@ export default function AllFilesTable({
                 IconComponent = FiAlertCircle;
               } else if (file.status === 'REJECTED') {
                 statusLabel = 'Rejected';
-                subtext = file.rejected_by_name ? `by ${file.rejected_by_name}` : (adminName ? `by ${adminName}` : null);
+                const rejectedName = file.rejected_by_name || adminName;
+                subtext = rejectedName ? `By ${rejectedName} (Admin)` : 'By Admin';
                 statusColor = 'text-rose-600 dark:text-rose-400';
                 IconComponent = FiXCircle;
               } else {
                 statusLabel = 'Approved';
-                subtext = `Admin (${file.approved_by_name || adminName || 'Admin'})`;
+                subtext = `Approved (${file.approved_by_name || adminName || 'Admin'})`;
                 statusColor = 'text-emerald-600 dark:text-emerald-400';
                 IconComponent = FiCheckCircle;
               }
@@ -209,7 +217,7 @@ export default function AllFilesTable({
                     </div>
                     <div className="text-[10px] font-medium text-slate-400 flex items-center gap-1 mt-0.5 truncate">
                       <span>Recordroom Ingest</span>
-                      <span>•</span>
+                      <span>Ã¢â‚¬Â¢</span>
                       <span>Horizon RMS</span>
                     </div>
                   </td>
@@ -225,41 +233,14 @@ export default function AllFilesTable({
                     </span>
                   </td>
 
-                  {/* FILE LOCATION (Complete multiline display) */}
+                  {/* FILE LOCATION (Highlighted pill, wraps long location onto next line) */}
                   <td className="py-2.5 px-2">
                     <div
-                      className="flex items-start gap-1.5 text-[11px] leading-tight text-slate-700 dark:text-slate-200"
+                      className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] xl:max-w-[200px] break-words leading-tight"
                       title={locationStr}
                     >
-                      <FiArchive className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                      <div className="min-w-0 space-y-0.5">
-                        {file.locker_no && (
-                          <div
-                            className="font-bold text-slate-800 dark:text-white leading-tight truncate max-w-[110px]"
-                            title={file.locker_no}
-                          >
-                            {file.locker_no}
-                          </div>
-                        )}
-                        {file.shelf_name && (
-                          <div
-                            className="text-slate-600 dark:text-slate-300 leading-tight truncate max-w-[110px]"
-                            title={file.shelf_name}
-                          >
-                            {file.shelf_name}
-                          </div>
-                        )}
-                        {file.shelf_position && (
-                          <div className="text-[10px] text-slate-400 dark:text-slate-400 font-medium leading-tight">
-                            Position: {file.shelf_position}
-                          </div>
-                        )}
-                        {!file.locker_no && !file.shelf_name && (
-                          <div className="font-medium text-slate-600 dark:text-slate-300 leading-tight">
-                            {file.archive_repository || 'Central Record Room'}
-                          </div>
-                        )}
-                      </div>
+                      <FiMapPin className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300 shrink-0 mt-0.5" />
+                      <span className="break-words">{locationStr}</span>
                     </div>
                   </td>
 
@@ -285,13 +266,13 @@ export default function AllFilesTable({
                   </td>
 
                   {/* ROLE */}
-                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
                     {isAdmin ? (
-                      <span className="inline-block rounded-full bg-[#E11D48] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                      <span className="inline-block rounded-full bg-[#FEECEB] text-[#FF4757] dark:bg-rose-950/40 dark:text-rose-400 border border-[#FED7D7] dark:border-rose-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
                         Admin
                       </span>
                     ) : (
-                      <span className="inline-block rounded-full bg-[#05CD99] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                      <span className="inline-block rounded-full bg-[#E6F9F0] text-[#05CD99] dark:bg-emerald-950/40 dark:text-emerald-400 border border-[#C6F6D5] dark:border-emerald-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
                         Staff
                       </span>
                     )}
@@ -309,32 +290,77 @@ export default function AllFilesTable({
                     )}
                   </td>
 
-                  {/* ADMIN ACTION (Status with Administrator Attribution Underneath) */}
-                  <td className="py-2.5 px-2">
-                    <div className="flex items-start gap-1.5 leading-tight">
-                      <IconComponent className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${statusColor}`} />
-                      <div className="min-w-0">
-                        <div className={`font-bold text-xs ${statusColor} leading-tight`}>
-                          {statusLabel}
-                        </div>
-                        {subtext && (
-                          <div
-                            className="text-[10px] text-slate-400 dark:text-slate-400 font-medium leading-snug mt-0.5 break-words"
-                          >
-                            {subtext}
-                          </div>
-                        )}
+                  {/* REQUEST STATUS */}
+                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                    {isAdmin ? (
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 px-2.5 py-0.5 text-[10px] font-bold">
+                          <FiCheckCircle className="h-3 w-3 stroke-[2.5]" />
+                          <span>System Verified</span>
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                          Admin Added ({file.registrar_name || 'Admin'})
+                        </span>
                       </div>
-                    </div>
+                    ) : file.status === 'PENDING' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2.5 py-0.5 text-[10px] font-bold">
+                        <span className="text-[9px]">⏳</span>
+                        <span>Pending Review</span>
+                      </span>
+                    ) : file.status === 'REJECTED' ? (
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900 px-2.5 py-0.5 text-[10px] font-bold">
+                          <FiX className="h-3 w-3 stroke-[3]" />
+                          <span>Rejected</span>
+                        </span>
+                        <span className="text-[10px] font-semibold text-rose-500 dark:text-rose-400">
+                          By {file.rejected_by_name || file.approved_by_name || 'Admin'} (Admin)
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#E6F9F0] text-[#05CD99] border border-[#C6F6D5] dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900 px-2.5 py-0.5 text-[10px] font-bold">
+                          <FiCheck className="h-3 w-3 stroke-[3]" />
+                          <span>Approved</span>
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                          Admin ({file.approved_by_name || 'Admin'})
+                        </span>
+                      </div>
+                    )}
                   </td>
 
-                  {/* ACTIONS */}
+                  {/* ADMIN ACTIONS: Approve, Reject (only for pending staff files), View, Edit, Delete */}
                   <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                    <div className="flex items-center justify-center gap-1">
+                    <div className="flex items-center justify-center gap-1.5">
+                      {!isAdmin && file.status === 'PENDING' && onApprove && onReject && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onApprove(file)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title="Approve File"
+                          >
+                            <FiCheck className="h-3 w-3 stroke-[3]" />
+                            <span>Approve</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onReject(file)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 dark:bg-navy-900 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title="Reject File"
+                          >
+                            <FiX className="h-3 w-3 stroke-[3]" />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => onView(file)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
                         title="View details"
                       >
                         <FiEye className="h-3.5 w-3.5" />
@@ -342,7 +368,7 @@ export default function AllFilesTable({
                       <button
                         type="button"
                         onClick={() => onEdit(file)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
                         title="Edit file"
                       >
                         <FiEdit2 className="h-3.5 w-3.5" />
@@ -350,7 +376,7 @@ export default function AllFilesTable({
                       <button
                         type="button"
                         onClick={() => onDelete(file)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                         title="Delete file"
                       >
                         <FiTrash2 className="h-3.5 w-3.5" />
@@ -364,11 +390,11 @@ export default function AllFilesTable({
         </table>
       </div>
 
-      {/* Pagination Footer — hidden when a search/filter is active (all matches shown) */}
+      {/* Pagination Footer Ã¢â‚¬â€ hidden when a search/filter is active (all matches shown) */}
       {!isFiltered && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 dark:border-navy-700 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
           <div>
-            Showing {startRecord}–{endRecord} of {total} files
+            Showing {startRecord}Ã¢â‚¬â€œ{endRecord} of {total} files
           </div>
 
           {totalPages >= 1 && (

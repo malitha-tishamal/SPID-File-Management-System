@@ -70,7 +70,7 @@ function getSectionBadge(section?: string | null) {
 }
 
 function formatDisplayDateTime(iso?: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   try {
     return formatSriLankaDateTimeCompact(iso);
   } catch {
@@ -155,11 +155,14 @@ const FileTableRow = memo(function FileTableRow({
         </span>
       </td>
 
-      {/* FILE LOCATION */}
-      <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300 whitespace-nowrap">
-        <div className="flex items-center gap-1">
-          <FiMapPin className="h-3 w-3 text-slate-400 shrink-0" />
-          <span className="truncate max-w-[120px] xl:max-w-[150px] text-[11px]" title={locationStr}>
+      {/* FILE LOCATION (Highlighted pill, wraps long location onto next line) */}
+      <td className="py-2.5 px-2">
+        <div
+          className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] xl:max-w-[200px] break-words leading-tight"
+          title={locationStr}
+        >
+          <FiMapPin className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300 shrink-0 mt-0.5" />
+          <span className="break-words">
             {locationStr}
           </span>
         </div>
@@ -209,7 +212,7 @@ const FileTableRow = memo(function FileTableRow({
           </div>
         ) : isPending ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2.5 py-0.5 text-[10px] font-bold">
-            <span className="text-[9px]">⏳</span>
+            <span className="text-[9px]">â³</span>
             <span>Pending Review</span>
           </span>
         ) : isRejected ? (
@@ -218,11 +221,9 @@ const FileTableRow = memo(function FileTableRow({
               <FiX className="h-3 w-3 stroke-[3]" />
               <span>Rejected</span>
             </span>
-            {(file.rejected_by_name || file.approved_by_name) && (
-              <span className="text-[10px] font-semibold text-rose-500 dark:text-rose-400">
-                By {file.rejected_by_name || file.approved_by_name}
-              </span>
-            )}
+            <span className="text-[10px] font-semibold text-rose-500 dark:text-rose-400">
+              By {file.rejected_by_name || file.approved_by_name || 'Admin'} (Admin)
+            </span>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center gap-0.5">
@@ -240,7 +241,7 @@ const FileTableRow = memo(function FileTableRow({
       {/* ADMIN ACTIONS: Approve, Reject (only for pending staff files), View, Edit, Delete */}
       <td className="py-2.5 px-2 text-center whitespace-nowrap">
         <div className="flex items-center justify-center gap-1.5">
-          {/* Button 1 & 2: Approve & Reject — ONLY for Staff files that are Pending */}
+          {/* Button 1 & 2: Approve & Reject â€” ONLY for Staff files that are Pending */}
           {!isAdmin && isPending && (
             <>
               <button
@@ -662,7 +663,7 @@ export default function AdminDashboardView() {
 
   return (
     <div className="w-full space-y-6 pb-12 font-dm">
-      {/* ── 1. Header Overview ── */}
+      {/* â”€â”€ 1. Header Overview â”€â”€ */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-[#1B2559] dark:text-white">
@@ -674,7 +675,7 @@ export default function AdminDashboardView() {
         </div>
       </div>
 
-      {/* ── 2. Top Stats Cards (3 Columns) ── */}
+      {/* â”€â”€ 2. Top Stats Cards (3 Columns) â”€â”€ */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Card 1: Total Active Files */}
         <div className="flex items-center gap-4 rounded-3xl bg-white p-5 shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
@@ -728,7 +729,7 @@ export default function AdminDashboardView() {
         </div>
       </div>
 
-      {/* ── 3. Recently Added Files Section ── */}
+      {/* â”€â”€ 3. Recently Added Files Section â”€â”€ */}
       <div className="rounded-3xl bg-white p-5 shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
         {/* Section Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-navy-700">
@@ -787,7 +788,7 @@ export default function AdminDashboardView() {
 
             {/* View All Files Link */}
             <Link
-              href="/admin/nft-marketplace"
+              href="/admin/manage-system-files"
               className="flex items-center gap-1 text-xs font-bold text-[#4318FF] hover:underline dark:text-brand-300 transition-colors ml-1"
             >
               View &amp; Search All Files
@@ -796,7 +797,7 @@ export default function AdminDashboardView() {
           </div>
         </div>
 
-        {/* ── Table ── */}
+        {/* â”€â”€ Table â”€â”€ */}
         <div className="w-full overflow-x-auto mt-3">
           {loading && files.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -843,7 +844,7 @@ export default function AdminDashboardView() {
         </div>
       </div>
 
-      {/* ── Modals ── */}
+      {/* â”€â”€ Modals â”€â”€ */}
       {viewingFile && (
         <ViewFileModal file={viewingFile} onClose={() => setViewingFile(null)} />
       )}

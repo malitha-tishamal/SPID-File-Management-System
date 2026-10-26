@@ -42,7 +42,7 @@ async function guard(request: NextRequest) {
   /** Returns the correct home dashboard URL based on role */
   const homeDashboard = (role?: string) => {
     if (role === 'Staff') return new URL('/staff/default', request.url);
-    return new URL('/admin/default', request.url);
+    return new URL('/admin/dashboard', request.url);
   };
 
   // 1. Protected routes: require an authenticated, APPROVED account.
@@ -61,7 +61,7 @@ async function guard(request: NextRequest) {
       const profile = await getProfile();
       if (!profile) {
         const signInUrl = new URL('/auth/sign-in', request.url);
-        signInUrl.searchParams.set('status', 'unknown');
+        signInUrl.searchParams.set('status', 'inactivity');
         return redirect(signInUrl);
       }
       role = profile.role;
@@ -79,7 +79,7 @@ async function guard(request: NextRequest) {
       return redirect(homeDashboard(role));
     }
 
-    // Staff visiting any /admin path → redirect to staff dashboard
+    // Staff visiting any /admin path â†’ redirect to staff dashboard
     if (isAdminRoute && role === 'Staff') {
       return redirect(new URL('/staff/default', request.url));
     }
@@ -110,5 +110,6 @@ export const config = {
     '/rtl/:path*',
     '/auth/:path*',
     '/staff/:path*',
+    '/api/auth/me',
   ],
 };

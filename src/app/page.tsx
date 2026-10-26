@@ -6,7 +6,7 @@ export default async function Home() {
   const session = cookieStore.get('spid_session')?.value;
 
   if (session) {
-    redirect('/admin/default');
+    redirect('/admin/dashboard');
   } else {
     redirect('/auth/sign-in');
   }

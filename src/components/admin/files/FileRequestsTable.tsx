@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FiCheck, FiX, FiEye, FiArchive, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiCheck, FiX, FiEye, FiArchive, FiMapPin, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
 import FilesTableSkeleton from './FilesTableSkeleton';
 import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
@@ -34,7 +34,7 @@ function getSectionBadge(section?: string | null) {
 }
 
 function formatDateTimeParts(iso?: string | null): { date: string; time: string } {
-  if (!iso) return { date: '—', time: '' };
+  if (!iso) return { date: 'â€”', time: '' };
   try {
     return {
       date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
@@ -158,7 +158,7 @@ export default function FileRequestsTable({
                     </div>
                     <div className="text-[10px] font-medium text-slate-400 flex items-center gap-1 mt-0.5 truncate">
                       <span>Recordroom Ingest</span>
-                      <span>•</span>
+                      <span>â€¢</span>
                       <span>Horizon RMS</span>
                     </div>
                   </td>
@@ -174,41 +174,14 @@ export default function FileRequestsTable({
                     </span>
                   </td>
 
-                  {/* FILE LOCATION (Complete multiline display) */}
+                  {/* FILE LOCATION (Highlighted pill, wraps long location onto next line) */}
                   <td className="py-2.5 px-2">
                     <div
-                      className="flex items-start gap-1.5 text-[11px] leading-tight text-slate-700 dark:text-slate-200"
+                      className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] xl:max-w-[200px] break-words leading-tight"
                       title={locationStr}
                     >
-                      <FiArchive className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
-                      <div className="min-w-0 space-y-0.5">
-                        {file.locker_no && (
-                          <div
-                            className="font-bold text-slate-800 dark:text-white leading-tight truncate max-w-[110px]"
-                            title={file.locker_no}
-                          >
-                            {file.locker_no}
-                          </div>
-                        )}
-                        {file.shelf_name && (
-                          <div
-                            className="text-slate-600 dark:text-slate-300 leading-tight truncate max-w-[110px]"
-                            title={file.shelf_name}
-                          >
-                            {file.shelf_name}
-                          </div>
-                        )}
-                        {file.shelf_position && (
-                          <div className="text-[10px] text-slate-400 dark:text-slate-400 font-medium leading-tight">
-                            Position: {file.shelf_position}
-                          </div>
-                        )}
-                        {!file.locker_no && !file.shelf_name && (
-                          <div className="font-medium text-slate-600 dark:text-slate-300 leading-tight">
-                            {file.archive_repository || 'Central Record Room'}
-                          </div>
-                        )}
-                      </div>
+                      <FiMapPin className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300 shrink-0 mt-0.5" />
+                      <span className="break-words">{locationStr}</span>
                     </div>
                   </td>
 
@@ -265,7 +238,7 @@ export default function FileRequestsTable({
                       </div>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2 py-0.5 text-[10px] font-bold">
-                        <span className="text-[9px]">⏳</span>
+                        <span className="text-[9px]">â³</span>
                         <span>Pending Review</span>
                       </span>
                     )}
@@ -319,13 +292,13 @@ export default function FileRequestsTable({
         </table>
       </div>
 
-      {/* Pagination Footer — hidden when a search/filter is active (all matches shown) */}
+      {/* Pagination Footer â€” hidden when a search/filter is active (all matches shown) */}
       {!isFiltered && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 dark:border-navy-700 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
           <div>
             {total === 0
               ? 'No pending requests'
-              : `Showing ${(page - 1) * limit + 1}–${Math.min(page * limit, total)} of ${total} pending request${total !== 1 ? 's' : ''}`}
+              : `Showing ${(page - 1) * limit + 1}â€“${Math.min(page * limit, total)} of ${total} pending request${total !== 1 ? 's' : ''}`}
           </div>
 
           {totalPages >= 1 && onPageChange && (

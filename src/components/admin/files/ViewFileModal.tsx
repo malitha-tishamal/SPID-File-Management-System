@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { formatSriLankaDateTime } from 'lib/datetime';
+import { useProfile } from 'contexts/ProfileContext';
 import {
   FiX,
   FiFileText,
@@ -20,10 +21,15 @@ import type { FileRecordRow } from 'models/FileRepository';
 export default function ViewFileModal({
   file,
   onClose,
+  isStaffView,
 }: {
   file: FileRecordRow | null;
   onClose: () => void;
+  isStaffView?: boolean;
 }) {
+  const { profile } = useProfile();
+  const isViewerStaff = isStaffView ?? (profile?.role === 'Staff');
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -66,12 +72,12 @@ export default function ViewFileModal({
                 {isAdmin ? (
                   <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
                     <FiCheckCircle className="h-3 w-3 stroke-[2.5]" />
-                    System Verified • Admin Added ({file.registrar_name || 'Admin'})
+                    System Verified â€¢ Admin Added ({file.registrar_name || 'Admin'})
                   </span>
                 ) : isApproved ? (
                   <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                     <FiCheckCircle className="h-3 w-3" />
-                    Approved (Admin: {file.approved_by_name || 'Admin'})
+                    {isViewerStaff ? 'Approved (Admin)' : `Approved (Admin: ${file.approved_by_name || 'Admin'})`}
                   </span>
                 ) : isPending ? (
                   <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
@@ -106,7 +112,7 @@ export default function ViewFileModal({
               <FiFolder className="h-3.5 w-3.5" /> Department / Section
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.section_name || '—'}
+              {file.section_name || 'â€”'}
             </p>
           </div>
 
@@ -128,7 +134,7 @@ export default function ViewFileModal({
               <FiCalendar className="h-3.5 w-3.5" /> Record Coverage
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.start_date || '—'} to {file.end_date || '—'}
+              {file.start_date || 'â€”'} to {file.end_date || 'â€”'}
             </p>
           </div>
 
@@ -138,7 +144,7 @@ export default function ViewFileModal({
               <FiLayers className="h-3.5 w-3.5" /> Volume Metrics
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.page_numbers ?? 0} Pages • {file.minute_sheets_count ?? 0} Minute Sheets
+              {file.page_numbers ?? 0} Pages â€¢ {file.minute_sheets_count ?? 0} Minute Sheets
             </p>
           </div>
 
@@ -164,7 +170,7 @@ export default function ViewFileModal({
               <FiClock className="h-3.5 w-3.5" /> Ledger Timing
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.created_at ? formatSriLankaDateTime(file.created_at) : '—'}
+              {file.created_at ? formatSriLankaDateTime(file.created_at) : 'â€”'}
             </p>
             {isApproved && file.approved_at && (
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
@@ -180,7 +186,7 @@ export default function ViewFileModal({
           </div>
         </div>
 
-        {/* Rejection Reason block — shown only for rejected submissions */}
+        {/* Rejection Reason block â€” shown only for rejected submissions */}
         {isRejected && (
           <div className="mt-4 rounded-2xl border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-950/20 p-4">
             <div className="flex items-start gap-2.5">
@@ -201,14 +207,14 @@ export default function ViewFileModal({
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-rose-600 dark:text-rose-400">
-                  {(file.rejected_by_name || file.approved_by_name) && (
-                    <p>
-                      Rejected by:{' '}
-                      <span className="font-bold">
-                        {file.rejected_by_name || file.approved_by_name}
-                      </span>
-                    </p>
-                  )}
+                  <p>
+                    Rejected by:{' '}
+                    <span className="font-bold">
+                      {isViewerStaff
+                        ? 'Admin'
+                        : `${file.rejected_by_name || file.approved_by_name || 'Administrator'} (Admin)`}
+                    </span>
+                  </p>
                   {(file.rejected_at || file.approved_at) && (
                     <p>
                       Date:{' '}

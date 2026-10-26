@@ -38,7 +38,7 @@ function getSectionBadge(section?: string | null) {
 }
 
 function formatDate(iso?: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   try {
     return new Date(iso).toISOString().split('T')[0];
   } catch {
@@ -71,7 +71,7 @@ export default function RejectedFilesTable({
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700">
         <span className="h-8 w-8 animate-spin rounded-full border-3 border-rose-500 border-t-transparent" />
-        <p className="mt-3 text-xs font-semibold text-slate-400">Loading rejected submissions…</p>
+        <p className="mt-3 text-xs font-semibold text-slate-400">Loading rejected submissionsâ€¦</p>
       </div>
     );
   }
@@ -192,8 +192,8 @@ export default function RejectedFilesTable({
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300 text-[9px] font-bold">
                         {getInitials(rejectedByName)}
                       </div>
-                      <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate max-w-[80px]" title={rejectedByName}>
-                        {rejectedByName}
+                      <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate max-w-[120px]" title={`${rejectedByName} (Admin)`}>
+                        {rejectedByName} (Admin)
                       </span>
                     </div>
                   </td>
@@ -216,13 +216,13 @@ export default function RejectedFilesTable({
         </table>
       </div>
 
-      {/* Pagination Footer — hidden when a search/filter is active */}
+      {/* Pagination Footer â€” hidden when a search/filter is active */}
       {!isFiltered && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 dark:border-navy-700 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
           <div>
             {total === 0
               ? 'No rejected submissions'
-              : `Showing ${(page - 1) * limit + 1}–${Math.min(page * limit, total)} of ${total} rejected submission${total !== 1 ? 's' : ''}`}
+              : `Showing ${(page - 1) * limit + 1}â€“${Math.min(page * limit, total)} of ${total} rejected submission${total !== 1 ? 's' : ''}`}
           </div>
 
           {totalPages >= 1 && onPageChange && (
