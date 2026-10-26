@@ -8,6 +8,22 @@ import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 
 export class FileController {
+  static async searchRequestableFiles(req: Request) {
+    requireServerEnv();
+    const profile = await AuthorizationService.requireApprovedProfile();
+    if (profile.role !== 'Staff') {
+      throw new ApiError(403, 'FORBIDDEN', 'Staff privileges required.');
+    }
+
+    const search = new URL(req.url).searchParams.get('search')?.trim() ?? '';
+    if (!search) return jsonOk({ files: [] });
+
+    const files = await new FileRepository(
+      getSupabaseAdminClient(),
+    ).searchRequestableFiles(search);
+    return jsonOk({ files });
+  }
+
   /**
    * GET /api/admin/files — list files with filters, pagination, summary counts,
    * and the current approval setting.
@@ -17,20 +33,39 @@ export class FileController {
     await AuthorizationService.requireApprovedProfile();
 
     const url = new URL(req.url);
-    const tab = (url.searchParams.get('tab') as 'requests' | 'all') || 'requests';
+    const tab =
+      (url.searchParams.get('tab') as 'requests' | 'all' | 'rejected' | 'recent') || 'requests';
     const status = url.searchParams.get('status') || undefined;
     const search = url.searchParams.get('search') || undefined;
     const section = url.searchParams.get('section') || undefined;
     const storage = url.searchParams.get('storage') || undefined;
     const officer = url.searchParams.get('officer') || undefined;
+    const registered_by = url.searchParams.get('registered_by') || undefined;
     const date = url.searchParams.get('date') || undefined;
-    const sort = (url.searchParams.get('sort') as 'newest' | 'oldest' | 'file_no' | 'file_name') || 'newest';
+    const sort =
+      (url.searchParams.get('sort') as
+        | 'newest'
+        | 'oldest'
+        | 'file_no'
+        | 'file_name') || 'newest';
     const page = parseInt(url.searchParams.get('page') || '1', 10);
     const limit = parseInt(url.searchParams.get('limit') || '15', 10);
+    const metaOnly = url.searchParams.get('metaOnly') === 'true';
+    const includeCounts = url.searchParams.get('includeCounts') !== 'false';
+    const includeSettings = url.searchParams.get('includeSettings') !== 'false';
 
     const admin = getSupabaseAdminClient();
     const fileRepo = new FileRepository(admin);
     const settingsRepo = new SettingsRepository(admin);
+    const includeMeta = url.searchParams.get('includeMeta') !== 'false';
+
+    if (metaOnly) {
+      const [counts, requireApproval] = await Promise.all([
+        fileRepo.getSummaryCounts(),
+        settingsRepo.getRequireFileApproval(),
+      ]);
+      return jsonOk({ counts, requireApproval });
+    }
 
     const [filteredResult, counts, requireApproval] = await Promise.all([
       fileRepo.listFiltered({
@@ -40,13 +75,16 @@ export class FileController {
         section,
         storage,
         officer,
+        registered_by,
         date,
         sort,
         page,
         limit,
       }),
-      fileRepo.getSummaryCounts(),
-      settingsRepo.getRequireFileApproval(),
+      includeMeta ? fileRepo.getSummaryCounts() : Promise.resolve(null),
+      includeMeta
+        ? settingsRepo.getRequireFileApproval()
+        : Promise.resolve(null),
     ]);
 
     return jsonOk({
@@ -55,8 +93,9 @@ export class FileController {
       page: filteredResult.page,
       limit: filteredResult.limit,
       totalPages: filteredResult.totalPages,
-      counts,
-      requireApproval,
+      ...(counts && requireApproval !== null
+        ? { counts, requireApproval }
+        : {}),
     });
   }
 
@@ -69,7 +108,8 @@ export class FileController {
     requireServerEnv();
     const actor = await AuthorizationService.requireApprovedProfile();
     const body = await req.json().catch(() => null);
-    if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
+    if (!body)
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
     const fileNo = String(body.file_no ?? '').trim();
     const fileName = String(body.file_name ?? '').trim();
@@ -93,25 +133,42 @@ export class FileController {
     // Date validation
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!startDate || !dateRegex.test(startDate)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'A valid Start Date (YYYY-MM-DD) is required.');
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'A valid Start Date (YYYY-MM-DD) is required.',
+      );
     }
     if (!endDate || !dateRegex.test(endDate)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'A valid End Date (YYYY-MM-DD) is required.');
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'A valid End Date (YYYY-MM-DD) is required.',
+      );
     }
     if (endDate < startDate) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'End date must be on or after the start date.');
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'End date must be on or after the start date.',
+      );
     }
 
     // Storage location & details
     const lockerNo = body.locker_no ? String(body.locker_no).trim() : null;
     const shelfName = body.shelf_name ? String(body.shelf_name).trim() : null;
-    const shelfPos = body.shelf_position ? String(body.shelf_position).trim() : null;
+    const shelfPos = body.shelf_position
+      ? String(body.shelf_position).trim()
+      : null;
     const validPositions = ['Front', 'Middle', 'Back'];
     const shelfPosition = validPositions.includes(shelfPos || '')
       ? (shelfPos as 'Front' | 'Middle' | 'Back')
       : null;
 
-    const pageNumbers = Math.max(0, parseInt(String(body.page_numbers ?? '0'), 10) || 0);
+    const pageNumbers = Math.max(
+      0,
+      parseInt(String(body.page_numbers ?? '0'), 10) || 0,
+    );
     const minuteSheetsCount = Math.max(
       0,
       parseInt(String(body.minute_sheets_count ?? '0'), 10) || 0,
@@ -121,22 +178,12 @@ export class FileController {
     const repo = new FileRepository(admin);
     const settingsRepo = new SettingsRepository(admin);
 
-    // Uniqueness checks
-    const existingByNo = await repo.findByFileNo(fileNo);
-    if (existingByNo) {
+    const existingIdentity = await repo.findByFileIdentity(fileNo, fileName);
+    if (existingIdentity) {
       throw new ApiError(
         409,
         'VALIDATION_ERROR',
-        'File number already exists. Please enter a unique file number.',
-      );
-    }
-
-    const existingByName = await repo.findByFileName(fileName);
-    if (existingByName) {
-      throw new ApiError(
-        409,
-        'VALIDATION_ERROR',
-        'File name already exists. Please enter a unique file name.',
+        'A file with this file number and file name already exists.',
       );
     }
 
@@ -163,12 +210,14 @@ export class FileController {
         fileStatus = 'PENDING';
         approvedBy = null;
         approvedAt = null;
-        message = 'File submitted successfully and is awaiting administrator approval.';
+        message =
+          'Your file submission has been sent to the administrator for review. It will be added to the file repository after approval.';
       } else {
         fileStatus = 'APPROVED';
         approvedBy = null;
         approvedAt = new Date().toISOString();
-        message = 'File added successfully to the repository.';
+        message =
+          'Your file has been added to the file repository successfully.';
       }
     }
 
@@ -188,7 +237,9 @@ export class FileController {
       registered_by: actor.id,
       created_by: actor.id,
       approved_by: approvedBy,
-      approved_by_name: isAdmin ? (actor.full_name || actor.email || 'Administrator') : null,
+      approved_by_name: isAdmin
+        ? actor.full_name || actor.email || 'Administrator'
+        : null,
       approved_at: approvedAt,
       archive_repository: 'Central Record Room (B-02)',
       status: fileStatus,
@@ -199,7 +250,10 @@ export class FileController {
     try {
       await new AuditLogRepository(admin).log({
         actorId: actor.id,
-        action: fileStatus === 'PENDING' ? 'file.submitted_for_approval' : 'file.created',
+        action:
+          fileStatus === 'PENDING'
+            ? 'file.submitted_for_approval'
+            : 'file.created',
         details: {
           file_id: file.id,
           file_no: file.file_no,
@@ -213,7 +267,14 @@ export class FileController {
       console.warn('Failed to record audit log for file creation:', auditErr);
     }
 
-    return jsonOk({ file, message }, 201);
+    return jsonOk(
+      {
+        file,
+        message,
+        pending: fileStatus === 'PENDING',
+      },
+      201,
+    );
   }
 
   /** GET /api/admin/files/[id] — get a single file's complete details */
@@ -234,7 +295,8 @@ export class FileController {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
     const body = await req.json().catch(() => null);
-    if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
+    if (!body)
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
     const admin = getSupabaseAdminClient();
     const repo = new FileRepository(admin);
@@ -248,11 +310,23 @@ export class FileController {
 
     if (body.file_name !== undefined) {
       const fileName = String(body.file_name).trim();
-      if (!fileName) throw new ApiError(400, 'VALIDATION_ERROR', 'File name cannot be empty.');
-      if (fileName.toLowerCase() !== existing.file_name.toLowerCase()) {
-        const dup = await repo.findByFileName(fileName);
-        if (dup && dup.id !== id) {
-          throw new ApiError(409, 'VALIDATION_ERROR', 'File name already exists.');
+      if (!fileName)
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'File name cannot be empty.',
+        );
+      if (fileName !== existing.file_name) {
+        const duplicate = await repo.findByFileIdentity(
+          existing.file_no,
+          fileName,
+        );
+        if (duplicate && duplicate.id !== id) {
+          throw new ApiError(
+            409,
+            'VALIDATION_ERROR',
+            'A file with this file number and file name already exists.',
+          );
         }
       }
       patch.file_name = fileName;
@@ -263,18 +337,41 @@ export class FileController {
       if (s) patch.section_name = s;
     }
 
-    if (body.start_date !== undefined) patch.start_date = String(body.start_date).trim();
-    if (body.end_date !== undefined) patch.end_date = String(body.end_date).trim();
+    if (body.start_date !== undefined)
+      patch.start_date = String(body.start_date).trim();
+    if (body.end_date !== undefined)
+      patch.end_date = String(body.end_date).trim();
 
-    if (patch.start_date && patch.end_date && patch.end_date < patch.start_date) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'End date must be on or after the start date.');
+    if (
+      patch.start_date &&
+      patch.end_date &&
+      patch.end_date < patch.start_date
+    ) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'End date must be on or after the start date.',
+      );
     }
 
-    if (body.locker_no !== undefined) patch.locker_no = body.locker_no ? String(body.locker_no).trim() : null;
-    if (body.shelf_name !== undefined) patch.shelf_name = body.shelf_name ? String(body.shelf_name).trim() : null;
-    if (body.shelf_position !== undefined) patch.shelf_position = body.shelf_position || null;
-    if (body.page_numbers !== undefined) patch.page_numbers = Math.max(0, parseInt(String(body.page_numbers), 10) || 0);
-    if (body.minute_sheets_count !== undefined) patch.minute_sheets_count = Math.max(0, parseInt(String(body.minute_sheets_count), 10) || 0);
+    if (body.locker_no !== undefined)
+      patch.locker_no = body.locker_no ? String(body.locker_no).trim() : null;
+    if (body.shelf_name !== undefined)
+      patch.shelf_name = body.shelf_name
+        ? String(body.shelf_name).trim()
+        : null;
+    if (body.shelf_position !== undefined)
+      patch.shelf_position = body.shelf_position || null;
+    if (body.page_numbers !== undefined)
+      patch.page_numbers = Math.max(
+        0,
+        parseInt(String(body.page_numbers), 10) || 0,
+      );
+    if (body.minute_sheets_count !== undefined)
+      patch.minute_sheets_count = Math.max(
+        0,
+        parseInt(String(body.minute_sheets_count), 10) || 0,
+      );
 
     const updated = await repo.update(id, patch);
 
@@ -308,7 +405,11 @@ export class FileController {
       await new AuditLogRepository(admin).log({
         actorId: actor.id,
         action: 'file.deleted',
-        details: { file_id: id, file_no: existing.file_no, file_name: existing.file_name },
+        details: {
+          file_id: id,
+          file_no: existing.file_no,
+          file_name: existing.file_name,
+        },
       });
     } catch {}
 
@@ -407,7 +508,9 @@ export class FileController {
     await AuthorizationService.requireApprovedProfile();
 
     const admin = getSupabaseAdminClient();
-    const requireApproval = await new SettingsRepository(admin).getRequireFileApproval();
+    const requireApproval = await new SettingsRepository(
+      admin,
+    ).getRequireFileApproval();
     return jsonOk({ require_approval: requireApproval });
   }
 
@@ -426,23 +529,46 @@ export class FileController {
     }
 
     const admin = getSupabaseAdminClient();
-    const updated = await new SettingsRepository(admin).setRequireFileApproval(
-      body.require_approval,
-      actor.id,
-    );
+    let updated: boolean;
+    try {
+      updated = await new SettingsRepository(admin).setRequireFileApproval(
+        body.require_approval,
+        actor.id,
+      );
+    } catch (err) {
+      throw new ApiError(
+        500,
+        'INTERNAL_ERROR',
+        err instanceof Error
+          ? err.message
+          : 'Failed to persist the file approval setting.',
+      );
+    }
 
     return jsonOk({
       require_approval: updated,
-      message: `Admin approval requirement has been ${updated ? 'enabled' : 'disabled'}.`,
+      message: `Admin approval requirement has been ${
+        updated ? 'enabled' : 'disabled'
+      }.`,
     });
   }
 
-  /** POST /api/admin/files/bulk-import — bulk import file records */
+  /** POST /api/admin/files/bulk-import — bulk import file records (admin or approved staff).
+   * Staff imports honour the approval setting: PENDING when approval is required, else APPROVED. */
   static async bulkImportFiles(req: Request) {
     requireServerEnv();
-    const actor = await AuthorizationService.requireAdminProfile();
+    const actor = await AuthorizationService.requireApprovedProfile();
     const admin = getSupabaseAdminClient();
     const repo = new FileRepository(admin);
+
+    const isStaffActor = actor.role !== 'Administrator';
+    let staffBulkStatus: 'APPROVED' | 'PENDING' = 'APPROVED';
+    if (isStaffActor) {
+      const requireApproval = await new SettingsRepository(
+        admin,
+      ).getRequireFileApproval();
+      if (requireApproval) staffBulkStatus = 'PENDING';
+    }
 
     let rawRecords: any[] = [];
 
@@ -450,26 +576,70 @@ export class FileController {
     if (contentType.includes('application/json')) {
       const body = await req.json().catch(() => null);
       if (!body || !Array.isArray(body.records)) {
-        throw new ApiError(400, 'VALIDATION_ERROR', 'A valid JSON body with a "records" array is required.');
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'A valid JSON body with a "records" array is required.',
+        );
       }
       rawRecords = body.records;
     } else if (contentType.includes('multipart/form-data')) {
       const formData = await req.formData().catch(() => null);
-      if (!formData) throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid form data.');
+      if (!formData)
+        throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid form data.');
       const file = formData.get('file') as File | null;
-      if (!file) throw new ApiError(400, 'VALIDATION_ERROR', 'No file was uploaded in the "file" field.');
+      if (!file)
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'No file was uploaded in the "file" field.',
+        );
+
+      // 1. File size check (max 10MB)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024;
+      if (file.size > MAX_FILE_SIZE) {
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'The uploaded file exceeds the 10MB size limit.',
+        );
+      }
+
+      // 2. Extension check
+      const fileName = (file.name || '').toLowerCase();
+      const validExtensions = ['.csv', '.xlsx', '.xls'];
+      if (!validExtensions.some((ext) => fileName.endsWith(ext))) {
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'Invalid file type. Only .csv, .xlsx, and .xls files are supported.',
+        );
+      }
+
       const buffer = await file.arrayBuffer();
       const parsed = await parseAndValidateImportBuffer(buffer);
       if (!parsed.isValid && parsed.validRows.length === 0) {
-        throw new ApiError(400, 'VALIDATION_ERROR', parsed.errors[0]?.reason || 'The uploaded file is invalid.');
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          parsed.errors[0]?.reason || 'The uploaded file is invalid.',
+        );
       }
       rawRecords = parsed.validRows;
     } else {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Unsupported Content-Type. Use application/json or multipart/form-data.');
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Unsupported Content-Type. Use application/json or multipart/form-data.',
+      );
     }
 
     if (rawRecords.length === 0) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'No records found to import.');
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'No records found to import.',
+      );
     }
 
     // 1. Fetch existing active sections to resolve/verify section names
@@ -480,70 +650,115 @@ export class FileController {
       sectionMap.set(s.name.toLowerCase().trim(), s.name);
     });
 
-    // 2. Fetch existing file names for duplicate check
-    const candidateNames = rawRecords.map((r) => String(r.file_name ?? '').trim()).filter(Boolean);
-    const existingDbNames = await repo.findExistingFileNames(candidateNames);
+    // 2. Fetch existing identities for duplicate checking
+    const candidateFileNos = rawRecords
+      .map((r) => String(r.file_no ?? '').trim())
+      .filter(Boolean);
+    const existingDbIdentities = await repo.findExistingFileIdentities(
+      candidateFileNos,
+    );
 
-    const validPayloads: Array<Omit<FileRecordRow, 'id' | 'created_at' | 'updated_at'>> = [];
-    const errors: Array<{ row: number; file_name?: string; reason: string }> = [];
-    const seenBatchNames = new Set<string>();
+    const validPayloads: Array<
+      Omit<FileRecordRow, 'id' | 'created_at' | 'updated_at'>
+    > = [];
+    const errors: Array<{ row: number; file_name?: string; reason: string }> =
+      [];
+    const seenBatchIdentities = new Set<string>();
 
     const registrarName = actor.full_name || actor.email || 'System Officer';
-    const registrarRole = actor.role || 'Administrator';
+    const registrarRole = actor.role || 'Staff';
     const nowIso = new Date().toISOString();
+    const bulkApprovedBy = isStaffActor ? null : actor.id;
+    const bulkApprovedAt = staffBulkStatus === 'PENDING' ? null : nowIso;
 
     rawRecords.forEach((record, index) => {
-      const rowNum = record.rowIndex ?? (index + 1);
+      const rowNum = record.rowIndex ?? index + 1;
       const fileNo = String(record.file_no ?? '').trim();
       const fileName = String(record.file_name ?? '').trim();
-      const rawSection = String(record.section ?? record.section_name ?? '').trim();
+      const rawSection = String(
+        record.section ?? record.section_name ?? '',
+      ).trim();
       const startDate = String(record.start_date ?? '').trim();
       const endDate = String(record.end_date ?? '').trim();
 
       if (!fileNo) {
-        errors.push({ row: rowNum, file_name: fileName, reason: 'File No is required.' });
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: 'File No is required.',
+        });
         return;
       }
       if (!fileName) {
-        errors.push({ row: rowNum, file_name: '', reason: 'File Name is required.' });
+        errors.push({
+          row: rowNum,
+          file_name: '',
+          reason: 'File Name is required.',
+        });
         return;
       }
       if (!rawSection) {
-        errors.push({ row: rowNum, file_name: fileName, reason: 'Section is required.' });
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: 'Section is required.',
+        });
         return;
       }
 
       // Resolve section name case-insensitively
-      const resolvedSection = sectionMap.get(rawSection.toLowerCase()) || rawSection;
+      const resolvedSection =
+        sectionMap.get(rawSection.toLowerCase()) || rawSection;
 
       // Dates
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!startDate || !dateRegex.test(startDate)) {
-        errors.push({ row: rowNum, file_name: fileName, reason: 'Valid Start Date (YYYY-MM-DD) is required.' });
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: 'Valid Start Date (YYYY-MM-DD) is required.',
+        });
         return;
       }
       if (!endDate || !dateRegex.test(endDate)) {
-        errors.push({ row: rowNum, file_name: fileName, reason: 'Valid End Date (YYYY-MM-DD) is required.' });
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: 'Valid End Date (YYYY-MM-DD) is required.',
+        });
         return;
       }
       if (endDate < startDate) {
-        errors.push({ row: rowNum, file_name: fileName, reason: `End Date (${endDate}) must be on or after Start Date (${startDate}).` });
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: `End Date (${endDate}) must be on or after Start Date (${startDate}).`,
+        });
         return;
       }
 
-      // Check DB duplicate
-      const lowerName = fileName.toLowerCase();
-      if (existingDbNames.has(lowerName)) {
-        errors.push({ row: rowNum, file_name: fileName, reason: `File name "${fileName}" already exists in the archive database.` });
+      const identity = JSON.stringify([
+        fileNo.toLowerCase(),
+        fileName.toLowerCase(),
+      ]);
+      if (existingDbIdentities.has(identity)) {
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: `File number "${fileNo}" and file name "${fileName}" already exist in the archive database.`,
+        });
         return;
       }
 
-      // Check batch duplicate
-      if (seenBatchNames.has(lowerName)) {
-        errors.push({ row: rowNum, file_name: fileName, reason: `Duplicate file name "${fileName}" in batch.` });
+      if (seenBatchIdentities.has(identity)) {
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: `Duplicate file number and file name pair "${fileNo}" / "${fileName}" in batch.`,
+        });
         return;
       }
-      seenBatchNames.add(lowerName);
+      seenBatchIdentities.add(identity);
 
       // Shelf position
       let shelfPosition: 'Front' | 'Middle' | 'Back' | null = null;
@@ -553,15 +768,25 @@ export class FileController {
         else if (p === 'middle') shelfPosition = 'Middle';
         else if (p === 'back') shelfPosition = 'Back';
         else {
-          errors.push({ row: rowNum, file_name: fileName, reason: `Invalid Shelf Position "${record.shelf_position}". Must be Front, Middle, or Back.` });
+          errors.push({
+            row: rowNum,
+            file_name: fileName,
+            reason: `Invalid Shelf Position "${record.shelf_position}". Must be Front, Middle, or Back.`,
+          });
           return;
         }
       } else {
         shelfPosition = 'Front';
       }
 
-      const pageNumbers = Math.max(0, parseInt(String(record.page_numbers ?? '0'), 10) || 0);
-      const minuteSheetsCount = Math.max(0, parseInt(String(record.minute_sheets_count ?? '0'), 10) || 0);
+      const pageNumbers = Math.max(
+        0,
+        parseInt(String(record.page_numbers ?? '0'), 10) || 0,
+      );
+      const minuteSheetsCount = Math.max(
+        0,
+        parseInt(String(record.minute_sheets_count ?? '0'), 10) || 0,
+      );
 
       validPayloads.push({
         file_no: fileNo,
@@ -578,10 +803,10 @@ export class FileController {
         registrar_role: registrarRole,
         registered_by: actor.id,
         created_by: actor.id,
-        approved_by: actor.id,
-        approved_at: nowIso,
+        approved_by: bulkApprovedBy,
+        approved_at: bulkApprovedAt,
         archive_repository: 'Central Record Room (B-02)',
-        status: 'APPROVED',
+        status: staffBulkStatus,
       });
     });
 
@@ -617,7 +842,253 @@ export class FileController {
       failedCount: errors.length,
       errors,
       records: importedRecords,
-      message: `Bulk import processed: ${importedRecords.length} records imported successfully, ${errors.length} failed.`,
+      pending: staffBulkStatus === 'PENDING',
+      message:
+        staffBulkStatus === 'PENDING'
+          ? `Bulk import processed: ${importedRecords.length} records submitted for admin approval, ${errors.length} failed.`
+          : `Bulk import processed: ${importedRecords.length} records imported successfully, ${errors.length} failed.`,
+    });
+  }
+  // ── File-No-based methods (File No. as the public-facing primary key) ──────
+
+  /** GET /api/admin/files/[file_no] — get a single file by file_no */
+  static async getFileByFileNo(fileNo: string) {
+    requireServerEnv();
+    await AuthorizationService.requireApprovedProfile();
+
+    const admin = getSupabaseAdminClient();
+    const file = await new FileRepository(admin).findByFileNo(fileNo);
+    if (!file) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    return jsonOk({ file });
+  }
+
+  /** PUT /api/admin/files/[file_no] — admin edit of an existing file record by file_no */
+  static async updateFileByFileNo(fileNo: string, req: Request) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+    const body = await req.json().catch(() => null);
+    if (!body)
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const existing = await repo.findByFileNo(fileNo);
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+
+    const patch: Partial<FileRecordRow> = {};
+
+    if (body.file_name !== undefined) {
+      const fileName = String(body.file_name).trim();
+      if (!fileName)
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'File name cannot be empty.',
+        );
+      if (fileName.toLowerCase() !== existing.file_name.toLowerCase()) {
+        const dup = await repo.findByFileName(fileName);
+        if (dup && dup.id !== existing.id) {
+          throw new ApiError(
+            409,
+            'VALIDATION_ERROR',
+            'File name already exists.',
+          );
+        }
+      }
+      patch.file_name = fileName;
+    }
+
+    if (body.section !== undefined || body.section_name !== undefined) {
+      const s = String(body.section ?? body.section_name).trim();
+      if (s) patch.section_name = s;
+    }
+
+    if (body.start_date !== undefined)
+      patch.start_date = String(body.start_date).trim();
+    if (body.end_date !== undefined)
+      patch.end_date = String(body.end_date).trim();
+
+    if (
+      patch.start_date &&
+      patch.end_date &&
+      patch.end_date < patch.start_date
+    ) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'End date must be on or after the start date.',
+      );
+    }
+
+    if (body.locker_no !== undefined)
+      patch.locker_no = body.locker_no ? String(body.locker_no).trim() : null;
+    if (body.shelf_name !== undefined)
+      patch.shelf_name = body.shelf_name
+        ? String(body.shelf_name).trim()
+        : null;
+    if (body.shelf_position !== undefined)
+      patch.shelf_position = body.shelf_position || null;
+    if (body.page_numbers !== undefined)
+      patch.page_numbers = Math.max(
+        0,
+        parseInt(String(body.page_numbers), 10) || 0,
+      );
+    if (body.minute_sheets_count !== undefined)
+      patch.minute_sheets_count = Math.max(
+        0,
+        parseInt(String(body.minute_sheets_count), 10) || 0,
+      );
+
+    const updated = await repo.update(existing.id, patch);
+
+    try {
+      await new AuditLogRepository(admin).log({
+        actorId: actor.id,
+        action: 'file.updated',
+        details: { file_no: fileNo, patch },
+      });
+    } catch {}
+
+    return jsonOk({ file: updated, message: 'File updated successfully.' });
+  }
+
+  /** DELETE /api/admin/files/[file_no] — admin delete of a file record by file_no */
+  static async deleteFileByFileNo(fileNo: string) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const existing = await repo.findByFileNo(fileNo);
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+
+    await repo.delete(existing.id);
+
+    try {
+      await new AuditLogRepository(admin).log({
+        actorId: actor.id,
+        action: 'file.deleted',
+        details: { file_no: existing.file_no, file_name: existing.file_name },
+      });
+    } catch {}
+
+    return jsonOk({ message: 'File deleted successfully.' });
+  }
+
+  /** POST /api/admin/files/[file_no]/approve — approve pending submission by file_no */
+  static async approveFileByFileNo(fileNo: string) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const existing = await repo.findByFileNo(fileNo);
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File request not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+    if (existing.status !== 'PENDING') {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        `File request is already ${(
+          existing.status ?? ''
+        ).toLowerCase()} and cannot be approved again.`,
+      );
+    }
+
+    const adminDisplayName = actor.full_name || actor.email || 'Administrator';
+    const approved = await repo.approve(
+      existing.id,
+      actor.id,
+      adminDisplayName,
+    );
+
+    try {
+      await new AuditLogRepository(admin).log({
+        actorId: actor.id,
+        action: 'file.approved',
+        details: {
+          file_no: existing.file_no,
+          file_name: existing.file_name,
+          approver_name: adminDisplayName,
+        },
+      });
+    } catch {}
+
+    return jsonOk({
+      file: approved,
+      message: `File "${existing.file_name}" has been approved and added to the repository.`,
+    });
+  }
+
+  /** POST /api/admin/files/[file_no]/reject — reject pending submission by file_no */
+  static async rejectFileByFileNo(fileNo: string, req: Request) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+    const body = await req.json().catch(() => ({}));
+    const reason = body?.reason ? String(body.reason).trim() : undefined;
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const existing = await repo.findByFileNo(fileNo);
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File request not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+    if (existing.status !== 'PENDING') {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        `File request is already ${(
+          existing.status ?? ''
+        ).toLowerCase()} and cannot be rejected.`,
+      );
+    }
+
+    const adminDisplayName = actor.full_name || actor.email || 'Administrator';
+    const rejected = await repo.reject(
+      existing.id,
+      actor.id,
+      reason,
+      adminDisplayName,
+    );
+
+    try {
+      await new AuditLogRepository(admin).log({
+        actorId: actor.id,
+        action: 'file.rejected',
+        details: {
+          file_no: existing.file_no,
+          file_name: existing.file_name,
+          reason,
+        },
+      });
+    } catch {}
+
+    return jsonOk({
+      file: rejected,
+      message: `File submission "${existing.file_name}" has been rejected.`,
     });
   }
 }

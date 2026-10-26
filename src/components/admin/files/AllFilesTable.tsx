@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
 import {
   FiEye,
   FiEdit2,
@@ -15,6 +16,7 @@ import {
   FiFileText,
 } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
+import FilesTableSkeleton from './FilesTableSkeleton';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'SO';
@@ -46,14 +48,10 @@ function getSectionBadge(section?: string | null) {
 function formatDateTimeParts(iso?: string | null): { date: string; time: string } {
   if (!iso) return { date: '—', time: '' };
   try {
-    const d = new Date(iso);
-    const dateStr = d.toISOString().split('T')[0];
-    const timeStr = d.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    return { date: dateStr, time: timeStr };
+    return {
+      date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
+      time: formatSriLankaTime(iso),
+    };
   } catch {
     return { date: iso, time: '' };
   }
@@ -66,6 +64,7 @@ export default function AllFilesTable({
   limit,
   totalPages,
   loading = false,
+  refreshing = false,
   isFiltered = false,
   onPageChange,
   onView,
@@ -78,6 +77,7 @@ export default function AllFilesTable({
   limit: number;
   totalPages: number;
   loading?: boolean;
+  refreshing?: boolean;
   isFiltered?: boolean;
   onPageChange: (newPage: number) => void;
   onView: (file: FileRecordRow) => void;
@@ -85,15 +85,10 @@ export default function AllFilesTable({
   onDelete: (file: FileRecordRow) => void;
 }) {
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700">
-        <span className="h-8 w-8 animate-spin rounded-full border-3 border-[#4318FF] border-t-transparent" />
-        <p className="mt-3 text-xs font-semibold text-slate-400">Loading files repository...</p>
-      </div>
-    );
+    return <FilesTableSkeleton />;
   }
 
-  if (files.length === 0) {
+  if (!refreshing && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700 text-center px-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 mb-3">
@@ -111,7 +106,10 @@ export default function AllFilesTable({
   const endRecord = Math.min(page * limit, total);
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+    <div className="relative w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+      {refreshing && (
+        <div className="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-navy-900/35 backdrop-blur-[1px]" />
+      )}
       <div className="w-full overflow-x-auto">
         <table className="w-full text-left border-collapse table-auto min-w-[980px] xl:min-w-0">
           <thead>
@@ -140,7 +138,10 @@ export default function AllFilesTable({
                   .filter(Boolean)
                   .join(' / ') || 'Central Record Room';
 
-              const isAdmin = file.registrar_role === 'Administrator';
+              const isAdmin =
+                file.registrar_role === 'Administrator' ||
+                file.registrar_role === 'Admin' ||
+                (file.registrar_name && file.registrar_name.toLowerCase().includes('admin'));
               const rowNo = String((page - 1) * limit + idx + 1).padStart(2, '0');
               const dt = formatDateTimeParts(file.created_at);
 
@@ -150,13 +151,18 @@ export default function AllFilesTable({
                 (file.approved_by && !file.approved_by.includes('-') ? file.approved_by : null);
 
               let statusLabel = 'System Verified';
-              let subtext: string | null = 'Automatically approved by system';
-              let statusColor = 'text-emerald-600 dark:text-emerald-400';
+              let subtext: string | null = `Admin Added (${file.registrar_name || 'Admin'})`;
+              let statusColor = 'text-blue-600 dark:text-blue-400';
               let IconComponent = FiCheckCircle;
 
-              if (file.status === 'PENDING') {
+              if (isAdmin) {
+                statusLabel = 'System Verified';
+                subtext = `Admin Added (${file.registrar_name || 'Admin'})`;
+                statusColor = 'text-blue-600 dark:text-blue-400';
+                IconComponent = FiCheckCircle;
+              } else if (file.status === 'PENDING') {
                 statusLabel = 'Pending Review';
-                subtext = null;
+                subtext = 'Awaiting administrative review';
                 statusColor = 'text-amber-600 dark:text-amber-400';
                 IconComponent = FiClock;
               } else if (file.status === 'disabled' || file.status === 'disposed') {
@@ -166,22 +172,12 @@ export default function AllFilesTable({
                 IconComponent = FiAlertCircle;
               } else if (file.status === 'REJECTED') {
                 statusLabel = 'Rejected';
-                subtext = adminName ? `by ${adminName}` : null;
+                subtext = file.rejected_by_name ? `by ${file.rejected_by_name}` : (adminName ? `by ${adminName}` : null);
                 statusColor = 'text-rose-600 dark:text-rose-400';
                 IconComponent = FiXCircle;
-              } else if (adminName) {
+              } else {
                 statusLabel = 'Approved';
-                subtext = `by ${adminName}`;
-                statusColor = 'text-emerald-600 dark:text-emerald-400';
-                IconComponent = FiCheckCircle;
-              } else if (isAdmin || !file.approved_by) {
-                statusLabel = 'Approved (Auto-Logged)';
-                subtext = 'Automatically approved by system';
-                statusColor = 'text-emerald-600 dark:text-emerald-400';
-                IconComponent = FiCheckCircle;
-              } else if (file.approved_by || file.approved_at) {
-                statusLabel = 'Approved';
-                subtext = 'by Administrator';
+                subtext = `Admin (${file.approved_by_name || adminName || 'Admin'})`;
                 statusColor = 'text-emerald-600 dark:text-emerald-400';
                 IconComponent = FiCheckCircle;
               }
@@ -296,7 +292,7 @@ export default function AllFilesTable({
                       </span>
                     ) : (
                       <span className="inline-block rounded-full bg-[#05CD99] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
-                        User
+                        Staff
                       </span>
                     )}
                   </td>

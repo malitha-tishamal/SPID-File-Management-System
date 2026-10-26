@@ -31,6 +31,8 @@ export interface LockoutState {
   lockout_level: number;
   locked_until: string | null;
   remaining_seconds: number;
+  /** True once the account passed the timed-lock stages and is locked until an administrator intervenes. */
+  permanent?: boolean;
 }
 
 /** Machine-readable error codes shared by API routes and pages. */
@@ -50,4 +52,5 @@ export type ApiErrorCode =
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
   | 'AUTHENTICATION_DISCREPANCY'
-  | 'AUTH_ERROR';
+  | 'AUTH_ERROR'
+  | 'INTERNAL_ERROR';

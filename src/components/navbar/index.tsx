@@ -1,7 +1,9 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { FiAlignJustify, FiSearch } from 'react-icons/fi';
+import { usePathname } from 'next/navigation';
+import { FiAlignJustify, FiSearch, FiClock } from 'react-icons/fi';
 import { RiMoonFill, RiSunFill } from 'react-icons/ri';
+import { useProfile } from 'contexts/ProfileContext';
 
 export interface NavbarProps {
   onOpenSidenav: () => void;
@@ -11,6 +13,65 @@ export interface NavbarProps {
   [x: string]: any;
 }
 
+function SriLankaClock() {
+  const [time, setTime] = useState<{ time: string; date: string } | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setTime({
+        time: now.toLocaleTimeString('en-US', {
+          timeZone: 'Asia/Colombo',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        }),
+        date: now.toLocaleDateString('en-GB', {
+          timeZone: 'Asia/Colombo',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }),
+      });
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!time) {
+    return (
+      <div className="hidden md:flex h-9 items-center gap-2 rounded-xl bg-[#f4f7fe] px-3 text-xs dark:bg-navy-900 border border-slate-200 dark:border-navy-700 opacity-60">
+        <FiClock className="h-3.5 w-3.5 text-slate-400" />
+        <span className="font-mono text-xs">Loading...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      title="Sri Lanka Standard Time (Asia/Colombo, UTC+05:30) — Sri Jayawardenepura Kotte"
+      className="hidden md:flex items-center gap-2.5 rounded-xl bg-[#f4f7fe] dark:bg-navy-900 border border-slate-200 dark:border-navy-700 px-3 py-1.5 shadow-xs select-none"
+    >
+      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 shrink-0">
+        <FiClock className="h-4 w-4" />
+      </div>
+      <div className="flex flex-col text-left leading-none">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-bold text-navy-700 dark:text-white tracking-tight">
+            {time.time}
+          </span>
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        </div>
+        <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
+          {time.date} • SLST (Kotte)
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function Navbar({
   onOpenSidenav,
   brandText = 'Dashboard',
@@ -18,6 +79,21 @@ export default function Navbar({
   hideBreadcrumb = false,
 }: NavbarProps) {
   const [darkmode, setDarkmode] = useState(false);
+  const pathname = usePathname();
+  const { profile } = useProfile();
+
+  const isStaffArea = pathname?.startsWith('/staff');
+  const profileHref = isStaffArea ? '/staff/profile' : '/admin/profile';
+  const displayName = profile?.full_name || (isStaffArea ? 'SPID Staff' : 'SPID Officer');
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase() || 'SP';
+  };
+  const initials = getInitials(displayName);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -63,7 +139,10 @@ export default function Navbar({
       </div>
 
       {/* Right side actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
+        {/* Sri Lanka / Sri Jayawardenepura Kotte Live Clock */}
+        <SriLankaClock />
+
         {/* Dark Mode Toggle */}
         <button
           type="button"

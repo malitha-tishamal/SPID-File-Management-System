@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { formatSriLankaDateTime } from 'lib/datetime';
 import {
   FiX,
   FiFileText,
@@ -12,6 +13,7 @@ import {
   FiClock,
   FiXCircle,
   FiLayers,
+  FiAlertCircle,
 } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
 
@@ -31,6 +33,11 @@ export default function ViewFileModal({
   }, [onClose]);
 
   if (!file) return null;
+
+  const isAdmin =
+    file.registrar_role === 'Administrator' ||
+    file.registrar_role === 'Admin' ||
+    (file.registrar_name && file.registrar_name.toLowerCase().includes('admin'));
 
   const isPending = file.status === 'PENDING';
   const isApproved = file.status === 'APPROVED' || file.status === 'active';
@@ -56,20 +63,27 @@ export default function ViewFileModal({
                 <span className="font-mono text-xs font-bold text-[#4318FF] dark:text-brand-300">
                   {file.file_no}
                 </span>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    isPending
-                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                      : isApproved
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                      : 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
-                  }`}
-                >
-                  {isPending && <FiClock className="h-3 w-3" />}
-                  {isApproved && <FiCheckCircle className="h-3 w-3" />}
-                  {isRejected && <FiXCircle className="h-3 w-3" />}
-                  {isPending ? 'Pending Review' : isApproved ? 'Approved / Active' : 'Rejected'}
-                </span>
+                {isAdmin ? (
+                  <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                    <FiCheckCircle className="h-3 w-3 stroke-[2.5]" />
+                    System Verified • Admin Added ({file.registrar_name || 'Admin'})
+                  </span>
+                ) : isApproved ? (
+                  <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    <FiCheckCircle className="h-3 w-3" />
+                    Approved (Admin: {file.approved_by_name || 'Admin'})
+                  </span>
+                ) : isPending ? (
+                  <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                    <FiClock className="h-3 w-3" />
+                    Pending Review
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">
+                    <FiXCircle className="h-3 w-3" />
+                    Rejected
+                  </span>
+                )}
               </div>
               <h3 className="text-base font-bold text-navy-800 dark:text-white leading-snug">
                 {file.file_name}
@@ -128,16 +142,19 @@ export default function ViewFileModal({
             </p>
           </div>
 
-          {/* Submitting / Adding Officer */}
+          {/* Submitting Staff Officer */}
           <div className="rounded-2xl bg-slate-50 dark:bg-navy-900/50 p-3.5 border border-slate-100 dark:border-navy-700">
             <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-400 text-[10px] mb-1">
               <FiUser className="h-3.5 w-3.5" /> Submitted / Added By
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.registrar_name || 'System User'}
+              {file.registrar_name || 'Staff Member'}
             </p>
             <p className="text-[11px] text-slate-400">
-              Role: <span className="font-semibold text-slate-600 dark:text-slate-300">{file.registrar_role || 'Staff'}</span>
+              Role:{' '}
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {file.registrar_role === 'Administrator' ? 'Administrator' : 'Staff'}
+              </span>
             </p>
           </div>
 
@@ -147,15 +164,64 @@ export default function ViewFileModal({
               <FiClock className="h-3.5 w-3.5" /> Ledger Timing
             </span>
             <p className="font-bold text-slate-800 dark:text-white">
-              {file.created_at ? new Date(file.created_at).toLocaleString() : '—'}
+              {file.created_at ? formatSriLankaDateTime(file.created_at) : '—'}
             </p>
-            {file.approved_at && (
+            {isApproved && file.approved_at && (
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                Approved: {new Date(file.approved_at).toLocaleString()}
+                Approved: {formatSriLankaDateTime(file.approved_at)}
+              </p>
+            )}
+            {isRejected && (file.rejected_at || file.approved_at) && (
+              <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-0.5">
+                Rejected:{' '}
+                {new Date(file.rejected_at || file.approved_at!).toLocaleString()}
               </p>
             )}
           </div>
         </div>
+
+        {/* Rejection Reason block — shown only for rejected submissions */}
+        {isRejected && (
+          <div className="mt-4 rounded-2xl border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-950/20 p-4">
+            <div className="flex items-start gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">
+                <FiAlertCircle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-1">
+                  Rejection Reason
+                </p>
+                {file.reject_reason ? (
+                  <p className="text-xs font-semibold text-rose-800 dark:text-rose-200 whitespace-pre-wrap break-words">
+                    {file.reject_reason}
+                  </p>
+                ) : (
+                  <p className="text-xs italic text-rose-400 dark:text-rose-500">
+                    No rejection reason recorded.
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-rose-600 dark:text-rose-400">
+                  {(file.rejected_by_name || file.approved_by_name) && (
+                    <p>
+                      Rejected by:{' '}
+                      <span className="font-bold">
+                        {file.rejected_by_name || file.approved_by_name}
+                      </span>
+                    </p>
+                  )}
+                  {(file.rejected_at || file.approved_at) && (
+                    <p>
+                      Date:{' '}
+                      <span className="font-bold">
+                        {formatSriLankaDateTime(file.rejected_at || file.approved_at!)}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="mt-6 flex justify-end">

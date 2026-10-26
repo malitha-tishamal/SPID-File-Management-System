@@ -3,6 +3,8 @@
 import React from 'react';
 import { FiCheck, FiX, FiEye, FiArchive, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
+import FilesTableSkeleton from './FilesTableSkeleton';
+import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'SO';
@@ -34,14 +36,10 @@ function getSectionBadge(section?: string | null) {
 function formatDateTimeParts(iso?: string | null): { date: string; time: string } {
   if (!iso) return { date: '—', time: '' };
   try {
-    const d = new Date(iso);
-    const dateStr = d.toISOString().split('T')[0];
-    const timeStr = d.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    return { date: dateStr, time: timeStr };
+    return {
+      date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
+      time: formatSriLankaTime(iso),
+    };
   } catch {
     return { date: iso, time: '' };
   }
@@ -50,6 +48,7 @@ function formatDateTimeParts(iso?: string | null): { date: string; time: string 
 export default function FileRequestsTable({
   files,
   loading = false,
+  refreshing = false,
   total = 0,
   page = 1,
   limit = 15,
@@ -62,6 +61,7 @@ export default function FileRequestsTable({
 }: {
   files: FileRecordRow[];
   loading?: boolean;
+  refreshing?: boolean;
   total?: number;
   page?: number;
   limit?: number;
@@ -73,15 +73,10 @@ export default function FileRequestsTable({
   onView: (file: FileRecordRow) => void;
 }) {
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700">
-        <span className="h-8 w-8 animate-spin rounded-full border-3 border-[#4318FF] border-t-transparent" />
-        <p className="mt-3 text-xs font-semibold text-slate-400">Loading pending requests...</p>
-      </div>
-    );
+    return <FilesTableSkeleton />;
   }
 
-  if (files.length === 0) {
+  if (!refreshing && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700 text-center px-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 mb-3">
@@ -96,7 +91,10 @@ export default function FileRequestsTable({
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+    <div className="relative w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+      {refreshing && (
+        <div className="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-navy-900/35 backdrop-blur-[1px]" />
+      )}
       <div className="w-full overflow-x-auto">
         <table className="w-full text-left border-collapse table-auto min-w-[980px] xl:min-w-0">
           <thead>
@@ -125,7 +123,11 @@ export default function FileRequestsTable({
                   .filter(Boolean)
                   .join(' / ') || 'Central Record Room';
 
-              const roleLabel = file.registrar_role === 'Administrator' ? 'Admin' : 'User';
+              const isAdmin =
+                file.registrar_role === 'Administrator' ||
+                file.registrar_role === 'Admin' ||
+                (file.registrar_name && file.registrar_name.toLowerCase().includes('admin'));
+              const roleLabel = isAdmin ? 'Admin' : 'Staff';
               const dt = formatDateTimeParts(file.created_at);
               const rowNo = String((page - 1) * limit + idx + 1).padStart(2, '0');
 
@@ -227,9 +229,15 @@ export default function FileRequestsTable({
 
                   {/* ROLE */}
                   <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                    <span className="inline-block rounded-full bg-[#05CD99] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
-                      {roleLabel}
-                    </span>
+                    {isAdmin ? (
+                      <span className="inline-block rounded-full bg-[#E11D48] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                        Admin
+                      </span>
+                    ) : (
+                      <span className="inline-block rounded-full bg-[#05CD99] text-white px-2 py-0.5 text-[10px] font-bold shadow-2xs">
+                        Staff
+                      </span>
+                    )}
                   </td>
 
                   {/* SUBMITTED DATE & TIME (Stacked cleanly) */}
@@ -246,38 +254,54 @@ export default function FileRequestsTable({
 
                   {/* REQUEST STATUS */}
                   <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2 py-0.5 text-[10px] font-bold">
-                      <span className="text-[9px]">⏳</span>
-                      <span>Pending Review</span>
-                    </span>
+                    {isAdmin ? (
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 px-2 py-0.5 text-[10px] font-bold">
+                          <span>System Verified</span>
+                        </span>
+                        <span className="text-[9px] font-semibold text-slate-500 dark:text-slate-400">
+                          Admin Added
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2 py-0.5 text-[10px] font-bold">
+                        <span className="text-[9px]">⏳</span>
+                        <span>Pending Review</span>
+                      </span>
+                    )}
                   </td>
 
                   {/* ADMIN ACTIONS */}
                   <td className="py-2.5 px-2 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1">
-                      {/* Approve Button */}
-                      <button
-                        type="button"
-                        onClick={() => onApprove(file)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                        title="Approve request"
-                      >
-                        <FiCheck className="h-3 w-3 stroke-[3]" />
-                        <span>Approve</span>
-                      </button>
+                      {/* Approve & Reject: ONLY for staff submissions */}
+                      {!isAdmin && (
+                        <>
+                          {/* Approve Button */}
+                          <button
+                            type="button"
+                            onClick={() => onApprove(file)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title="Approve request"
+                          >
+                            <FiCheck className="h-3 w-3 stroke-[3]" />
+                            <span>Approve</span>
+                          </button>
 
-                      {/* Reject Button */}
-                      <button
-                        type="button"
-                        onClick={() => onReject(file)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 dark:bg-navy-900 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                        title="Reject request"
-                      >
-                        <FiX className="h-3 w-3 stroke-[3]" />
-                        <span>Reject</span>
-                      </button>
+                          {/* Reject Button */}
+                          <button
+                            type="button"
+                            onClick={() => onReject(file)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 dark:bg-navy-900 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2.5 py-1 text-[11px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title="Reject request"
+                          >
+                            <FiX className="h-3 w-3 stroke-[3]" />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      )}
 
-                      {/* View Details Button */}
+                      {/* View Details Button (Always available) */}
                       <button
                         type="button"
                         onClick={() => onView(file)}
