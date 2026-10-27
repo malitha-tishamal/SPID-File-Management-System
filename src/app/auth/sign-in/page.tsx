@@ -60,8 +60,35 @@ function SignInContent() {
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; title: string; text: string } | null>(null);
 
-  // Arriving from middleware/session watchdog with a status denial
+  // Arriving from middleware/session watchdog with a status denial, or forwarding recovery links
   useEffect(() => {
+    // Forward recovery links that land on sign-in (e.g. from email links or implicit hash tokens)
+    if (typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search);
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const isRecoverySearch =
+        search.has('code') ||
+        search.get('type') === 'recovery' ||
+        search.has('token_hash');
+      const isRecoveryHash =
+        hash.get('type') === 'recovery' ||
+        (hash.has('access_token') && !hash.has('error') && window.location.hash.includes('type=recovery'));
+
+      if (isRecoverySearch || isRecoveryHash) {
+        window.location.replace(`/auth/reset-password${window.location.search}${window.location.hash}`);
+        return;
+      }
+    }
+
+    if (searchParams.get('reset') === 'success') {
+      showToast({
+        type: 'success',
+        title: 'Password Updated',
+        message: 'Your password has been changed. Please sign in with your new password.',
+        duration: 7000,
+      });
+    }
+
     const status = searchParams.get('status');
     if (status && STATUS_BANNERS[status]) {
       const banner = STATUS_BANNERS[status];

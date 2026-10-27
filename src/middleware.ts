@@ -95,7 +95,22 @@ async function guard(request: NextRequest) {
 
   // 3. Root: sign-in for guests, role-aware dashboard for signed-in users.
   if (isRootRoute) {
-    if (!user) return redirect(new URL('/auth/sign-in', request.url));
+    // If arriving with recovery tokens/code, forward straight to reset-password
+    const isRecovery =
+      request.nextUrl.searchParams.has('code') ||
+      request.nextUrl.searchParams.get('type') === 'recovery' ||
+      request.nextUrl.searchParams.has('token_hash');
+    if (isRecovery) {
+      const resetUrl = new URL('/auth/reset-password', request.url);
+      request.nextUrl.searchParams.forEach((value, key) => resetUrl.searchParams.set(key, value));
+      return redirect(resetUrl);
+    }
+
+    if (!user) {
+      const signInUrl = new URL('/auth/sign-in', request.url);
+      request.nextUrl.searchParams.forEach((value, key) => signInUrl.searchParams.set(key, value));
+      return redirect(signInUrl);
+    }
     const role = cachedMeta?.id === user.id ? cachedMeta.role : (await getProfile())?.role;
     return redirect(homeDashboard(role));
   }

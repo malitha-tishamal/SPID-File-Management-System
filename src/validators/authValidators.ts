@@ -89,6 +89,71 @@ export function validatePasswordPair(password: string, confirmPassword: string):
   return null;
 }
 
+export interface PasswordStrength {
+  score: number;
+  label: string;
+  color: string;
+  text: string;
+  width: string;
+}
+
+export const PASSWORD_SPECIAL_CHARS = /[!@#$%^&*(),.?":{}|<>]/;
+
+/** Real-time strength rating shown on the registration and reset forms. */
+export function getPasswordStrength(password: string): PasswordStrength {
+  if (!password) {
+    return { score: 0, label: 'Not entered', color: 'bg-slate-200', text: 'text-slate-400', width: '0%' };
+  }
+
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+  if (/\d/.test(password)) score += 1;
+  if (PASSWORD_SPECIAL_CHARS.test(password)) score += 1;
+
+  if (password.length < 8) {
+    return { score: 1, label: 'Weak (min 8 characters)', color: 'bg-rose-500', text: 'text-rose-500', width: '25%' };
+  }
+  if (score <= 2) {
+    return {
+      score: 2,
+      label: 'Fair (add numbers or special characters)',
+      color: 'bg-amber-500',
+      text: 'text-amber-500',
+      width: '50%',
+    };
+  }
+  if (score === 3) {
+    return {
+      score: 3,
+      label: 'Good (meets basic requirements)',
+      color: 'bg-sky-500',
+      text: 'text-sky-500',
+      width: '75%',
+    };
+  }
+  return {
+    score: 4,
+    label: 'Strong (Archival Standard)',
+    color: 'bg-emerald-500',
+    text: 'text-emerald-500',
+    width: '100%',
+  };
+}
+
+/** Password pair check that also requires the highest ("Strong") rating. */
+export function validateStrongPasswordPair(
+  password: string,
+  confirmPassword: string
+): string | null {
+  const baseError = validatePasswordPair(password, confirmPassword);
+  if (baseError) return baseError;
+  if (getPasswordStrength(password).score < 4) {
+    return 'Password is not strong enough. Use 8+ characters with uppercase, lowercase, a number and a special character.';
+  }
+  return null;
+}
+
 /**
  * Progressive lockout schedule (server-enforced; mirrored here for tests):
  *   attempt 3  -> level 1, 60 seconds
