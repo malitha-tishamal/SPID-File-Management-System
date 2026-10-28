@@ -1,103 +1,37 @@
 /* eslint-disable */
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { HiX } from 'react-icons/hi';
 import { FiSettings, FiLogOut } from 'react-icons/fi';
 import Links from './components/Links';
 import { IRoute } from 'types/navigation';
-
-interface SessionUser {
-  full_name?: string;
-  name?: string;
-  email?: string;
-  role?: string;
-}
-
-let sessionCache: SessionUser | null = null;
-
-async function fetchSession(): Promise<SessionUser | null> {
-  if (sessionCache) return sessionCache;
-  try {
-    const res = await fetch('/api/auth/me');
-    if (res.ok) {
-      const json = await res.json();
-      if (json.ok && json.data?.profile) {
-        sessionCache = json.data.profile;
-        return sessionCache;
-      }
-    }
-  } catch {}
-  return null;
-}
+import ConfirmLogoutModal from 'components/modals/ConfirmLogoutModal';
+import { useProfile } from 'contexts/ProfileContext';
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Read cached user & avatar immediately after mounting (browser only)
-    try {
-      const storedAvatar = localStorage.getItem('spid_user_avatar');
-      if (storedAvatar) {
-        setAvatarUrl(storedAvatar);
-      }
-      if (sessionCache) {
-        setUser(sessionCache);
-      } else {
-        const stored = localStorage.getItem('spid_user');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          sessionCache = parsed;
-          setUser(parsed);
-        }
-      }
-    } catch {}
-
-    const syncAvatar = () => {
-      try {
-        const stored = localStorage.getItem('spid_user_avatar');
-        setAvatarUrl(stored || null);
-      } catch {}
-    };
-
-    window.addEventListener('spid_avatar_updated', syncAvatar);
-    window.addEventListener('storage', syncAvatar);
-
-    if (!sessionCache) {
-      fetchSession().then((profile) => {
-        if (profile) {
-          setUser(profile);
-          try {
-            localStorage.setItem('spid_user', JSON.stringify(profile));
-          } catch {}
-        }
-      });
-    }
-
-    return () => {
-      window.removeEventListener('spid_avatar_updated', syncAvatar);
-      window.removeEventListener('storage', syncAvatar);
-    };
-  }, []);
+  const { profile, avatarUrl, clearProfile } = useProfile();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
-    sessionCache = null;
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
-    // Clear local session data
+    clearProfile();
     try {
-      localStorage.removeItem('spid_user');
       document.cookie = 'spid_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     } catch {}
     window.location.href = '/auth/sign-in';
   };
 
-  const displayName = user?.full_name || user?.name || 'SPID Officer';
-  const displayRole = user?.role || 'Staff';
+  const displayName = profile?.full_name || 'SPID Officer';
+  const displayRole = profile?.role || 'Administrator';
 
   const getInitials = (name: string) => {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -109,46 +43,62 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const initials = getInitials(displayName);
 
   return (
-    <div
-      className={`sm:none duration-175 linear fixed !z-50 flex min-h-full flex-col bg-white pb-0 shadow-2xl shadow-white/5 transition-all dark:!bg-navy-800 dark:text-white md:!z-50 lg:!z-50 xl:!z-0 ${
-        open ? 'translate-x-0' : '-translate-x-96 xl:translate-x-0'
-      }`}
-      style={{ width: '280px' }}
-    >
-      {/* Close button (mobile) */}
-      <span
-        className="absolute right-4 top-4 block cursor-pointer xl:hidden"
-        onClick={() => setOpen(false)}
+    <>
+      {/* ── Mobile Backdrop Overlay ── */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs transition-opacity xl:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* ── Sidebar Container ── */}
+      <aside
+        aria-label="Sidebar navigation"
+        className={`fixed !z-50 flex min-h-full flex-col bg-white pb-0 shadow-2xl shadow-slate-300/40 transition-transform duration-300 ease-in-out dark:!bg-navy-800 dark:text-white dark:shadow-navy-950 md:!z-50 lg:!z-50 xl:!z-30 ${
+          open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        style={{ width: '280px' }}
       >
-        <HiX className="h-5 w-5 text-gray-400" />
-      </span>
+        {/* ── SPID Logo & Brand with Toggle Button ── */}
+        <div className="mx-5 mt-6 flex items-center justify-between gap-2">
+          <Link href="/admin/dashboard" className="flex items-center gap-3 min-w-0 group">
+            <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0 dark:bg-navy-900 dark:border-navy-700 group-hover:scale-105 transition-transform">
+              <Image
+                width={80}
+                height={80}
+                priority
+                src="/img/spid/spid-logo.png"
+                alt="SPID Logo"
+                className="h-full w-full object-contain select-none"
+              />
+            </div>
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-[13px] font-black uppercase text-navy-700 dark:text-white tracking-tight truncate">
+                SPID
+              </span>
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider truncate">
+                File Management
+              </span>
+            </div>
+          </Link>
+        </div>
 
-      {/* ── SPID Logo & Brand ── */}
-      <div className="mx-5 mt-8 flex items-center gap-3">
-        <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0 dark:bg-navy-900 dark:border-navy-700">
-          <img
-            src="/img/spid/spid-logo.png"
-            alt="SPID Logo"
-            className="h-full w-full object-contain select-none"
+        {/* ── Divider ── */}
+        <div className="mx-4 my-5 h-px bg-gray-100 dark:bg-navy-700" />
+
+        {/* ── Navigation Links (scrollable) ── */}
+        <ul className="flex-1 overflow-y-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-navy-700">
+          <Links
+            routes={routes}
+            onClickRoute={() => {
+              if (typeof window !== 'undefined' && window.innerWidth < 1280) {
+                setOpen(false);
+              }
+            }}
           />
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-[13px] font-black uppercase text-navy-700 dark:text-white tracking-tight">
-            SPID
-          </span>
-          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-            File Management
-          </span>
-        </div>
-      </div>
-
-      {/* ── Divider ── */}
-      <div className="mx-4 my-5 h-px bg-gray-100 dark:bg-navy-700" />
-
-      {/* ── Navigation Links (scrollable) ── */}
-      <ul className="flex-1 overflow-y-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-navy-700">
-        <Links routes={routes} />
-      </ul>
+        </ul>
 
       {/* ── Bottom: User Profile + LOG OUT ── */}
       <div className="mt-auto border-t border-gray-100 dark:border-navy-700 pt-3">
@@ -164,7 +114,6 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
                 <img
                   src={avatarUrl}
                   alt={displayName}
-                  onError={() => setAvatarUrl(null)}
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -191,7 +140,7 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
         {/* LOG OUT Button */}
         <div className="px-3 pb-5">
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutConfirm(true)}
             className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#FF5B5B] to-[#FF4757] py-3 text-sm font-bold text-white shadow-md shadow-red-500/25 transition-all hover:opacity-95 active:scale-[0.99]"
           >
             LOG OUT
@@ -199,7 +148,17 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
           </button>
         </div>
       </div>
-    </div>
+
+      <ConfirmLogoutModal
+        isOpen={showLogoutConfirm}
+        loading={isLoggingOut}
+        onCancel={() => {
+          if (!isLoggingOut) setShowLogoutConfirm(false);
+        }}
+        onConfirm={handleLogout}
+      />
+    </aside>
+  </>
   );
 }
 
