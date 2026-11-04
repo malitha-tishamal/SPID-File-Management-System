@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes loading-bar-indeterminate {
+  0% {
+    left: -35%;
+    width: 35%;
+  }
+  50% {
+    left: 30%;
+    width: 45%;
+  }
+  100% {
+    left: 100%;
+    width: 35%;
+  }
+}
+
+.loading-bar-indeterminate {
+  animation: loading-bar-indeterminate 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar-indeterminate {
+    animation-duration: 2.4s;
+  }
+  /* Keep loading states legible without motion for reduced-motion users. */
+  .animate-pulse,
+  .animate-spin,
+  .animate-ping,
+  .animate-shimmer,
+  .animate-in {
+    animation: none !important;
+  }
+}
+
+@layer base {
+  html {
+    font-family: var(--font-dm-sans), 'DM Sans', sans-serif !important;
+    font-feature-settings: 'kern' !important;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.2px;
+  }
+  body {
+    color: #0f172a;
+  }
+  .dark body {
+    color: #f8fafc;
+  }
+  /* Dropdown lists, date pickers and scrollbars are painted by the browser, not
+     by our classes, so they stay light unless the page opts into a dark scheme. */
+  :root {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #475569;
+}
+
+/* Prevent any browser/user-agent styling from making dark mode inputs white */
+.dark input,
+.dark textarea {
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+input.defaultCheckbox {
+  color: white;
+}
+
+input.defaultCheckbox::before {
+  content: url("data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6.66662 10.115L12.7946 3.98633L13.7379 4.92899L6.66662 12.0003L2.42395 7.75766L3.36662 6.81499L6.66662 10.115Z' fill='white'/%3E%3C/svg%3E%0A");
+  fill: currentColor;
+  opacity: 0;
+  height: 16px;
+  width: 16px;
+  top: 0;
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 0px);
+}
+
+input.defaultCheckbox::before path {
+  fill: currentColor;
+}
+
+input:checked.defaultCheckbox::before {
+  opacity: 1;
+}
+
+/* ─── Dark mode: prevent browser autofill from turning inputs white ─── */
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 9999px #0b1437 inset !important;
+  box-shadow: 0 0 0 9999px #0b1437 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+}
+
+/* Light mode: consistent autofill colour */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 9999px #f4f7fe inset !important;
+  box-shadow: 0 0 0 9999px #f4f7fe inset !important;
+  -webkit-text-fill-color: #1b2559 !important;
+  caret-color: #1b2559;
+}
+

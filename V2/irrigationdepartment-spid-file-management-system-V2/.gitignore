@@ -1,0 +1,90 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+/node_modules
+package-lock.json
+yarn.lock
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+build
+/dist
+dist
+/out
+
+# misc
+.DS_Store
+Thumbs.db
+
+# Environment variables - NEVER commit secrets
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+.env.staging
+.env*
+!.env.example
+
+# Logs & debuggers
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+*.pem
+
+# Caches & temporary files
+.cache
+.turbo
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+desktop.ini
+
+# nextjs
+/.next/
+.next
+out/
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE and editor files
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup folder for ignored files
+gitignoredfiles/
+/gitignoredfiles/
+
+
+.lighthouseci/
+test-results/
+playwright-report/
+*.md
