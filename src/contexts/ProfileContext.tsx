@@ -22,6 +22,15 @@ function emitAvatarUpdate(userId: string | undefined, avatarUrl: string | null) 
     window.dispatchEvent(
       new CustomEvent('spid_avatar_updated', { detail: { userId, avatarUrl } })
     );
+    // Also broadcast via BroadcastChannel for cross-tab sync
+    const channel = new BroadcastChannel('spid_auth_sync');
+    channel.postMessage({
+      type: 'AVATAR_UPDATE',
+      userId,
+      data: { avatarUrl },
+      timestamp: Date.now(),
+    });
+    channel.close();
   } catch {}
 }
 
@@ -207,8 +216,52 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     refreshProfile();
   }, [refreshProfile]);
 
-  // Keep tabs in sync when another tab updates or clears the same user.
+  // Keep tabs in sync when another tab updates the same user — and force a
+  // reload when another tab signs in as a DIFFERENT user or signs out, since
+  // the underlying cookie session was replaced or removed server-side.
+  // Uses both BroadcastChannel (for real-time) and localStorage (for fallback).
   useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    let handleBroadcastMessage: ((event: MessageEvent) => void) | null = null;
+
+    try {
+      // BroadcastChannel for real-time cross-tab communication
+      channel = new BroadcastChannel('spid_auth_sync');
+
+      handleBroadcastMessage = (event: MessageEvent) => {
+        const current = profileRef.current;
+        if (!current?.id) return;
+
+        const { type, userId, data } = event.data;
+
+        if (type === 'LOGIN_SUCCESS') {
+          // Another tab logged in with a different account
+          if (userId && userId !== current.id) {
+            // Different account signed in - redirect this tab to login
+            console.log('[AuthSync] Different account logged in, redirecting to login');
+            window.location.replace('/auth/sign-in');
+          }
+          // Same account - no action needed, cookie session is already shared
+        } else if (type === 'LOGOUT') {
+          // Another tab logged out - reload to clear session
+          console.log('[AuthSync] Logout detected in another tab, reloading');
+          window.location.reload();
+        } else if (type === 'AVATAR_UPDATE' && userId === current.id) {
+          // Avatar update for the same user
+          const nextUrl = data?.avatarUrl || null;
+          const next = { ...current, avatar_url: nextUrl };
+          profileRef.current = next;
+          setProfileState(next);
+          setAvatarUrlState(nextUrl);
+        }
+      };
+
+      channel.addEventListener('message', handleBroadcastMessage);
+    } catch (e) {
+      // BroadcastChannel not supported (e.g., in some private browsing modes)
+      console.warn('[AuthSync] BroadcastChannel not available, falling back to localStorage only');
+    }
+
     const handleStorageChange = (e: StorageEvent) => {
       const current = profileRef.current;
       if (!current?.id) return;
@@ -220,19 +273,39 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
           profileRef.current = next;
           setProfileState(next);
           setAvatarUrlState(nextUrl);
-        } else if (e.key === 'spid_user' && e.newValue) {
+        } else if (e.key === 'spid_user') {
+          if (!e.newValue) {
+            // Signed out in another tab — reload so the (now cookieless)
+            // session is dropped everywhere and middleware redirects.
+            window.location.reload();
+            return;
+          }
           const parsed = JSON.parse(e.newValue) as ProfileDTO;
           if (parsed.id === current.id) {
             profileRef.current = parsed;
             setProfileState(parsed);
             setAvatarUrlState(parsed.avatar_url || null);
+          } else {
+            // A different account signed in inside this browser: the server
+            // has already replaced the cookie session, so this tab must not
+            // keep showing the previous account. Redirect to login.
+            window.location.replace('/auth/sign-in');
           }
         }
       } catch {}
     };
 
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+
+    return () => {
+      if (channel && handleBroadcastMessage) {
+        try {
+          channel.removeEventListener('message', handleBroadcastMessage);
+          channel.close();
+        } catch {}
+      }
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   return (

@@ -1,4 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  isValidYmd,
+  sriLankaDayEndIso,
+  sriLankaDayStartIso,
+  sriLankaTodayStart,
+} from 'lib/datetime';
 
 export type FileStatus =
   | 'PENDING'
@@ -55,6 +61,8 @@ export interface FileFilterOptions {
   officer?: string;
   registered_by?: string;
   date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   sort?: 'newest' | 'oldest' | 'file_no' | 'file_name';
   page?: number;
   limit?: number;
@@ -66,11 +74,41 @@ export interface FileCountsSummary {
   allFilesCount: number;
   pendingCount: number;
   rejectedCount?: number;
+  totalPageNumbers?: number;
 }
 
 /** Columns required for list/table views (avoids select * on large rows). */
 export const FILE_LIST_SELECT =
   'id,file_no,file_name,section_name,start_date,end_date,locker_no,shelf_name,shelf_position,page_numbers,minute_sheets_count,registrar_name,registrar_role,registered_by,created_by,approved_by,approved_by_name,reject_reason,rejected_at,rejected_by_name,approved_at,archive_repository,status,created_at,updated_at';
+
+/**
+ * Strip characters that carry grammar meaning inside PostgREST `or=(...)`
+ * filters, so user input cannot alter the filter expression.
+ */
+function sanitizeFilterTerm(value: string): string {
+  return value
+    .replace(/[,()*"\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when a Supabase/Postgres error means a unique constraint was violated.
+ * Repositories wrap driver errors in plain Errors, so the code may only
+ * survive in the message text.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const { code, message, details } = err as {
+    code?: string;
+    message?: string;
+    details?: string;
+  };
+  if (code === '23505') return true;
+  return /duplicate key value|unique constraint|uq_files_file_no_live/i.test(
+    `${message ?? ''} ${details ?? ''}`,
+  );
+}
 
 /** Model layer: File and physical record repository */
 export class FileRepository {
@@ -94,52 +132,30 @@ export class FileRepository {
     return (data as FileRecordRow) ?? null;
   }
 
-  /** Look up a file by its file_no */
+  /** Every row sharing this file number, case-insensitive. */
+  private async selectByFileNo(fileNo: string): Promise<FileRecordRow[]> {
+    const { data, error } = await this.client
+      .from('files')
+      .select(FILE_LIST_SELECT)
+      .ilike('file_no', fileNo.trim());
+
+    if (error) {
+      console.error('FileRepository.selectByFileNo error:', error);
+      return [];
+    }
+    return (data as FileRecordRow[]) ?? [];
+  }
+
+  /** The live record that owns this file number, if any. */
+  async findLiveByFileNo(fileNo: string): Promise<FileRecordRow | null> {
+    const rows = await this.selectByFileNo(fileNo);
+    return rows.find((row) => row.status !== 'REJECTED') ?? null;
+  }
+
+  /** Look up a file by its file_no, preferring the live record over rejected ones */
   async findByFileNo(fileNo: string): Promise<FileRecordRow | null> {
-    const { data, error } = await this.client
-      .from('files')
-      .select('*')
-      .ilike('file_no', fileNo.trim())
-      .maybeSingle();
-
-    if (error) {
-      console.error('FileRepository.findByFileNo error:', error);
-      return null;
-    }
-    return (data as FileRecordRow) ?? null;
-  }
-
-  /** Look up a file by its file_name */
-  async findByFileName(fileName: string): Promise<FileRecordRow | null> {
-    const { data, error } = await this.client
-      .from('files')
-      .select('*')
-      .ilike('file_name', fileName.trim())
-      .maybeSingle();
-
-    if (error) {
-      console.error('FileRepository.findByFileName error:', error);
-      return null;
-    }
-    return (data as FileRecordRow) ?? null;
-  }
-
-  async findByFileIdentity(
-    fileNo: string,
-    fileName: string,
-  ): Promise<FileRecordRow | null> {
-    const { data, error } = await this.client
-      .from('files')
-      .select('*')
-      .eq('file_no', fileNo.trim())
-      .eq('file_name', fileName.trim())
-      .maybeSingle();
-
-    if (error) {
-      console.error('FileRepository.findByFileIdentity error:', error);
-      throw error;
-    }
-    return (data as FileRecordRow) ?? null;
+    const rows = await this.selectByFileNo(fileNo);
+    return rows.find((row) => row.status !== 'REJECTED') ?? rows[0] ?? null;
   }
 
   /** Create a new file record */
@@ -174,7 +190,8 @@ export class FileRepository {
     return (data as FileRecordRow[]) ?? [];
   }
 
-  async findExistingFileIdentities(fileNos: string[]): Promise<Set<string>> {
+  /** Live file numbers that already exist, lower-cased for comparison. */
+  async findExistingLiveFileNos(fileNos: string[]): Promise<Set<string>> {
     const cleanFileNos = [
       ...new Set(fileNos.map((n) => n.trim()).filter(Boolean)),
     ];
@@ -182,24 +199,23 @@ export class FileRepository {
 
     const { data, error } = await this.client
       .from('files')
-      .select('file_no, file_name')
+      .select('file_no, status')
       .in('file_no', cleanFileNos);
 
     if (error) throw error;
     return new Set(
-      (data ?? []).map((record: { file_no: string; file_name: string }) =>
-        JSON.stringify([
-          record.file_no.toLowerCase(),
-          record.file_name.toLowerCase(),
-        ]),
-      ),
+      (data ?? [])
+        .filter((record: { status?: string }) => record.status !== 'REJECTED')
+        .map((record: { file_no: string }) =>
+          record.file_no.trim().toLowerCase(),
+        ),
     );
   }
 
   async list(limit = 100): Promise<FileRecordRow[]> {
     const { data, error } = await this.client
       .from('files')
-      .select('*')
+      .select(FILE_LIST_SELECT)
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -214,7 +230,7 @@ export class FileRepository {
     search: string,
     limit = 20,
   ): Promise<FileRecordRow[]> {
-    const term = search.trim();
+    const term = sanitizeFilterTerm(search);
     if (!term) return [];
 
     const { data, error } = await this.client
@@ -253,6 +269,8 @@ export class FileRepository {
       officer,
       registered_by,
       date,
+      dateFrom,
+      dateTo,
       sort = 'newest',
       page = 1,
       limit = 15,
@@ -295,10 +313,10 @@ export class FileRepository {
     }
 
     // Search filter across file_no, file_name, registrar_name
-    if (search && search.trim()) {
-      const term = search.trim();
+    const searchTerm = search ? sanitizeFilterTerm(search) : '';
+    if (searchTerm) {
       query = query.or(
-        `file_no.ilike.%${term}%,file_name.ilike.%${term}%,registrar_name.ilike.%${term}%`,
+        `file_no.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%,registrar_name.ilike.%${searchTerm}%`,
       );
     }
 
@@ -309,8 +327,10 @@ export class FileRepository {
 
     // Storage unit / location filter
     if (storage && storage !== 'all' && storage !== 'All Storage Units') {
-      const term = storage.trim();
-      query = query.or(`locker_no.ilike.%${term}%,shelf_name.ilike.%${term}%`);
+      const term = sanitizeFilterTerm(storage);
+      if (term) {
+        query = query.or(`locker_no.ilike.%${term}%,shelf_name.ilike.%${term}%`);
+      }
     }
 
     // Officer filter
@@ -318,11 +338,16 @@ export class FileRepository {
       query = query.ilike('registrar_name', `%${officer.trim()}%`);
     }
 
-    // Date filter
-    if (date && date.trim()) {
-      query = query
-        .gte('created_at', `${date.trim()}T00:00:00.000Z`)
-        .lte('created_at', `${date.trim()}T23:59:59.999Z`);
+    // Inclusive calendar-day filter in Sri Lanka time (created_at stored as UTC).
+    const fromDay = (dateFrom && isValidYmd(dateFrom) ? dateFrom.trim() : '') ||
+      (date && isValidYmd(date) ? date.trim() : '');
+    const toDay = (dateTo && isValidYmd(dateTo) ? dateTo.trim() : '') ||
+      (date && isValidYmd(date) ? date.trim() : '');
+    if (fromDay) {
+      query = query.gte('created_at', sriLankaDayStartIso(fromDay));
+    }
+    if (toDay) {
+      query = query.lte('created_at', sriLankaDayEndIso(toDay));
     }
 
     // Sorting
@@ -529,10 +554,34 @@ export class FileRepository {
 
   /** Aggregated KPI summary counts for top cards and tab badges */
   async getSummaryCounts(): Promise<FileCountsSummary> {
+    // Preferred path: one aggregate round trip (see migration 0020).
+    // Falls back to the per-status queries below until that migration is applied.
     try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const [pending, allFiles, archives, today] = await Promise.all([
+      const { data, error } = await this.client.rpc('file_summary_counts');
+      if (!error && data) {
+        const row = (Array.isArray(data) ? data[0] : data) as
+          | Partial<FileCountsSummary>
+          | null;
+        if (row && typeof row.allFilesCount === 'number') {
+          return {
+            totalArchives: Number(row.totalArchives) || 0,
+            todayCount: Number(row.todayCount) || 0,
+            allFilesCount: Number(row.allFilesCount) || 0,
+            pendingCount: Number(row.pendingCount) || 0,
+            rejectedCount: Number(row.rejectedCount) || 0,
+            totalPageNumbers:
+              row.totalPageNumbers !== undefined && row.totalPageNumbers !== null
+                ? Number(row.totalPageNumbers)
+                : undefined,
+          };
+        }
+      }
+    } catch {}
+
+    try {
+      // Day boundary in Sri Lanka time so "today" matches what users see.
+      const todayStartIso = sriLankaTodayStart().toISOString();
+      const [pending, allFiles, archives, rejected, today] = await Promise.all([
         this.client
           .from('files')
           .select('*', { count: 'exact', head: true })
@@ -545,20 +594,19 @@ export class FileRepository {
         this.client
           .from('files')
           .select('*', { count: 'exact', head: true })
-          .gte('created_at', todayStart.toISOString()),
+          .eq('status', 'REJECTED'),
+        this.client
+          .from('files')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', todayStartIso),
       ]);
-
-      // 5. Rejected count (Rejected Files tab badge)
-      const { count: rejectedCount } = await this.client
-        .from('files')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'REJECTED');
 
       return {
         totalArchives: archives.count ?? 0,
         todayCount: today.count ?? 0,
         allFilesCount: allFiles.count ?? 0,
         pendingCount: pending.count ?? 0,
+        rejectedCount: rejected.count ?? 0,
       };
     } catch (err) {
       console.error('FileRepository.getSummaryCounts error:', err);
@@ -570,5 +618,45 @@ export class FileRepository {
         rejectedCount: 0,
       };
     }
+  }
+
+  /**
+   * Sum of page_numbers across every record. Reads only the needed column in
+   * batches so PostgREST's row cap cannot truncate the total.
+   */
+  async getTotalPageNumbers(batchSize = 1000): Promise<number> {
+    try {
+      const { data, error } = await this.client.rpc('file_total_pages');
+      if (!error && data !== null && data !== undefined) {
+        return Number(data) || 0;
+      }
+    } catch {}
+
+    const size = Math.max(1, Math.min(1000, batchSize));
+    let from = 0;
+    let total = 0;
+
+    for (let batch = 0; batch < 100; batch += 1) {
+      const { data, error } = await this.client
+        .from('files')
+        .select('page_numbers')
+        .order('id', { ascending: true })
+        .range(from, from + size - 1);
+
+      if (error) {
+        console.error('FileRepository.getTotalPageNumbers error:', error);
+        return total;
+      }
+
+      const rows = (data as Array<{ page_numbers?: number | null }>) ?? [];
+      for (const row of rows) {
+        total += Number(row.page_numbers) || 0;
+      }
+
+      if (rows.length < size) break;
+      from += size;
+    }
+
+    return total;
   }
 }

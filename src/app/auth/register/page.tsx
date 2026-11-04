@@ -21,7 +21,7 @@ import { HiOutlineShieldCheck } from 'react-icons/hi';
 import { RiLockPasswordLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
-import { validateRegistration } from 'validators/authValidators';
+import { validateRegistration, getPasswordStrength } from 'validators/authValidators';
 import type { UserRole } from 'types/auth';
 import { useToast } from 'components/toast/ToastContext';
 
@@ -120,52 +120,7 @@ function RegisterPageContent() {
   }, [phoneDigits]);
 
   // Password Strength Calculation with dynamic color rating
-  const passwordStrength = useMemo(() => {
-    if (!password) {
-      return { score: 0, label: 'Not entered', color: 'bg-slate-200', text: 'text-slate-400', width: '0%' };
-    }
-
-    let score = 0;
-    if (password.length >= 8) score += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-    if (/\d/.test(password)) score += 1;
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) score += 1;
-
-    if (password.length < 8) {
-      return {
-        score: 1,
-        label: 'Weak (min 8 characters)',
-        color: 'bg-rose-500',
-        text: 'text-rose-500',
-        width: '25%',
-      };
-    }
-    if (score <= 2) {
-      return {
-        score: 2,
-        label: 'Fair (add numbers or special characters)',
-        color: 'bg-amber-500',
-        text: 'text-amber-500',
-        width: '50%',
-      };
-    }
-    if (score === 3) {
-      return {
-        score: 3,
-        label: 'Good (meets basic requirements)',
-        color: 'bg-sky-500',
-        text: 'text-sky-500',
-        width: '75%',
-      };
-    }
-    return {
-      score: 4,
-      label: 'Strong (Archival Standard)',
-      color: 'bg-emerald-500',
-      text: 'text-emerald-500',
-      width: '100%',
-    };
-  }, [password]);
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   // Validations — shared with the server (validators/authValidators)
   const errors = useMemo(() => {
@@ -199,6 +154,7 @@ function RegisterPageContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
 
     // Mark all fields as touched for validation inspection
     setTouched({
@@ -415,8 +371,9 @@ function RegisterPageContent() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => markTouched('name')}
-                    placeholder="e.g. K. L. Perera"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
+                    autoComplete="name"
+                    placeholder="Enter your full name"
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.name && errors.name
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -448,8 +405,9 @@ function RegisterPageContent() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     onBlur={() => markTouched('email')}
-                    placeholder="e.g. perera.k@spid.gov.lk"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
+                    autoComplete="email"
+                    placeholder="Enter your email address"
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.email && errors.email
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -587,8 +545,9 @@ function RegisterPageContent() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onBlur={() => markTouched('password')}
-                    placeholder="••••••••••••"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
+                    autoComplete="new-password"
+                    placeholder="Create a password"
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.password && errors.password
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -597,7 +556,9 @@ function RegisterPageContent() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    aria-pressed={showPassword}
+                    aria-controls="reg-password"
+                    className="absolute right-3 cursor-pointer rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
                     aria-label="Toggle password visibility"
                   >
                     {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
@@ -647,8 +608,9 @@ function RegisterPageContent() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     onBlur={() => markTouched('confirmPassword')}
-                    placeholder="••••••••••••"
-                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border transition duration-150 focus:outline-none ${
+                    autoComplete="new-password"
+                    placeholder="Confirm your password"
+                    className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.confirmPassword && errors.confirmPassword
                         ? 'border-red-400 focus:border-red-500'
                         : 'border-transparent focus:border-[#4318FF]'
@@ -657,7 +619,9 @@ function RegisterPageContent() {
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    aria-pressed={showConfirmPassword}
+                    aria-controls="reg-confirmPassword"
+                    className="absolute right-3 cursor-pointer rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
                     aria-label="Toggle confirm password visibility"
                   >
                     {showConfirmPassword ? (
@@ -707,14 +671,13 @@ function RegisterPageContent() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
+                aria-busy={isLoading}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 cursor-pointer"
               >
                 {isLoading ? (
-                  <span>Validating &amp; Submitting...</span>
+                  <span>Creating Account...</span>
                 ) : (
-                  <>
-                    <span>+👤 Submit Registration</span>
-                  </>
+                  <span>Create Account</span>
                 )}
               </button>
             </form>

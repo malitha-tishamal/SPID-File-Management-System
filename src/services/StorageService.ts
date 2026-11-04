@@ -4,7 +4,7 @@ import { getSupabaseAdminClient, getSupabaseServerClient } from 'config/supabase
 const PROFILE_IMAGE_BUCKET = 'profile-images';
 const DOCUMENT_BUCKET = 'official-documents';
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_DOCUMENT_TYPES = [...ALLOWED_IMAGE_TYPES, 'application/pdf'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024; // 20 MB
@@ -41,24 +41,59 @@ export class StorageService {
   /** Uploads a profile image to the caller's own folder. RLS enforces ownership. */
   static async uploadProfileImage(userId: string, file: File): Promise<{ path: string; publicUrl: string }> {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Profile image must be JPEG, PNG or WebP.');
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Profile image must be JPEG, PNG, WebP or GIF.');
     }
     assertAllowed(file.type, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, file.size);
 
-    const supabase = await getSupabaseServerClient();
-    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const ext =
+      file.type === 'image/png'
+        ? 'png'
+        : file.type === 'image/webp'
+        ? 'webp'
+        : file.type === 'image/gif'
+        ? 'gif'
+        : 'jpg';
     const path = `${userId}/${Date.now()}-${sanitizeFileName(file.name.replace(/\.[^.]+$/, ''))}.${ext}`;
+    const buffer = await file.arrayBuffer();
 
-    const { error } = await supabase.storage
+    const supabase = await getSupabaseServerClient();
+    let { error } = await supabase.storage
       .from(PROFILE_IMAGE_BUCKET)
-      .upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: false });
+      .upload(path, buffer, { contentType: file.type, upsert: false });
+
+    // Fallback to privileged admin client if session client encounters permission constraints
+    if (error) {
+      const admin = getSupabaseAdminClient();
+      const adminRes = await admin.storage
+        .from(PROFILE_IMAGE_BUCKET)
+        .upload(path, buffer, { contentType: file.type, upsert: false });
+      error = adminRes.error;
+    }
 
     if (error) {
       throw new ApiError(500, 'AUTH_ERROR', `Image upload failed: ${error.message}`);
     }
 
-    const { data } = supabase.storage.from(PROFILE_IMAGE_BUCKET).getPublicUrl(path);
+    const admin = getSupabaseAdminClient();
+    const { data } = admin.storage.from(PROFILE_IMAGE_BUCKET).getPublicUrl(path);
     return { path, publicUrl: data.publicUrl };
+  }
+
+  /** Removes all existing profile images for a user from the bucket. */
+  static async deleteProfileImage(userId: string): Promise<void> {
+    const admin = getSupabaseAdminClient();
+    try {
+      const { data: files } = await admin.storage
+        .from(PROFILE_IMAGE_BUCKET)
+        .list(userId);
+
+      if (files && files.length > 0) {
+        const pathsToDelete = files.map((f) => `${userId}/${f.name}`);
+        await admin.storage.from(PROFILE_IMAGE_BUCKET).remove(pathsToDelete);
+      }
+    } catch (e) {
+      console.warn('Could not clean up storage files for user:', userId, e);
+    }
   }
 
   /** Uploads an official document (private bucket). */

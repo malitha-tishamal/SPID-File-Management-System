@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { FiXCircle, FiX } from 'react-icons/fi';
+import React, { useEffect, useRef, useState } from 'react';
+import { FiXCircle } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
+import FileModalShell from './FileModalShell';
+import Button from 'components/ui/Button';
 
 export default function ConfirmRejectModal({
   file,
@@ -16,94 +18,63 @@ export default function ConfirmRejectModal({
   onCancel: () => void;
 }) {
   const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading) onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [loading, onCancel]);
+    setReason('');
+    setError(null);
+  }, [file?.id]);
+
+  const syncReasonFromDom = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const dom = e.currentTarget.value;
+    if (dom !== reason) {
+      setReason(dom);
+      if (error) setError(null);
+    }
+  };
+
+  const confirm = () => {
+    const dom = reasonRef.current?.value ?? reason;
+    const trimmed = dom.trim();
+
+    if (!trimmed) {
+      setError('Rejection reason is required. Please provide a reason before rejecting this file.');
+      reasonRef.current?.focus();
+      return;
+    }
+
+    onConfirm(trimmed);
+  };
 
   if (!file) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-      onClick={() => !loading && onCancel()}
-    >
-      <div
-        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-800 border border-slate-100 dark:border-navy-700 animate-in fade-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-navy-700 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
-              <FiXCircle className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-navy-800 dark:text-white">
-                Reject File Submission
-              </h3>
-              <p className="text-xs text-slate-400">Decline file request</p>
-            </div>
-          </div>
-          <button
-            onClick={onCancel}
-            disabled={loading}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white transition-colors cursor-pointer"
-          >
-            <FiX className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="mt-4 rounded-2xl bg-slate-50 dark:bg-navy-900/50 p-4 border border-slate-100 dark:border-navy-700 text-xs">
-          <p className="text-slate-500 dark:text-slate-300">
-            Are you sure you want to decline this submission? Rejected requests will not enter the active file repository.
-          </p>
-          <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-200/60 dark:border-navy-700 pt-2.5">
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-400">File Number:</span>
-              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                {file.file_no}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-400">File Name:</span>
-              <span className="font-bold text-slate-800 dark:text-white text-right max-w-[240px] truncate">
-                {file.file_name}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-3.5">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1">
-              Rejection Reason (Optional)
-            </label>
-            <textarea
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ex: Missing section documentation, invalid date range..."
-              className="w-full rounded-xl bg-white dark:bg-navy-900 p-2.5 text-xs text-slate-800 dark:text-white border border-slate-200 dark:border-navy-700 outline-none focus:border-rose-400 transition-all resize-none placeholder:text-slate-400"
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 flex gap-3">
-          <button
+    <FileModalShell
+      title="Reject File Submission"
+      subtitle="Decline file request"
+      icon={<FiXCircle className="h-5 w-5" />}
+      iconTone="rose"
+      size="sm"
+      onClose={onCancel}
+      closeDisabled={loading}
+      footer={
+        <>
+          <Button
             type="button"
+            variant="cancel"
+            size="sm"
             onClick={onCancel}
             disabled={loading}
-            className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-300 transition-colors disabled:opacity-50 cursor-pointer"
+            className="flex-1"
           >
             Cancel
-          </button>
+          </Button>
           <button
             type="button"
-            onClick={() => onConfirm(reason)}
+            onClick={confirm}
             disabled={loading}
-            className="flex-1 rounded-xl bg-rose-600 hover:bg-rose-700 py-2.5 text-xs font-bold text-white shadow-md shadow-rose-600/25 hover:shadow-lg active:scale-95 transition-all disabled:opacity-60 cursor-pointer flex items-center justify-center gap-1.5"
+            className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-rose-600 py-2.5 text-xs font-bold text-white shadow-md shadow-rose-600/25 transition-all hover:bg-rose-700 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-navy-800"
           >
             {loading ? (
               <>
@@ -117,8 +88,65 @@ export default function ConfirmRejectModal({
               </>
             )}
           </button>
+        </>
+      }
+    >
+      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-xs dark:border-navy-700 dark:bg-navy-900/50">
+        <p className="leading-relaxed text-slate-500 dark:text-slate-300">
+          Are you sure you want to decline this submission? Rejected requests
+          will not enter the active file repository.
+        </p>
+        <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-200/60 pt-2.5 dark:border-navy-700">
+          <div className="flex justify-between gap-3">
+            <span className="font-semibold text-slate-400">File Number:</span>
+            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+              {file.file_no}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="shrink-0 font-semibold text-slate-400">File Name:</span>
+            <span
+              className="max-w-[240px] truncate text-right font-bold text-slate-800 dark:text-white"
+              title={file.file_name}
+            >
+              {file.file_name}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3.5">
+          <label
+            htmlFor="rejection-reason"
+            className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300"
+          >
+            Rejection Reason <span className="text-rose-500">*</span>
+          </label>
+          <textarea
+            id="rejection-reason"
+            ref={reasonRef}
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onBlur={syncReasonFromDom}
+            onKeyUp={syncReasonFromDom}
+            placeholder="Ex: Missing section documentation, invalid date range..."
+            className={`w-full resize-none rounded-xl border bg-white p-2.5 text-xs leading-relaxed text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:ring-2 dark:border-navy-700 dark:bg-navy-900 dark:text-white ${
+              error
+                ? 'border-rose-400 focus:border-rose-400 focus:ring-rose-400/20'
+                : 'border-slate-200 focus:border-rose-400 focus:ring-rose-400/20'
+            }`}
+          />
+          {error && (
+            <p
+              role="alert"
+              className="mt-1.5 flex items-start gap-1.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400"
+            >
+              <span className="mt-0.5 shrink-0">•</span>
+              <span>{error}</span>
+            </p>
+          )}
         </div>
       </div>
-    </div>
+    </FileModalShell>
   );
 }

@@ -5,7 +5,7 @@
 
 create table if not exists public.files (
   id bigint generated always as identity primary key,
-  file_no text not null unique,
+  file_no text not null,
   file_name text not null,
   section_name text not null,
   year integer not null,

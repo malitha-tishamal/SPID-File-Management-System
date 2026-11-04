@@ -20,6 +20,7 @@ import {
   type ValidatedRecord,
   type SectionOption,
 } from 'utils/fileImport';
+import Button from 'components/ui/Button';
 
 interface BulkImportModalProps {
   isOpen: boolean;
@@ -359,7 +360,7 @@ export default function BulkImportModal({
                   <FiUploadCloud className="h-6 w-6 stroke-[2]" />
                 </div>
                 <p className="text-xs font-bold text-navy-800 dark:text-white">
-                  Upload Sample Document
+                  Upload Your Document
                 </p>
                 <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
                   Supports: CSV, XLSX, XLS (Max File: 10MB)
@@ -492,14 +493,16 @@ export default function BulkImportModal({
 
         {/* Footer Actions */}
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-navy-700">
-          <button
+          <Button
             type="button"
+            variant={stage === 'completed' ? 'secondary' : 'cancel'}
+            size="sm"
             onClick={handleCancel}
             disabled={stage === 'importing'}
-            className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 cursor-pointer text-center"
+            className="flex-1"
           >
             {stage === 'completed' ? 'Close' : 'Cancel'}
-          </button>
+          </Button>
 
           {stage === 'completed' ? (
             <button

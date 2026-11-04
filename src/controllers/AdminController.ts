@@ -2,14 +2,14 @@ import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
 import { ProfileRepository } from 'models/ProfileRepository';
 import { AuditLogRepository } from 'models/AuditLogRepository';
-import { AuthorizationService } from 'services/AuthorizationService';
+import { AuthorizationService, invalidateSessionProfileCache } from 'services/AuthorizationService';
 import { LockoutService } from 'services/LockoutService';
 import { isValidEmailFormat } from 'validators/authValidators';
 import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
 
 let cachedUsers: AdminUserRow[] | null = null;
 let cachedUsersTimestamp = 0;
-const USERS_CACHE_TTL_MS = 1_500;
+const USERS_CACHE_TTL_MS = 60_000;
 
 export function invalidateUsersCache() {
   cachedUsers = null;
@@ -78,6 +78,7 @@ export class AdminController {
     }
 
     invalidateUsersCache();
+    invalidateSessionProfileCache(targetUserId);
 
     switch (action) {
       case 'approve': {

@@ -114,13 +114,26 @@ module.exports = {
         '99p': '99%',
       },
       fontFamily: {
-        poppins: ['Poppins', 'sans-serif'],
-        dm: ['DM Sans', 'sans-serif'],
+        poppins: ['var(--font-poppins)', 'Poppins', 'sans-serif'],
+        dm: ['var(--font-dm-sans)', 'DM Sans', 'sans-serif'],
       },
       boxShadow: {
         '3xl': '14px 17px 40px 4px',
         inset: 'inset 0px 18px 22px',
         darkinset: '0px 4px 4px inset',
+      },
+      keyframes: {
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.6s ease-in-out infinite',
+        fadeIn: 'fadeIn 0.45s ease-out both',
       },
       backgroundImage: {
         ballanceDashboard: "url('/src//public/img/dashboards/balanceImg.png')",
@@ -174,6 +187,7 @@ module.exports = {
         700: '#707eae',
         800: '#2D396B',
         900: '#1B2559',
+        950: '#11173d',
       },
       navy: {
         50: '#d0dcfb',
@@ -186,6 +200,7 @@ module.exports = {
         700: '#1B254B',
         800: '#111c44',
         900: '#0b1437',
+        950: '#060c24',
       },
       red: {
         50: '#ee5d501a',
@@ -198,6 +213,7 @@ module.exports = {
         700: '#b91c1c',
         800: '#991b1b',
         900: '#7f1d1d',
+        950: '#450a0a',
       },
       orange: {
         50: '#fff7ed',
@@ -210,6 +226,7 @@ module.exports = {
         700: '#c2410c',
         800: '#9a3412',
         900: '#7c2d12',
+        950: '#431407',
       },
       amber: {
         50: '#fffbeb',
@@ -222,6 +239,7 @@ module.exports = {
         700: '#b45309',
         800: '#92400e',
         900: '#78350f',
+        950: '#451a03',
       },
       yellow: {
         50: '#fefce8',
@@ -234,6 +252,7 @@ module.exports = {
         700: '#a16207',
         800: '#854d0e',
         900: '#713f12',
+        950: '#422006',
       },
       lime: {
         50: '#f7fee7',
@@ -246,6 +265,7 @@ module.exports = {
         700: '#4d7c0f',
         800: '#3f6212',
         900: '#365314',
+        950: '#1a2e05',
       },
       green: {
         50: '#05cd991a',
@@ -258,6 +278,7 @@ module.exports = {
         700: '#15803d',
         800: '#166534',
         900: '#14532d',
+        950: '#052e16',
       },
       teal: {
         50: '#f0fdfa',
@@ -270,6 +291,7 @@ module.exports = {
         700: '#0f766e',
         800: '#115e59',
         900: '#134e4a',
+        950: '#042f2e',
       },
       cyan: {
         50: '#ecfeff',
@@ -282,6 +304,7 @@ module.exports = {
         700: '#0e7490',
         800: '#155e75',
         900: '#164e63',
+        950: '#083344',
       },
       blue: {
         50: '#eff6ff',
@@ -294,6 +317,7 @@ module.exports = {
         700: '#1d4ed8',
         800: '#344e86',
         900: '#00007d',
+        950: '#000052',
       },
       indigo: {
         50: '#eef2ff',
@@ -306,6 +330,7 @@ module.exports = {
         700: '#4338ca',
         800: '#3730a3',
         900: '#312e81',
+        950: '#1e1b4b',
       },
       purple: {
         50: '#faf5ff',
@@ -318,6 +343,7 @@ module.exports = {
         700: '#7928ca',
         800: '#6b21a8',
         900: '#581c87',
+        950: '#3b0764',
       },
       pink: {
         50: '#fdf2f8',
@@ -330,6 +356,7 @@ module.exports = {
         700: '#be185d',
         800: '#9d174d',
         900: '#831843',
+        950: '#500724',
       },
       background: {
         100: 'rgb(244 247 254)',
@@ -346,6 +373,7 @@ module.exports = {
         700: '#2111A5',
         800: '#190793',
         900: '#11047A',
+        950: '#0a0349',
       },
       horizonGreen: {
         50: '#E1FFF4',
@@ -358,6 +386,7 @@ module.exports = {
         700: '#016B44',
         800: '#00472D',
         900: '#002417',
+        950: '#00120c',
       },
       horizonOrange: {
         50: '#FFF7EB',
@@ -422,6 +451,7 @@ module.exports = {
         700: '#02044A',
         800: '#190793',
         900: '#11047A',
+        950: '#080245',
       },
       shadow: {
         100: 'var(--shadow-100)',

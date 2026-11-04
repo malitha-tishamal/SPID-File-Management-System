@@ -46,6 +46,11 @@ export function withErrorHandling(
         return jsonError(500, 'CONFIG_ERROR', err.message);
       }
       console.error('[api] Unhandled error:', err?.message || err);
+      const msg = err?.message || '';
+      if (msg) {
+        const detail = msg.replace(/^[A-Za-z]+Repository\.\w+ error:\s*/, '');
+        return jsonError(500, 'AUTH_ERROR', detail);
+      }
       return jsonError(500, 'AUTH_ERROR', 'An unexpected server error occurred. Please try again.');
     }
   };

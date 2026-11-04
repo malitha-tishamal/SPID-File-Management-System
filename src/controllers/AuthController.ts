@@ -1,7 +1,12 @@
 import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
+import {
+  enforceAuthCookieLifetime,
+  readSessionMeta,
+  writeSessionMeta,
+} from 'lib/sessionCookie';
 import { AuthService } from 'services/AuthService';
 import { AuthorizationService } from 'services/AuthorizationService';
-import { isValidEmailFormat, validatePasswordPair } from 'validators/authValidators';
+import { isValidEmailFormat, validatePasswordPair, validateStrongPasswordPair } from 'validators/authValidators';
 import type { UserRole } from 'types/auth';
 
 /**
@@ -58,24 +63,19 @@ export class AuthController {
     if (!email || !password) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Email and password are required.');
     }
+    const remember = body.remember === true;
 
     const profile = await AuthService.login(email, password);
     const res = jsonOk({ profile, message: 'Login successful.' });
-    res.cookies.set(
-      'spid_session_auth',
-      JSON.stringify({
-        id: profile.id,
-        role: profile.role,
-        status: profile.account_status,
-        t: Date.now(),
-      }),
-      {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        maxAge: 300,
-      }
-    );
+    // The inactivity deadline always starts at the moment of login.
+    writeSessionMeta(res, {
+      id: profile.id,
+      role: profile.role,
+      status: profile.account_status,
+      t: Date.now(),
+      remember,
+    });
+    await enforceAuthCookieLifetime(res, remember);
     return res;
   }
 
@@ -91,13 +91,38 @@ export class AuthController {
     return res;
   }
 
-  /** GET /api/auth/me */
-  static async me() {
+  /**
+   * GET  /api/auth/me — profile read (does NOT reset the inactivity deadline).
+   * POST /api/auth/me — heartbeat; rolls the deadline only when the client
+   * reports genuine user activity (`{ active: true }`), so token refreshes
+   * and background polling can never keep an idle session alive.
+   */
+  static async me(req?: Request) {
     const profile = await AuthorizationService.getSessionProfile();
     if (!profile) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Not signed in.');
     }
-    return jsonOk({ profile });
+
+    let active = false;
+    if (req) {
+      const body = await req.json().catch(() => null);
+      active = body?.active === true;
+    }
+
+    const existing = await readSessionMeta();
+    const remember = existing?.remember === true;
+    const lastActivity = active ? Date.now() : (existing?.t ?? Date.now());
+
+    const res = jsonOk({ profile });
+    writeSessionMeta(res, {
+      id: profile.id,
+      role: profile.role,
+      status: profile.account_status,
+      t: lastActivity,
+      remember,
+    });
+    await enforceAuthCookieLifetime(res, remember);
+    return res;
   }
 
   /** POST /api/auth/forgot-password */
@@ -124,12 +149,15 @@ export class AuthController {
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid request body.');
 
-    const passwordError = validatePasswordPair(String(body.password ?? ''), String(body.confirmPassword ?? ''));
+    const passwordError = validateStrongPasswordPair(String(body.password ?? ''), String(body.confirmPassword ?? ''));
     if (passwordError) {
       throw new ApiError(400, 'VALIDATION_ERROR', passwordError);
     }
 
-    await AuthService.resetPassword(String(body.password));
+    await AuthService.resetPassword({
+      newPassword: String(body.password),
+      accessToken: typeof body.accessToken === 'string' ? body.accessToken : undefined,
+    });
     return jsonOk({ message: 'Password updated successfully. You can now sign in.' });
   }
 }

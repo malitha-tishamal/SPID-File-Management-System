@@ -1,11 +1,53 @@
 import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
-import { FileRepository, FileRecordRow } from 'models/FileRepository';
-import { SectionRepository } from 'models/SectionRepository';
+import { FileRepository, FileRecordRow, isUniqueViolation } from 'models/FileRepository';
+import { SectionRepository, isActiveSection } from 'models/SectionRepository';
 import { SettingsRepository } from 'models/SettingsRepository';
 import { parseAndValidateImportBuffer } from 'utils/fileImport';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
+import { isValidYmd } from 'lib/datetime';
+
+/**
+ * A section picked for a new file or a changed assignment must exist and be
+ * Active (approved) — disabled/pending sections must never be selected.
+ */
+async function assertSectionSelectable(
+  repo: SectionRepository,
+  sectionName: string,
+): Promise<void> {
+  const section = await repo.findByName(sectionName);
+  if (!section || isActiveSection(section)) return;
+  throw new ApiError(
+    400,
+    'VALIDATION_ERROR',
+    section.status === 'disabled'
+      ? 'Selected section is disabled.'
+      : 'Selected section is not active yet.',
+  );
+}
+
+/**
+ * Approving a PENDING row whose File No is already held by another live record
+ * violates uq_files_file_no_live. Surface that as a 409 instead of a 500.
+ */
+async function approveGuardingFileNo(
+  approve: () => Promise<FileRecordRow>,
+  fileNo: string,
+): Promise<FileRecordRow> {
+  try {
+    return await approve();
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw new ApiError(
+        409,
+        'VALIDATION_ERROR',
+        `File No "${fileNo}" is already used by another live record. Reject this request or remove the conflicting record first.`,
+      );
+    }
+    throw err;
+  }
+}
 
 export class FileController {
   static async searchRequestableFiles(req: Request) {
@@ -25,7 +67,7 @@ export class FileController {
   }
 
   /**
-   * GET /api/admin/files â€” list files with filters, pagination, summary counts,
+   * GET /api/admin/files — list files with filters, pagination, summary counts,
    * and the current approval setting.
    */
   static async listFiles(req: Request) {
@@ -42,29 +84,59 @@ export class FileController {
     const officer = url.searchParams.get('officer') || undefined;
     const registered_by = url.searchParams.get('registered_by') || undefined;
     const date = url.searchParams.get('date') || undefined;
+    const dateFrom = url.searchParams.get('dateFrom') || undefined;
+    const dateTo = url.searchParams.get('dateTo') || undefined;
     const sort =
       (url.searchParams.get('sort') as
         | 'newest'
         | 'oldest'
         | 'file_no'
         | 'file_name') || 'newest';
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const limit = parseInt(url.searchParams.get('limit') || '15', 10);
+    const pageRaw = parseInt(url.searchParams.get('page') || '1', 10);
+    const limitRaw = parseInt(url.searchParams.get('limit') || '15', 10);
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 10000)
+        : 15;
     const metaOnly = url.searchParams.get('metaOnly') === 'true';
-    const includeCounts = url.searchParams.get('includeCounts') !== 'false';
-    const includeSettings = url.searchParams.get('includeSettings') !== 'false';
+    const includeMeta = url.searchParams.get('includeMeta') !== 'false';
+    const includeCounts = includeMeta && url.searchParams.get('includeCounts') !== 'false';
+    const includeSettings = includeMeta && url.searchParams.get('includeSettings') !== 'false';
+    const includePageTotal = url.searchParams.get('includePageTotal') === 'true';
 
     const admin = getSupabaseAdminClient();
     const fileRepo = new FileRepository(admin);
     const settingsRepo = new SettingsRepository(admin);
-    const includeMeta = url.searchParams.get('includeMeta') !== 'false';
 
     if (metaOnly) {
-      const [counts, requireApproval] = await Promise.all([
+      const [counts, requireApproval, totalPageNumbers] = await Promise.all([
         fileRepo.getSummaryCounts(),
         settingsRepo.getRequireFileApproval(),
+        includePageTotal
+          ? fileRepo.getTotalPageNumbers()
+          : Promise.resolve(null),
       ]);
-      return jsonOk({ counts, requireApproval, auto_approval: !requireApproval });
+      return jsonOk({
+        counts,
+        requireApproval,
+        auto_approval: !requireApproval,
+        ...(totalPageNumbers !== null ? { totalPageNumbers } : {}),
+      });
+    }
+
+    if (
+      dateFrom &&
+      dateTo &&
+      isValidYmd(dateFrom) &&
+      isValidYmd(dateTo) &&
+      dateFrom.trim() > dateTo.trim()
+    ) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Start date must be on or before end date.',
+      );
     }
 
     const [filteredResult, counts, requireApproval] = await Promise.all([
@@ -77,15 +149,24 @@ export class FileController {
         officer,
         registered_by,
         date,
+        dateFrom,
+        dateTo,
         sort,
         page,
         limit,
       }),
-      includeMeta ? fileRepo.getSummaryCounts() : Promise.resolve(null),
-      includeMeta
-        ? settingsRepo.getRequireFileApproval()
-        : Promise.resolve(null),
+      includeCounts ? fileRepo.getSummaryCounts() : Promise.resolve(null),
+      includeSettings ? settingsRepo.getRequireFileApproval() : Promise.resolve(null),
     ]);
+
+    let totalPageNumbers: number | null = null;
+    if (includePageTotal) {
+      if (counts?.totalPageNumbers !== undefined && counts.totalPageNumbers !== null) {
+        totalPageNumbers = counts.totalPageNumbers;
+      } else {
+        totalPageNumbers = await fileRepo.getTotalPageNumbers();
+      }
+    }
 
     return jsonOk({
       files: filteredResult.files,
@@ -93,14 +174,16 @@ export class FileController {
       page: filteredResult.page,
       limit: filteredResult.limit,
       totalPages: filteredResult.totalPages,
-      ...(counts && requireApproval !== null
-        ? { counts, requireApproval, auto_approval: !requireApproval }
+      ...(counts ? { counts } : {}),
+      ...(totalPageNumbers !== null ? { totalPageNumbers } : {}),
+      ...(requireApproval !== null
+        ? { requireApproval, auto_approval: !requireApproval }
         : {}),
     });
   }
 
   /**
-   * POST /api/admin/files â€” create a new file record or submit for approval.
+   * POST /api/admin/files — create a new file record or submit for approval.
    * Enforces server-side setting: staff submissions become PENDING if approval is enabled,
    * or APPROVED if disabled. Admin submissions are always APPROVED.
    */
@@ -129,6 +212,9 @@ export class FileController {
     if (!sectionName) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Section is required.');
     }
+
+    const admin = getSupabaseAdminClient();
+    await assertSectionSelectable(new SectionRepository(admin), sectionName);
 
     // Date validation
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -174,23 +260,22 @@ export class FileController {
       parseInt(String(body.minute_sheets_count ?? '0'), 10) || 0,
     );
 
-    const admin = getSupabaseAdminClient();
     const repo = new FileRepository(admin);
     const settingsRepo = new SettingsRepository(admin);
 
-    const existingIdentity = await repo.findByFileIdentity(fileNo, fileName);
-    if (existingIdentity) {
+    const existingFileNo = await repo.findLiveByFileNo(fileNo);
+    if (existingFileNo) {
       throw new ApiError(
         409,
         'VALIDATION_ERROR',
-        'A file with this file number and file name already exists.',
+        `File No "${existingFileNo.file_no}" already exists. Enter a unique File No.`,
       );
     }
 
     const registrarName = actor.full_name || actor.email || 'System Officer';
     const registrarRole = actor.role || 'Staff';
 
-    // â”€â”€ Enforce Approval Workflow based on Role & System Setting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Enforce Approval Workflow based on Role & System Setting ──────────────
     const isAdmin = actor.role === 'Administrator';
     let fileStatus: 'APPROVED' | 'PENDING' = 'APPROVED';
     let approvedBy: string | null = null;
@@ -247,7 +332,20 @@ export class FileController {
       status: fileStatus,
     };
 
-    const file = await repo.create(payload);
+    let file: FileRecordRow;
+    try {
+      file = await repo.create(payload);
+    } catch (err) {
+      // Unique index uq_files_file_no_live: another request claimed this File No
+      if (isUniqueViolation(err)) {
+        throw new ApiError(
+          409,
+          'VALIDATION_ERROR',
+          `File No "${fileNo}" already exists. Enter a unique File No.`,
+        );
+      }
+      throw err;
+    }
 
     try {
       await new AuditLogRepository(admin).log({
@@ -279,7 +377,7 @@ export class FileController {
     );
   }
 
-  /** GET /api/admin/files/[id] â€” get a single file's complete details */
+  /** GET /api/admin/files/[id] — get a single file's complete details */
   static async getFile(id: number) {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -292,7 +390,7 @@ export class FileController {
     return jsonOk({ file });
   }
 
-  /** PUT /api/admin/files/[id] â€” admin edit of an existing file record */
+  /** PUT /api/admin/files/[id] — admin edit of an existing file record */
   static async updateFile(id: number, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -318,25 +416,19 @@ export class FileController {
           'VALIDATION_ERROR',
           'File name cannot be empty.',
         );
-      if (fileName !== existing.file_name) {
-        const duplicate = await repo.findByFileIdentity(
-          existing.file_no,
-          fileName,
-        );
-        if (duplicate && duplicate.id !== id) {
-          throw new ApiError(
-            409,
-            'VALIDATION_ERROR',
-            'A file with this file number and file name already exists.',
-          );
-        }
-      }
       patch.file_name = fileName;
     }
 
     if (body.section !== undefined || body.section_name !== undefined) {
       const s = String(body.section ?? body.section_name).trim();
-      if (s) patch.section_name = s;
+      if (s) {
+        // Reassigning is gated on Active status; keeping the current section
+        // (even a disabled one) stays allowed so legacy records remain editable.
+        if (s.toLowerCase() !== (existing.section_name || '').toLowerCase()) {
+          await assertSectionSelectable(new SectionRepository(admin), s);
+        }
+        patch.section_name = s;
+      }
     }
 
     if (body.start_date !== undefined)
@@ -388,7 +480,7 @@ export class FileController {
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[id] â€” admin delete of a file record */
+  /** DELETE /api/admin/files/[id] — admin delete of a file record */
   static async deleteFile(id: number) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -418,7 +510,7 @@ export class FileController {
     return jsonOk({ message: 'File deleted successfully.' });
   }
 
-  /** POST /api/admin/files/[id]/approve â€” approve pending submission */
+  /** POST /api/admin/files/[id]/approve — approve pending submission */
   static async approveFile(id: number) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -439,7 +531,10 @@ export class FileController {
     }
 
     const adminDisplayName = actor.full_name || actor.email || 'Administrator';
-    const approved = await repo.approve(id, actor.id, adminDisplayName);
+    const approved = await approveGuardingFileNo(
+      () => repo.approve(id, actor.id, adminDisplayName),
+      existing.file_no,
+    );
 
     try {
       await new AuditLogRepository(admin).log({
@@ -460,7 +555,7 @@ export class FileController {
     });
   }
 
-  /** POST /api/admin/files/[id]/reject â€” reject pending submission */
+  /** POST /api/admin/files/[id]/reject — reject pending submission */
   static async rejectFile(id: number, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -504,7 +599,7 @@ export class FileController {
     });
   }
 
-  /** GET /api/admin/files/settings â€” get current approval toggle value */
+  /** GET /api/admin/files/settings — get current approval toggle value */
   static async getApprovalSetting() {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -564,7 +659,7 @@ export class FileController {
     });
   }
 
-  /** POST /api/admin/files/bulk-import â€” bulk import file records (admin or approved staff).
+  /** POST /api/admin/files/bulk-import — bulk import file records (admin or approved staff).
    * Staff imports honour the approval setting: PENDING when approval is required, else APPROVED. */
   static async bulkImportFiles(req: Request) {
     requireServerEnv();
@@ -653,28 +748,40 @@ export class FileController {
       );
     }
 
-    // 1. Fetch existing active sections to resolve/verify section names
+    // 1. Fetch sections to resolve names and block inactive assignments
     const sectionRepo = new SectionRepository(admin);
     const existingSections = await sectionRepo.list();
     const sectionMap = new Map<string, string>();
+    const blockedSections = new Map<string, string>();
     existingSections.forEach((s) => {
-      sectionMap.set(s.name.toLowerCase().trim(), s.name);
+      const key = s.name.toLowerCase().trim();
+      sectionMap.set(key, s.name);
+      if (!isActiveSection(s)) {
+        blockedSections.set(
+          key,
+          s.status === 'disabled'
+            ? 'Selected section is disabled.'
+            : 'Selected section is not active yet.',
+        );
+      }
     });
 
-    // 2. Fetch existing identities for duplicate checking
+    // 2. Fetch existing file numbers for duplicate checking
     const candidateFileNos = rawRecords
       .map((r) => String(r.file_no ?? '').trim())
       .filter(Boolean);
-    const existingDbIdentities = await repo.findExistingFileIdentities(
+    const existingDbFileNos = await repo.findExistingLiveFileNos(
       candidateFileNos,
     );
 
     const validPayloads: Array<
       Omit<FileRecordRow, 'id' | 'created_at' | 'updated_at'>
     > = [];
+    // Row numbers aligned with validPayloads, for per-row error reporting
+    const payloadRows: number[] = [];
     const errors: Array<{ row: number; file_name?: string; reason: string }> =
       [];
-    const seenBatchIdentities = new Set<string>();
+    const seenBatchFileNos = new Set<string>();
 
     const registrarName = actor.full_name || actor.email || 'System Officer';
     const registrarRole = actor.role || 'Staff';
@@ -724,6 +831,18 @@ export class FileController {
       const resolvedSection =
         sectionMap.get(rawSection.toLowerCase()) || rawSection;
 
+      const blockedReason = blockedSections.get(
+        resolvedSection.toLowerCase().trim(),
+      );
+      if (blockedReason) {
+        errors.push({
+          row: rowNum,
+          file_name: fileName,
+          reason: blockedReason,
+        });
+        return;
+      }
+
       // Dates
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!startDate || !dateRegex.test(startDate)) {
@@ -751,28 +870,25 @@ export class FileController {
         return;
       }
 
-      const identity = JSON.stringify([
-        fileNo.toLowerCase(),
-        fileName.toLowerCase(),
-      ]);
-      if (existingDbIdentities.has(identity)) {
+      const fileNoKey = fileNo.toLowerCase();
+      if (existingDbFileNos.has(fileNoKey)) {
         errors.push({
           row: rowNum,
           file_name: fileName,
-          reason: `File number "${fileNo}" and file name "${fileName}" already exist in the archive database.`,
+          reason: `File No "${fileNo}" already exists in the archive database.`,
         });
         return;
       }
 
-      if (seenBatchIdentities.has(identity)) {
+      if (seenBatchFileNos.has(fileNoKey)) {
         errors.push({
           row: rowNum,
           file_name: fileName,
-          reason: `Duplicate file number and file name pair "${fileNo}" / "${fileName}" in batch.`,
+          reason: `Duplicate File No "${fileNo}" in batch.`,
         });
         return;
       }
-      seenBatchIdentities.add(identity);
+      seenBatchFileNos.add(fileNoKey);
 
       // Shelf position
       let shelfPosition: 'Front' | 'Middle' | 'Back' | null = null;
@@ -823,15 +939,34 @@ export class FileController {
         archive_repository: 'Central Record Room (B-02)',
         status: staffBulkStatus,
       });
+      payloadRows.push(rowNum);
     });
 
-    // Batch insert valid records (chunks of 25)
+    // Batch insert valid records (chunks of 25). A chunk containing a file
+    // number that slipped past the pre-check (e.g. a case variant or a
+    // concurrent submission) fails as a whole, so retry it row by row to
+    // report exactly which rows collided.
     const BATCH_SIZE = 25;
     const importedRecords: FileRecordRow[] = [];
     for (let i = 0; i < validPayloads.length; i += BATCH_SIZE) {
       const chunk = validPayloads.slice(i, i + BATCH_SIZE);
-      const inserted = await repo.createMany(chunk);
-      importedRecords.push(...inserted);
+      try {
+        importedRecords.push(...(await repo.createMany(chunk)));
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        for (let j = 0; j < chunk.length; j += 1) {
+          try {
+            importedRecords.push(...(await repo.createMany([chunk[j]])));
+          } catch (rowErr) {
+            if (!isUniqueViolation(rowErr)) throw rowErr;
+            errors.push({
+              row: payloadRows[i + j],
+              file_name: chunk[j].file_name,
+              reason: `File No "${chunk[j].file_no}" already exists in the archive database.`,
+            });
+          }
+        }
+      }
     }
 
     // Log audit
@@ -864,9 +999,9 @@ export class FileController {
           : `Bulk import processed: ${importedRecords.length} records imported successfully, ${errors.length} failed.`,
     });
   }
-  // â”€â”€ File-No-based methods (File No. as the public-facing primary key) â”€â”€â”€â”€â”€â”€
+  // ── File-No-based methods (File No. as the public-facing primary key) ──────
 
-  /** GET /api/admin/files/[file_no] â€” get a single file by file_no */
+  /** GET /api/admin/files/[file_no] — get a single file by file_no */
   static async getFileByFileNo(fileNo: string) {
     requireServerEnv();
     await AuthorizationService.requireApprovedProfile();
@@ -879,7 +1014,7 @@ export class FileController {
     return jsonOk({ file });
   }
 
-  /** PUT /api/admin/files/[file_no] â€” admin edit of an existing file record by file_no */
+  /** PUT /api/admin/files/[file_no] — admin edit of an existing file record by file_no */
   static async updateFileByFileNo(fileNo: string, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -908,22 +1043,19 @@ export class FileController {
           'VALIDATION_ERROR',
           'File name cannot be empty.',
         );
-      if (fileName.toLowerCase() !== existing.file_name.toLowerCase()) {
-        const dup = await repo.findByFileName(fileName);
-        if (dup && dup.id !== existing.id) {
-          throw new ApiError(
-            409,
-            'VALIDATION_ERROR',
-            'File name already exists.',
-          );
-        }
-      }
       patch.file_name = fileName;
     }
 
     if (body.section !== undefined || body.section_name !== undefined) {
       const s = String(body.section ?? body.section_name).trim();
-      if (s) patch.section_name = s;
+      if (s) {
+        // Reassigning is gated on Active status; keeping the current section
+        // (even a disabled one) stays allowed so legacy records remain editable.
+        if (s.toLowerCase() !== (existing.section_name || '').toLowerCase()) {
+          await assertSectionSelectable(new SectionRepository(admin), s);
+        }
+        patch.section_name = s;
+      }
     }
 
     if (body.start_date !== undefined)
@@ -975,7 +1107,7 @@ export class FileController {
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[file_no] â€” admin delete of a file record by file_no */
+  /** DELETE /api/admin/files/[file_no] — admin delete of a file record by file_no */
   static async deleteFileByFileNo(fileNo: string) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -1004,7 +1136,7 @@ export class FileController {
     return jsonOk({ message: 'File deleted successfully.' });
   }
 
-  /** POST /api/admin/files/[file_no]/approve â€” approve pending submission by file_no */
+  /** POST /api/admin/files/[file_no]/approve — approve pending submission by file_no */
   static async approveFileByFileNo(fileNo: string) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
@@ -1030,10 +1162,9 @@ export class FileController {
     }
 
     const adminDisplayName = actor.full_name || actor.email || 'Administrator';
-    const approved = await repo.approve(
-      existing.id,
-      actor.id,
-      adminDisplayName,
+    const approved = await approveGuardingFileNo(
+      () => repo.approve(existing.id as number, actor.id, adminDisplayName),
+      existing.file_no,
     );
 
     try {
@@ -1054,12 +1185,21 @@ export class FileController {
     });
   }
 
-  /** POST /api/admin/files/[file_no]/reject â€” reject pending submission by file_no */
+  /** POST /api/admin/files/[file_no]/reject — reject pending submission by file_no */
   static async rejectFileByFileNo(fileNo: string, req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
     const body = await req.json().catch(() => ({}));
     const reason = body?.reason ? String(body.reason).trim() : undefined;
+
+    // Validate that a rejection reason is provided
+    if (!reason || reason.length === 0) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Rejection reason is required. Please provide a reason before rejecting this file.',
+      );
+    }
 
     const admin = getSupabaseAdminClient();
     const repo = new FileRepository(admin);

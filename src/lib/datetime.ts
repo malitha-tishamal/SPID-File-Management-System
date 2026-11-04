@@ -21,6 +21,16 @@ const TIME_OPTS: Intl.DateTimeFormatOptions = {
   timeZone: SRI_LANKA_TIME_ZONE,
 };
 
+// Cached static formatters avoid reconstructing Intl tables on each row render
+const dateFormatter = new Intl.DateTimeFormat('en-GB', DATE_OPTS);
+const timeFormatter = new Intl.DateTimeFormat('en-US', TIME_OPTS);
+const compactDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  timeZone: SRI_LANKA_TIME_ZONE,
+});
+
 function toDate(value: string | Date | null | undefined): Date | null {
   if (value === null || value === undefined || value === '') return null;
   const d = value instanceof Date ? value : new Date(value);
@@ -30,13 +40,13 @@ function toDate(value: string | Date | null | undefined): Date | null {
 /** "23 Oct 2026" — falls back to '—' for missing/invalid values. */
 export function formatSriLankaDate(value: string | Date | null | undefined): string {
   const d = toDate(value);
-  return d ? d.toLocaleDateString('en-GB', DATE_OPTS) : '—';
+  return d ? dateFormatter.format(d) : '—';
 }
 
 /** "06:15 PM" — falls back to an empty string for missing/invalid values. */
 export function formatSriLankaTime(value: string | Date | null | undefined): string {
   const d = toDate(value);
-  return d ? d.toLocaleTimeString('en-US', TIME_OPTS) : '';
+  return d ? timeFormatter.format(d) : '';
 }
 
 /** "23 Oct 2026 • 06:15 PM" */
@@ -44,19 +54,14 @@ export function formatSriLankaDateTime(value: string | Date | null | undefined):
   const d = toDate(value);
   if (!d) return '—';
   const time = formatSriLankaTime(d);
-  return time ? `${formatSriLankaDate(d)} • ${time}` : formatSriLankaDate(d);
+  return time ? `${dateFormatter.format(d)} • ${time}` : dateFormatter.format(d);
 }
 
 /** "2026-10-23 06:15 PM" — compact variant for ledgers, dashboards and CSV. */
 export function formatSriLankaDateTimeCompact(value: string | Date | null | undefined): string {
   const d = toDate(value);
   if (!d) return '—';
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: SRI_LANKA_TIME_ZONE,
-  }).formatToParts(d);
+  const parts = compactDateFormatter.formatToParts(d);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   const time = formatSriLankaTime(d);
   return `${get('year')}-${get('month')}-${get('day')} ${time}`.trim();
@@ -86,12 +91,7 @@ export function sriLankaTodayInput(): string {
 /** Start of today (midnight) in Sri Lanka, as a Date — for server-side "today" queries. */
 export function sriLankaTodayStart(): Date {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: SRI_LANKA_TIME_ZONE,
-  }).formatToParts(now);
+  const parts = compactDateFormatter.formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   return new Date(`${get('year')}-${get('month')}-${get('day')}T00:00:00${sriLankaOffset(now)}`);
 }

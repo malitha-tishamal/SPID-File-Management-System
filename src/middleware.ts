@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
 
 async function guard(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const { response, user, getProfile, cachedMeta } = await updateSupabaseSession(request);
+  const { response, user, getProfile, cachedMeta, expired } = await updateSupabaseSession(request);
 
   const isProtectedRoute = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthRoute = pathname.startsWith('/auth');
@@ -49,7 +49,10 @@ async function guard(request: NextRequest) {
   if (isProtectedRoute) {
     if (!user) {
       const signInUrl = new URL('/auth/sign-in', request.url);
-      signInUrl.searchParams.set('callbackUrl', pathname);
+      // Keep the query string so a notification deep link still points at its
+      // record after the user signs in again.
+      signInUrl.searchParams.set('callbackUrl', `${pathname}${request.nextUrl.search}`);
+      if (expired) signInUrl.searchParams.set('status', 'inactivity');
       return redirect(signInUrl);
     }
 
@@ -79,7 +82,7 @@ async function guard(request: NextRequest) {
       return redirect(homeDashboard(role));
     }
 
-    // Staff visiting any /admin path â†’ redirect to staff dashboard
+    // Staff visiting any /admin path → redirect to staff dashboard
     if (isAdminRoute && role === 'Staff') {
       return redirect(new URL('/staff/default', request.url));
     }

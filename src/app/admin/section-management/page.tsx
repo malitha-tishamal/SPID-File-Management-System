@@ -1,5 +1,6 @@
 'use client';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatSriLankaDate } from 'lib/datetime';
 import {
   FiPlus,
   FiEdit3,
@@ -11,31 +12,235 @@ import {
   FiFolder,
   FiClock,
   FiCheckCircle,
+  FiX,
+  FiAlertCircle,
+  FiChevronLeft,
+  FiChevronRight,
 } from 'react-icons/fi';
 import PageHeader from 'components/admin/PageHeader';
 import StatCard from 'components/admin/StatCard';
 import ConfirmActionModal from 'components/modals/ConfirmActionModal';
+import Modal from 'components/ui/Modal';
+import Button from 'components/ui/Button';
+import Spinner from 'components/ui/Spinner';
+import Skeleton from 'components/ui/Skeleton';
 import { useToast } from 'components/toast/ToastContext';
 import type { SectionRow, SectionStatus } from 'models/SectionRepository';
 import { getSupabaseBrowserClient } from 'config/supabase/client';
 import { broadcastAdminSync } from 'components/admin/AccountDirectoryPage';
+import { invalidateClientSectionsCache } from 'lib/sectionsClient';
+import {
+  normalizeSectionName,
+  SECTION_NAME_MAX_LENGTH,
+  SECTION_NAME_MIN_LENGTH,
+} from 'lib/sectionName';
+import { useSectionNameCheck } from 'lib/useSectionNameCheck';
+import SpellCheckedNameInput from 'components/ui/SpellCheckedNameInput';
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const CLIENT_CACHE_TTL_MS = 15_000;
+const FOCUS_REVALIDATE_MS = 20_000;
+const POLL_REVALIDATE_MS = 30_000;
+const POLL_INTERVAL_MS = 60_000;
+const MUTATION_SETTLE_MS = 2_000;
+const PUSH_DEBOUNCE_MS = 250;
+const ADD_MODAL_LOADING_ID = -1;
+
+// Shared across remounts so navigating away and back does not refetch needlessly.
 let memorySections: SectionRow[] | null = null;
 let memoryLastFetched = 0;
-const CACHE_TTL_MS = 3_000; // 3s freshness; dynamic background revalidation
+let inFlightSectionsPromise: Promise<{ sections: SectionRow[] | null; version: number }> | null = null;
 
-function invalidateSectionManagementCache() {
-  memorySections = null;
-  memoryLastFetched = 0;
+type LoadOptions = {
+  force?: boolean;
+  silent?: boolean;
+  minAgeMs?: number;
+  bypassServerCache?: boolean;
+};
+
+function byId(a: SectionRow, b: SectionRow): number {
+  return a.id - b.id;
 }
+
+function restoreRow(list: SectionRow[], row: SectionRow): SectionRow[] {
+  if (list.some((item) => item.id === row.id)) return list;
+  return [...list, row].sort(byId);
+}
+
+const ACTION_TONE: Record<'emerald' | 'blue' | 'amber' | 'red', string> = {
+  emerald:
+    'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50',
+  blue: 'bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50',
+  amber:
+    'bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50',
+  red: 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50',
+};
+
+function RowAction({
+  label,
+  tone,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  tone: keyof typeof ACTION_TONE;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50 disabled:cursor-not-allowed disabled:opacity-50 ${ACTION_TONE[tone]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SectionStatusBadge({ status }: { status?: SectionStatus }) {
+  if (!status) return null;
+
+  const config: Record<SectionStatus, { label: string; className: string; dot: string }> = {
+    approved: {
+      label: 'Active',
+      className:
+        'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+      dot: 'bg-emerald-500',
+    },
+    pending: {
+      label: 'Pending',
+      className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+      dot: 'bg-amber-500',
+    },
+    disabled: {
+      label: 'Disabled',
+      className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+      dot: 'bg-red-500',
+    },
+  };
+
+  const badge = config[status];
+  if (!badge) return null;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${badge.className}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
+      {badge.label}
+    </span>
+  );
+}
+
+type SectionRowItemProps = {
+  section: SectionRow;
+  busy: boolean;
+  onEdit: (section: SectionRow) => void;
+  onActivate: (section: SectionRow) => void;
+  onDisable: (section: SectionRow) => void;
+  onDelete: (section: SectionRow) => void;
+};
+
+const SectionRowItem = React.memo(function SectionRowItem({
+  section,
+  busy,
+  onEdit,
+  onActivate,
+  onDisable,
+  onDelete,
+}: SectionRowItemProps) {
+  const status = section.status ?? 'approved';
+
+  return (
+    <tr className="border-b border-slate-300 transition-colors hover:bg-gray-50 dark:border-navy-600 dark:hover:bg-navy-800/50">
+      <td className="px-6 py-4">
+        <div className="text-sm font-bold text-slate-900 dark:text-white">{section.name}</div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-2">
+          <SectionStatusBadge status={section.status} />
+          {busy && (
+            <Spinner
+              size="xs"
+              label="Updating section"
+              className="text-slate-500 dark:text-slate-300"
+            />
+          )}
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="text-sm text-slate-700 dark:text-gray-300">
+          {section.section_lead?.trim() || '—'}
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="text-xs text-slate-500 dark:text-gray-400">
+          {section.created_at ? formatSriLankaDate(section.created_at) : '—'}
+        </div>
+      </td>
+      <td className="px-6 py-4 text-right">
+        <div className="flex items-center justify-end gap-2">
+          {status !== 'approved' && (
+            <RowAction
+              label="Activate / Approve Section"
+              tone="emerald"
+              disabled={busy}
+              onClick={() => onActivate(section)}
+            >
+              <FiCheckCircle className="h-3.5 w-3.5" />
+            </RowAction>
+          )}
+          <RowAction
+            label="Edit section"
+            tone="blue"
+            disabled={busy}
+            onClick={() => onEdit(section)}
+          >
+            <FiEdit3 className="h-3.5 w-3.5" />
+          </RowAction>
+          {status !== 'disabled' && (
+            <RowAction
+              label="Disable section"
+              tone="amber"
+              disabled={busy}
+              onClick={() => onDisable(section)}
+            >
+              <FiPower className="h-3.5 w-3.5" />
+            </RowAction>
+          )}
+          <RowAction
+            label="Delete section"
+            tone="red"
+            disabled={busy}
+            onClick={() => onDelete(section)}
+          >
+            <FiTrash2 className="h-3.5 w-3.5" />
+          </RowAction>
+        </div>
+      </td>
+    </tr>
+  );
+});
 
 export default function SectionManagementPage() {
   const { showToast } = useToast();
 
-  const [sections, setSections] = useState<SectionRow[]>(() => memorySections || []);
-  const [listLoading, setListLoading] = useState(() => memorySections === null);
-  const [search, setSearch] = useState('');
+  const [sections, setSections] = useState<SectionRow[]>(() => memorySections ?? []);
+  const [initialLoading, setInitialLoading] = useState(() => memorySections === null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | SectionStatus>('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(10);
 
   const [editSection, setEditSection] = useState<SectionRow | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -43,51 +248,163 @@ export default function SectionManagementPage() {
   const [disableTarget, setDisableTarget] = useState<SectionRow | null>(null);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  const loadSections = useCallback(async (force = false, silent = false) => {
-    const isCached = memorySections !== null;
-    const isFresh = isCached && Date.now() - memoryLastFetched < CACHE_TTL_MS;
+  const sectionsRef = useRef<SectionRow[]>(memorySections ?? []);
+  const mountedRef = useRef(true);
+  const mutationVersionRef = useRef(0);
+  const activeMutationsRef = useRef(0);
+  const lastMutationAtRef = useRef(0);
+  const pendingRefreshRef = useRef(false);
+  const pushTimerRef = useRef<number | null>(null);
 
-    if (!silent) {
-      if (!isCached || force) {
-        setListLoading(true);
-      } else if (isFresh) {
+  const commitSections = useCallback((next: SectionRow[]) => {
+    sectionsRef.current = next;
+    memorySections = next;
+    memoryLastFetched = Date.now();
+    if (mountedRef.current) setSections(next);
+  }, []);
+
+  const loadSections = useCallback(
+    async ({
+      force = false,
+      silent = false,
+      minAgeMs = 0,
+      bypassServerCache = false,
+    }: LoadOptions = {}) => {
+      if (activeMutationsRef.current > 0) {
+        pendingRefreshRef.current = true;
         return;
       }
-    }
 
-    try {
-      const ts = Date.now();
-      const res = await fetch(`/api/admin/sections?_t=${ts}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
-      });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        memorySections = json.data.sections;
-        memoryLastFetched = Date.now();
-        setSections(json.data.sections);
-      } else if (!silent) {
+      const age = Date.now() - memoryLastFetched;
+      if (!force && memorySections !== null && age < minAgeMs) return;
+      if (!force && memorySections !== null && age < CLIENT_CACHE_TTL_MS && !silent) return;
+
+      if (inFlightSectionsPromise) {
+        const result = await inFlightSectionsPromise;
+        if (result.sections && result.version === mutationVersionRef.current) {
+          commitSections(result.sections);
+          if (mountedRef.current) setLoadError(false);
+        }
+        if (!silent && mountedRef.current) {
+          setInitialLoading(false);
+          setRefreshing(false);
+        }
+        if (force && mountedRef.current) {
+          await loadSections({ force: true, silent, bypassServerCache: true });
+        }
+        return;
+      }
+
+      const hadCache = memorySections !== null;
+      const requestVersion = mutationVersionRef.current;
+
+      if (!silent) {
+        if (hadCache) setRefreshing(true);
+        else setInitialLoading(true);
+        setLoadError(false);
+      }
+
+      const request = (async () => {
+        try {
+          const url =
+            force || bypassServerCache
+              ? '/api/admin/sections?refresh=true'
+              : '/api/admin/sections';
+          const res = await fetch(url, {
+            cache: 'no-store',
+            headers: { Accept: 'application/json' },
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok || !Array.isArray(json?.data?.sections)) {
+            return { sections: null, version: requestVersion };
+          }
+          return { sections: json.data.sections as SectionRow[], version: requestVersion };
+        } catch {
+          return { sections: null, version: requestVersion };
+        } finally {
+          inFlightSectionsPromise = null;
+        }
+      })();
+
+      inFlightSectionsPromise = request;
+      const result = await request;
+      const isMounted = mountedRef.current;
+
+      if (!silent && isMounted) {
+        setInitialLoading(false);
+        setRefreshing(false);
+      }
+
+      const stale = result.version !== mutationVersionRef.current;
+      if (result.sections && !stale) {
+        commitSections(result.sections);
+        if (isMounted) setLoadError(false);
+        return;
+      }
+
+      if (!isMounted || silent) return;
+
+      if (!hadCache) {
+        setLoadError(true);
         showToast({
           type: 'error',
           title: 'Load Failed',
-          message: json.message || 'Could not load sections.',
+          message: 'Could not load sections.',
+        });
+      } else if (force) {
+        showToast({
+          type: 'error',
+          title: 'Refresh Failed',
+          message: 'Could not refresh sections.',
         });
       }
-    } catch {
-      if (!isCached && !silent) {
-        showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
-      }
-    } finally {
-      if (!silent) {
-        setListLoading(false);
-      }
+    },
+    [commitSections, showToast]
+  );
+
+  const beginMutation = useCallback(() => {
+    activeMutationsRef.current += 1;
+    mutationVersionRef.current += 1;
+    lastMutationAtRef.current = Date.now();
+    if (inFlightSectionsPromise) pendingRefreshRef.current = true;
+  }, []);
+
+  const endMutation = useCallback(() => {
+    activeMutationsRef.current = Math.max(0, activeMutationsRef.current - 1);
+    lastMutationAtRef.current = Date.now();
+    if (activeMutationsRef.current === 0 && pendingRefreshRef.current) {
+      pendingRefreshRef.current = false;
+      void loadSections({ silent: true, bypassServerCache: true });
     }
-  }, [showToast]);
+  }, [loadSections]);
+
+  const schedulePushRefresh = useCallback(() => {
+    if (Date.now() - lastMutationAtRef.current < MUTATION_SETTLE_MS) return;
+    if (pushTimerRef.current !== null) return;
+
+    pushTimerRef.current = window.setTimeout(() => {
+      pushTimerRef.current = null;
+      if (Date.now() - lastMutationAtRef.current < MUTATION_SETTLE_MS) return;
+      void loadSections({ silent: true, bypassServerCache: true });
+    }, PUSH_DEBOUNCE_MS);
+  }, [loadSections]);
 
   useEffect(() => {
-    loadSections(false);
+    const timer = window.setTimeout(() => setDebouncedSearch(searchInput), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
-    // 1. Supabase Realtime Channel for live sections database changes
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterStatus, pageSize]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadSections({
+      silent: memorySections !== null,
+      minAgeMs: CLIENT_CACHE_TTL_MS,
+    });
+
     let channel: any = null;
     try {
       const supabase = getSupabaseBrowserClient();
@@ -96,52 +413,45 @@ export default function SectionManagementPage() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'sections' },
-          () => {
-            void loadSections(true, true);
-          }
+          schedulePushRefresh
         )
         .subscribe();
     } catch (err) {
       console.warn('Realtime channel error:', err);
     }
 
-    // 2. Cross-tab sync via BroadcastChannel
     let bc: BroadcastChannel | null = null;
     try {
       bc = new BroadcastChannel('spid_admin_sync');
       bc.onmessage = (event) => {
-        if (event.data?.type === 'SECTIONS_UPDATED') {
-          void loadSections(true, true);
-        }
+        if (event.data?.type === 'SECTIONS_UPDATED') schedulePushRefresh();
       };
     } catch {}
 
-    // 3. Storage event sync for multi-window / multi-tab guarantee
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'spid_admin_sync') {
-        void loadSections(true, true);
-      }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'spid_admin_sync') schedulePushRefresh();
     };
-    window.addEventListener('storage', onStorage);
-
-    // 4. Window focus and visibility revalidation
-    const onFocus = () => void loadSections(false, true);
+    const onFocus = () => {
+      void loadSections({ silent: true, minAgeMs: FOCUS_REVALIDATE_MS });
+    };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        void loadSections(false, true);
+        void loadSections({ silent: true, minAgeMs: FOCUS_REVALIDATE_MS });
       }
     };
+
+    window.addEventListener('storage', onStorage);
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
-    // 5. Intelligent background silent polling (every 20s only when active)
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        void loadSections(false, true);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadSections({ silent: true, minAgeMs: POLL_REVALIDATE_MS });
       }
-    }, 20000);
+    }, POLL_INTERVAL_MS);
 
     return () => {
+      mountedRef.current = false;
       if (channel) {
         try {
           const supabase = getSupabaseBrowserClient();
@@ -149,243 +459,304 @@ export default function SectionManagementPage() {
         } catch {}
       }
       if (bc) {
-        try { bc.close(); } catch {}
+        try {
+          bc.close();
+        } catch {}
+      }
+      if (pushTimerRef.current !== null) {
+        window.clearTimeout(pushTimerRef.current);
+        pushTimerRef.current = null;
       }
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
-      clearInterval(interval);
+      window.clearInterval(interval);
     };
-  }, [loadSections]);
+  }, [loadSections, schedulePushRefresh]);
 
-  const filtered = useMemo(
+  const stats = useMemo(
     () =>
-      sections.filter((s) => {
-        const q = search.toLowerCase();
-        const matchSearch = s.name.toLowerCase().includes(q) || (s.section_lead || '').toLowerCase().includes(q);
-        const matchStatus = filterStatus === 'all' || s.status === filterStatus;
-        return matchSearch && matchStatus;
-      }),
-    [sections, search, filterStatus]
+      sections.reduce(
+        (acc, section) => {
+          acc.total += 1;
+          if (section.status === 'approved') acc.approved += 1;
+          else if (section.status === 'pending') acc.pending += 1;
+          else if (section.status === 'disabled') acc.disabled += 1;
+          return acc;
+        },
+        { total: 0, approved: 0, pending: 0, disabled: 0 }
+      ),
+    [sections]
   );
 
-  const stats = useMemo(() => {
-    const total = sections.length;
-    const approved = sections.filter((s) => s.status === 'approved').length;
-    const pending = sections.filter((s) => s.status === 'pending').length;
-    const disabled = sections.filter((s) => s.status === 'disabled').length;
-    return { total, approved, pending, disabled };
-  }, [sections]);
+  const normalizedQuery = debouncedSearch.trim().toLowerCase();
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
+  const filtered = useMemo(() => {
+    if (!normalizedQuery && filterStatus === 'all') return sections;
+    return sections.filter((section) => {
+      if (filterStatus !== 'all' && section.status !== filterStatus) return false;
+      if (!normalizedQuery) return true;
+      return (
+        section.name.toLowerCase().includes(normalizedQuery) ||
+        (section.section_lead ?? '').toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [sections, normalizedQuery, filterStatus]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageItems = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage, pageSize]);
+
+  const rangeStart = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, filtered.length);
+
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage);
+  }, [page, currentPage]);
+
+  const clearFilters = useCallback(() => {
+    setSearchInput('');
+    setDebouncedSearch('');
+    setFilterStatus('all');
+    setPage(1);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    void loadSections({ force: true });
+  }, [loadSections]);
+
+  const openEdit = useCallback((section: SectionRow) => setEditSection(section), []);
+  const openDisable = useCallback((section: SectionRow) => setDisableTarget(section), []);
+  const requestDelete = useCallback((section: SectionRow) => setDeleteTarget(section), []);
+
+  const handleStatusChange = useCallback(
+    async (section: SectionRow, nextStatus: SectionStatus) => {
+      const previousStatus = section.status ?? 'approved';
+      if (previousStatus === nextStatus) return;
+      const disabling = nextStatus === 'disabled';
+
+      beginMutation();
+      setLoadingId(section.id);
+      commitSections(
+        sectionsRef.current.map((item) =>
+          item.id === section.id ? { ...item, status: nextStatus } : item
+        )
+      );
+
+      try {
+        const res = await fetch(`/api/admin/sections/${section.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && json?.ok) {
+          const updated = json.data?.section as SectionRow | undefined;
+          if (updated) {
+            commitSections(
+              sectionsRef.current.map((item) =>
+                item.id === section.id ? { ...item, ...updated } : item
+              )
+            );
+          }
+          showToast({
+            type: 'success',
+            title: disabling ? 'Section Disabled' : 'Section Activated',
+            message:
+              json.message ||
+              (disabling ? 'The section has been disabled.' : 'The section has been activated.'),
+          });
+          invalidateClientSectionsCache();
+          broadcastAdminSync('SECTIONS_UPDATED');
+        } else {
+          commitSections(
+            sectionsRef.current.map((item) =>
+              item.id === section.id ? { ...item, status: previousStatus } : item
+            )
+          );
+          showToast({
+            type: 'error',
+            title: disabling ? 'Disable Failed' : 'Activation Failed',
+            message:
+              json?.message ||
+              (disabling ? 'Could not disable section.' : 'Could not activate section.'),
+          });
+        }
+      } catch {
+        commitSections(
+          sectionsRef.current.map((item) =>
+            item.id === section.id ? { ...item, status: previousStatus } : item
+          )
+        );
+        showToast({
+          type: 'error',
+          title: disabling ? 'Disable Failed' : 'Activation Failed',
+          message: 'Could not reach the server.',
+        });
+      } finally {
+        setLoadingId(null);
+        setDisableTarget((current) => (current?.id === section.id ? null : current));
+        endMutation();
+      }
+    },
+    [beginMutation, commitSections, endMutation, showToast]
+  );
+
+  const handleDelete = useCallback(async () => {
     const target = deleteTarget;
-    setDeleteTarget(null);
-    const prevSections = [...sections];
-    // Optimistic delete: remove immediately from UI
-    setSections((prev) => prev.filter((s) => s.id !== target.id));
+    if (!target) return;
+
+    beginMutation();
     setLoadingId(target.id);
+    commitSections(sectionsRef.current.filter((item) => item.id !== target.id));
+
     try {
       const res = await fetch(`/api/admin/sections/${target.id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (res.ok && json.ok) {
+      const json = await res.json().catch(() => null);
+
+      if (res.ok && json?.ok) {
         showToast({
           type: 'success',
           title: 'Section Deleted',
-          message: json.message,
+          message: json.message || `"${target.name}" has been permanently deleted.`,
         });
-        invalidateSectionManagementCache();
+        invalidateClientSectionsCache();
         broadcastAdminSync('SECTIONS_UPDATED');
       } else {
-        setSections(prevSections);
+        commitSections(restoreRow(sectionsRef.current, target));
         showToast({
           type: 'error',
           title: 'Delete Failed',
-          message: json.message || 'Could not delete section.',
+          message: json?.message || 'Could not delete section.',
         });
       }
     } catch {
-      setSections(prevSections);
+      commitSections(restoreRow(sectionsRef.current, target));
       showToast({ type: 'error', title: 'Delete Failed', message: 'Could not reach the server.' });
     } finally {
+      setDeleteTarget(null);
       setLoadingId(null);
+      endMutation();
     }
-  };
+  }, [beginMutation, commitSections, deleteTarget, endMutation, showToast]);
 
-  const handleDisable = async () => {
+  const handleDisable = useCallback(() => {
     if (!disableTarget) return;
-    const target = disableTarget;
-    setDisableTarget(null);
-    const prevSections = [...sections];
-    // Optimistic update: badge toggles immediately
-    setSections((prev) =>
-      prev.map((s) => (s.id === target.id ? { ...s, status: 'disabled' } : s))
-    );
-    setLoadingId(target.id);
-    try {
-      const res = await fetch(`/api/admin/sections/${target.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'disabled' }),
-      });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        showToast({
-          type: 'success',
-          title: 'Section Disabled',
-          message: json.message,
+    void handleStatusChange(disableTarget, 'disabled');
+  }, [disableTarget, handleStatusChange]);
+
+  const handleActivate = useCallback(
+    (section: SectionRow) => {
+      void handleStatusChange(section, 'approved');
+    },
+    [handleStatusChange]
+  );
+
+  const handleEditSave = useCallback(
+    async (payload: { name: string; section_lead?: string | null }) => {
+      const target = editSection;
+      if (!target) return;
+
+      beginMutation();
+      setLoadingId(target.id);
+
+      try {
+        const res = await fetch(`/api/admin/sections/${target.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
         });
-        invalidateSectionManagementCache();
-        broadcastAdminSync('SECTIONS_UPDATED');
-      } else {
-        setSections(prevSections);
-        showToast({
-          type: 'error',
-          title: 'Disable Failed',
-          message: json.message || 'Could not disable section.',
-        });
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && json?.ok) {
+          const updated = json.data?.section as SectionRow | undefined;
+          if (updated) {
+            commitSections(
+              sectionsRef.current.map((item) =>
+                item.id === target.id ? { ...item, ...updated } : item
+              )
+            );
+          }
+          showToast({
+            type: 'success',
+            title: 'Section Updated',
+            message: json.message || 'The section has been updated.',
+          });
+          invalidateClientSectionsCache();
+          broadcastAdminSync('SECTIONS_UPDATED');
+          setEditSection(null);
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Update Failed',
+            message: json?.message || 'Could not update section.',
+          });
+        }
+      } catch {
+        showToast({ type: 'error', title: 'Update Failed', message: 'Could not reach the server.' });
+      } finally {
+        setLoadingId(null);
+        endMutation();
       }
-    } catch {
-      setSections(prevSections);
-      showToast({ type: 'error', title: 'Disable Failed', message: 'Could not reach the server.' });
-    } finally {
-      setLoadingId(null);
-    }
-  };
+    },
+    [beginMutation, commitSections, editSection, endMutation, showToast]
+  );
 
-  const handleActivate = async (section: SectionRow) => {
-    const prevSections = [...sections];
-    // Optimistic activate: badge toggles immediately
-    setSections((prev) =>
-      prev.map((s) => (s.id === section.id ? { ...s, status: 'approved' } : s))
-    );
-    setLoadingId(section.id);
-    try {
-      const res = await fetch(`/api/admin/sections/${section.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' }),
-      });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        showToast({
-          type: 'success',
-          title: 'Section Activated',
-          message: json.message,
+  const handleAddSave = useCallback(
+    async (payload: { name: string; section_lead?: string }) => {
+      beginMutation();
+      setLoadingId(ADD_MODAL_LOADING_ID);
+
+      try {
+        const res = await fetch('/api/admin/sections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
         });
-        invalidateSectionManagementCache();
-        broadcastAdminSync('SECTIONS_UPDATED');
-      } else {
-        setSections(prevSections);
-        showToast({
-          type: 'error',
-          title: 'Activation Failed',
-          message: json.message || 'Could not activate section.',
-        });
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && json?.ok) {
+          const created = json.data?.section as SectionRow | undefined;
+          if (created && !sectionsRef.current.some((item) => item.id === created.id)) {
+            commitSections([...sectionsRef.current, created].sort(byId));
+          }
+          showToast({
+            type: 'success',
+            title: 'Section Created',
+            message: json.message || 'The section has been created.',
+          });
+          invalidateClientSectionsCache();
+          broadcastAdminSync('SECTIONS_UPDATED');
+          setShowAddModal(false);
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Create Failed',
+            message: json?.message || 'Could not create section.',
+          });
+        }
+      } catch {
+        showToast({ type: 'error', title: 'Create Failed', message: 'Could not reach the server.' });
+      } finally {
+        setLoadingId(null);
+        endMutation();
       }
-    } catch {
-      setSections(prevSections);
-      showToast({ type: 'error', title: 'Activation Failed', message: 'Could not reach the server.' });
-    } finally {
-      setLoadingId(null);
-    }
-  };
+    },
+    [beginMutation, commitSections, endMutation, showToast]
+  );
 
+  const closeFormModal = useCallback(() => {
+    setShowAddModal(false);
+    setEditSection(null);
+  }, []);
 
-  const handleEditSave = async (payload: { name: string; section_lead?: string | null }) => {
-    if (!editSection) return;
-    setLoadingId(editSection.id);
-    try {
-      const res = await fetch(`/api/admin/sections/${editSection.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        showToast({
-          type: 'success',
-          title: 'Section Updated',
-          message: json.message,
-        });
-        invalidateSectionManagementCache();
-        broadcastAdminSync('SECTIONS_UPDATED');
-        await loadSections(true);
-        setEditSection(null);
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Update Failed',
-          message: json.message || 'Could not update section.',
-        });
-      }
-    } catch {
-      showToast({ type: 'error', title: 'Update Failed', message: 'Could not reach the server.' });
-    } finally {
-      setLoadingId(null);
-    }
-  };
-
-  const handleAddSave = async (payload: { name: string; section_lead?: string }) => {
-    setLoadingId(-1);
-    try {
-      const res = await fetch('/api/admin/sections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (res.ok && json.ok) {
-        showToast({
-          type: 'success',
-          title: 'Section Created',
-          message: json.message,
-        });
-        invalidateSectionManagementCache();
-        broadcastAdminSync('SECTIONS_UPDATED');
-        await loadSections(true);
-        setShowAddModal(false);
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Create Failed',
-          message: json.message || 'Could not create section.',
-        });
-      }
-    } catch {
-      showToast({ type: 'error', title: 'Create Failed', message: 'Could not reach the server.' });
-    } finally {
-      setLoadingId(null);
-    }
-  };
-
-  const getStatusBadge = (status?: SectionStatus) => {
-    switch (status) {
-      case 'approved':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Active
-          </span>
-        );
-      case 'pending':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-            Pending
-          </span>
-        );
-      case 'disabled':
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-0.5 text-[10px] font-bold text-red-800 dark:bg-red-900/40 dark:text-red-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-            Disabled
-          </span>
-        );
-      default:
-        return null;
-    }
-  };
+  const activePercent = stats.total > 0 ? Math.round((stats.approved / stats.total) * 100) : 0;
+  const hasActiveFilters = normalizedQuery.length > 0 || filterStatus !== 'all';
+  const isRefreshBusy = refreshing || initialLoading;
 
   return (
     <div className="mt-3 flex flex-col gap-5">
@@ -397,20 +768,20 @@ export default function SectionManagementPage() {
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/25 transition-all hover:bg-brand-600 active:scale-95 cursor-pointer"
+            className="flex cursor-pointer items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/25 transition-all hover:bg-brand-600 active:scale-95"
           >
             <FiPlus className="h-3.5 w-3.5" /> Add New Section
           </button>
         }
       />
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={FiDatabase}
           tone="purple"
           label="Total Sections"
           value={stats.total}
+          loading={initialLoading}
           pill="Sections"
           sub="All departments"
         />
@@ -419,7 +790,8 @@ export default function SectionManagementPage() {
           tone="green"
           label="Active Sections"
           value={stats.approved}
-          pill={`${stats.total > 0 ? Math.round((stats.approved / stats.total) * 100) : 0}%`}
+          loading={initialLoading}
+          pill={initialLoading ? undefined : `${activePercent}%`}
           sub="Operational"
         />
         <StatCard
@@ -427,6 +799,7 @@ export default function SectionManagementPage() {
           tone="blue"
           label="Pending Approval"
           value={stats.pending}
+          loading={initialLoading}
           pill="Action"
           sub="Awaiting review"
         />
@@ -435,30 +808,46 @@ export default function SectionManagementPage() {
           tone="red"
           label="Disabled Sections"
           value={stats.disabled}
+          loading={initialLoading}
           pill="Inactive"
           sub="Access restricted"
         />
       </div>
 
-      {/* Filters & Search */}
       <div className="rounded-2xl bg-white p-4 shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex h-10 w-full items-center gap-2 rounded-xl bg-[#f4f7fe] px-3 dark:bg-navy-900 lg:max-w-sm border border-slate-300 dark:border-navy-700">
+          <div className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-300 bg-[#f4f7fe] px-3 dark:border-navy-700 dark:bg-navy-900 lg:max-w-sm">
             <FiSearch className="h-4 w-4 shrink-0 text-slate-700 dark:text-gray-300" />
             <input
               type="text"
               placeholder="Search by section name or lead..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
               style={{ backgroundColor: 'transparent' }}
-              className="h-full w-full !bg-transparent text-xs font-bold text-slate-950 outline-none placeholder:text-slate-600 placeholder:font-medium dark:!bg-transparent dark:text-white dark:placeholder:text-gray-400"
+              className="h-full w-full !bg-transparent text-xs font-bold text-slate-950 outline-none placeholder:font-medium placeholder:text-slate-600 dark:!bg-transparent dark:text-white dark:placeholder:text-gray-400"
+              aria-label="Search sections"
+              maxLength={120}
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput('');
+                  setDebouncedSearch('');
+                }}
+                aria-label="Clear search"
+                className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-gray-400 dark:hover:bg-navy-700 dark:hover:text-white"
+              >
+                <FiX className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <div className="flex flex-1 flex-wrap items-center gap-2 lg:justify-end">
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as 'all' | SectionStatus)}
-              className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none border border-slate-300 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
+              onChange={(event) => setFilterStatus(event.target.value as 'all' | SectionStatus)}
+              aria-label="Filter sections by status"
+              className="h-9 cursor-pointer rounded-xl border border-slate-300 bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200"
             >
               <option value="all">All Statuses</option>
               <option value="approved">Active</option>
@@ -466,121 +855,229 @@ export default function SectionManagementPage() {
               <option value="disabled">Disabled</option>
             </select>
             <button
-              onClick={() => loadSections(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] border border-slate-300 dark:border-navy-700 text-slate-900 transition-colors hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer"
-              title="Refresh"
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshBusy}
+              aria-label="Refresh sections"
+              aria-busy={isRefreshBusy || undefined}
+              title="Refresh sections"
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-300 bg-[#f4f7fe] text-slate-900 transition-colors hover:border-[#4318FF] hover:text-[#4318FF] disabled:cursor-not-allowed disabled:opacity-60 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200"
             >
-              <FiRefreshCw className="h-3.5 w-3.5" />
+              {isRefreshBusy ? (
+                <Spinner size="xs" className="text-[#4318FF]" />
+              ) : (
+                <FiRefreshCw className="h-3.5 w-3.5" />
+              )}
             </button>
           </div>
         </div>
+        {hasActiveFilters && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-600 dark:text-gray-400">
+            <span>
+              {filtered.length} of {sections.length} sections match
+            </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="cursor-pointer font-bold text-[#4318FF] hover:underline dark:text-brand-300"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Sections Table */}
-      <div className="rounded-2xl bg-white shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none">
+        <div
+          className="overflow-x-auto"
+          aria-busy={initialLoading || refreshing || undefined}
+        >
+          {initialLoading && (
+            <span className="sr-only" role="status">
+              Loading sections…
+            </span>
+          )}
+          <table aria-label="Sections" className="w-full text-left">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 dark:border-navy-600 dark:bg-navy-800">
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
+                <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
                   Section Name
                 </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
+                <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
                   Status
                 </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
+                <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
                   Section Lead
                 </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
+                <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
                   Created
                 </th>
-                <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300 text-right">
+                <th scope="col" className="px-6 py-4 text-right text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody>
-              {listLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500 dark:text-gray-400">
-                    Loading sections...
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500 dark:text-gray-400">
-                    No sections match your search/filter criteria.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((section) => (
+              {initialLoading ? (
+                Array.from({ length: 5 }).map((_, index) => (
                   <tr
-                    key={section.id}
-                    className="border-b border-gray-100 hover:bg-gray-50 dark:border-navy-600 dark:hover:bg-navy-800/50 transition-colors"
+                    key={`skeleton-${index}`}
+                    className="border-b border-slate-300 dark:border-navy-600"
+                    aria-hidden="true"
                   >
                     <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">{section.name}</div>
-                    </td>
-                    <td className="px-6 py-4">{getStatusBadge(section.status)}</td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-slate-700 dark:text-gray-300">
-                        {section.section_lead || '—'}
-                      </div>
+                      <Skeleton className="h-4 w-[70%]" />
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-xs text-slate-500 dark:text-gray-400">
-                        {section.created_at ? new Date(section.created_at).toLocaleDateString() : '—'}
-                      </div>
+                      <Skeleton className="h-5 w-16" rounded="full" />
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {section.status !== 'approved' && (
-                          <button
-                            onClick={() => handleActivate(section)}
-                            disabled={loadingId === section.id}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50 cursor-pointer"
-                            title="Activate / Approve Section"
-                          >
-                            <FiCheckCircle className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setEditSection(section)}
-                          disabled={loadingId === section.id}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 cursor-pointer"
-                          title="Edit"
-                        >
-                          <FiEdit3 className="h-3.5 w-3.5" />
-                        </button>
-                        {section.status !== 'disabled' && (
-                          <button
-                            onClick={() => setDisableTarget(section)}
-                            disabled={loadingId === section.id}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 cursor-pointer"
-                            title="Disable"
-                          >
-                            <FiPower className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setDeleteTarget(section)}
-                          disabled={loadingId === section.id}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 cursor-pointer"
-                          title="Delete"
-                        >
-                          <FiTrash2 className="h-3.5 w-3.5" />
-                        </button>
+                    <td className="px-6 py-4">
+                      <Skeleton className="h-4 w-[55%]" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <Skeleton className="h-4 w-20" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="ml-auto flex justify-end gap-2">
+                        {[0, 1, 2].map((action) => (
+                          <Skeleton key={action} className="h-8 w-8" />
+                        ))}
                       </div>
                     </td>
                   </tr>
+                ))
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500 dark:bg-red-900/30 dark:text-red-400">
+                        <FiAlertCircle className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">
+                          Could not load sections
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
+                          Check your connection and try again.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRefresh}
+                        className="cursor-pointer rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-brand-600"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : pageItems.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-navy-800 dark:text-gray-400">
+                        <FiFolder className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">
+                          {sections.length === 0 ? 'No sections yet' : 'No matching sections'}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
+                          {sections.length === 0
+                            ? 'Create your first section to get started.'
+                            : 'Try adjusting your search or status filter.'}
+                        </p>
+                      </div>
+                      {sections.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddModal(true)}
+                          className="cursor-pointer rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-brand-600"
+                        >
+                          Add New Section
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-navy-600 dark:text-gray-200 dark:hover:bg-navy-800"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                pageItems.map((section) => (
+                  <SectionRowItem
+                    key={section.id}
+                    section={section}
+                    busy={loadingId === section.id}
+                    onEdit={openEdit}
+                    onActivate={handleActivate}
+                    onDisable={openDisable}
+                    onDelete={requestDelete}
+                  />
                 ))
               )}
             </tbody>
           </table>
         </div>
+
+        {!initialLoading && !loadError && filtered.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 dark:border-navy-600 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[11px] font-medium text-slate-500 dark:text-gray-400">
+              Showing <span className="font-bold text-slate-700 dark:text-gray-200">{rangeStart}–{rangeEnd}</span> of{' '}
+              <span className="font-bold text-slate-700 dark:text-gray-200">{filtered.length}</span>
+              {filtered.length !== sections.length && (
+                <span> (filtered from {sections.length})</span>
+              )}
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-gray-400">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(event) => setPageSize(Number(event.target.value))}
+                  aria-label="Rows per page"
+                  className="h-8 cursor-pointer rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 outline-none dark:border-navy-600 dark:bg-navy-800 dark:text-gray-200"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={currentPage <= 1}
+                  aria-label="Previous page"
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 dark:hover:bg-navy-700"
+                >
+                  <FiChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="min-w-[76px] text-center text-[11px] font-bold text-slate-600 dark:text-gray-300">
+                  Page {currentPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  disabled={currentPage >= pageCount}
+                  aria-label="Next page"
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 dark:hover:bg-navy-700"
+                >
+                  <FiChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <ConfirmActionModal
           title="Delete Section"
@@ -593,28 +1090,26 @@ export default function SectionManagementPage() {
         />
       )}
 
-      {/* Disable Confirmation Modal */}
       {disableTarget && (
         <ConfirmActionModal
           title="Disable Section"
           description={`Are you sure you want to disable "${disableTarget.name}"? Once disabled, it cannot be updated or navigated. Pending workflow will remain, creating inconsistent and unusable data for both users and admins.`}
           confirmLabel="Disable Section"
-          tone="primary"
+          tone="warning"
           loading={loadingId === disableTarget.id}
           onConfirm={handleDisable}
           onCancel={() => setDisableTarget(null)}
         />
       )}
 
-      {/* Add/Edit Section Modal */}
       {(showAddModal || editSection) && (
         <SectionFormModal
           section={editSection}
-          saving={loadingId === (editSection?.id ?? -1)}
-          onClose={() => {
-            setShowAddModal(false);
-            setEditSection(null);
-          }}
+          existingSections={sections}
+          saving={
+            editSection ? loadingId === editSection.id : loadingId === ADD_MODAL_LOADING_ID
+          }
+          onClose={closeFormModal}
           onSave={editSection ? handleEditSave : handleAddSave}
         />
       )}
@@ -622,88 +1117,165 @@ export default function SectionManagementPage() {
   );
 }
 
-// Section Form Modal Component
 function SectionFormModal({
   section,
+  existingSections = [],
   saving,
   onClose,
   onSave,
 }: {
   section: SectionRow | null;
+  existingSections?: SectionRow[];
   saving: boolean;
   onClose: () => void;
   onSave: (payload: { name: string; section_lead?: string | null }) => Promise<void>;
 }) {
   const [name, setName] = useState(section?.name || '');
   const [sectionLead, setSectionLead] = useState(section?.section_lead || '');
+  const isEdit = !!section;
+  const normalizedName = normalizeSectionName(name);
+  const duplicateCheck = useSectionNameCheck({
+    name,
+    sections: existingSections,
+    ignoreId: section?.id ?? null,
+  });
+  const duplicateMessage = duplicateCheck.message;
+  const canSubmit =
+    normalizedName.length >= SECTION_NAME_MIN_LENGTH &&
+    normalizedName.length <= SECTION_NAME_MAX_LENGTH &&
+    !duplicateMessage &&
+    !saving;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canSubmit || saving) return;
     await onSave({
-      name: name.trim(),
+      name: normalizedName,
       section_lead: sectionLead.trim() || null,
     });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-      onClick={() => !saving && onClose()}
+    <Modal
+      open
+      onClose={onClose}
+      busy={saving}
+      labelledBy="section-form-title"
+      panelClassName="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-700"
     >
-      <div
-        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-700"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-navy-700 dark:text-white mb-4">
-          {section ? 'Edit Section' : 'Add New Section'}
-        </h3>
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#4318FF]/10 text-[#4318FF] dark:bg-[#4318FF]/20 dark:text-brand-300">
+              <FiFolder className="h-5 w-5" />
+            </div>
+            <div>
+              <h3
+                id="section-form-title"
+                className="text-lg font-bold text-navy-700 dark:text-white"
+              >
+                {isEdit ? 'Edit Section' : 'Add New Section'}
+              </h3>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                {isEdit
+                  ? 'Update the section details below.'
+                  : 'Create a new departmental section.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Close"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-navy-800 dark:hover:text-white"
+          >
+            <FiX className="h-4 w-4" />
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <label
+              htmlFor="section-name"
+              className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
+            >
               Section Name <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
+            <SpellCheckedNameInput
+              id="section-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={setName}
+              sections={existingSections}
+              extraDictionaryText={sectionLead}
               placeholder="e.g. Engineering Central Registry"
-              className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 px-4 text-sm text-slate-800 dark:text-white border border-transparent focus:border-[#4318FF] focus:outline-none transition-colors"
+              maxLength={SECTION_NAME_MAX_LENGTH}
+              autoFocus
               disabled={saving}
+              invalid={Boolean(duplicateMessage)}
+              ariaDescribedBy="section-name-hint"
+              fieldClassName="w-full rounded-xl border border-transparent bg-[#f4f7fe] text-sm transition-colors focus-within:border-[#4318FF] dark:bg-navy-900"
+              paddingClassName="px-4 py-3"
             />
+            <div
+              id="section-name-hint"
+              className={`mt-1.5 flex items-center justify-between text-[11px] font-medium ${
+                duplicateMessage
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-slate-500 dark:text-gray-400'
+              }`}
+              aria-live="polite"
+            >
+              <span>
+                {duplicateMessage ??
+                  `At least ${SECTION_NAME_MIN_LENGTH} characters. Spelling suggestions never block saving.`}
+              </span>
+              <span>
+                {name.length}/{SECTION_NAME_MAX_LENGTH}
+              </span>
+            </div>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Section Lead (Optional)
+            <label
+              htmlFor="section-lead"
+              className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
+            >
+              Section Lead{' '}
+              <span className="font-normal text-slate-400 dark:text-slate-500">(Optional)</span>
             </label>
             <input
+              id="section-lead"
               type="text"
               value={sectionLead}
-              onChange={(e) => setSectionLead(e.target.value)}
+              onChange={(event) => setSectionLead(event.target.value)}
               placeholder="e.g. K. L. Perera"
-              className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 px-4 text-sm text-slate-800 dark:text-white border border-transparent focus:border-[#4318FF] focus:outline-none transition-colors"
               disabled={saving}
+              spellCheck={false}
+              autoCorrect="off"
+              className="w-full rounded-xl border border-transparent bg-[#f4f7fe] px-4 py-3 text-sm text-slate-800 transition-colors focus:border-[#4318FF] focus:outline-none disabled:opacity-60 dark:bg-navy-900 dark:text-white"
             />
           </div>
-          <div className="flex gap-3 mt-6">
-            <button
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+            <Button
               type="button"
+              variant="cancel"
               onClick={onClose}
               disabled={saving}
-              className="flex-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300"
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={saving || !name.trim()}
-              className="flex-1 rounded-xl bg-[#4318FF] py-2.5 text-sm font-bold text-white shadow transition-colors hover:bg-brand-600 disabled:opacity-60"
+              variant="primary"
+              loading={saving}
+              loadingText="Saving..."
+              disabled={!canSubmit}
+              className="flex-1"
             >
-              {saving ? 'Saving...' : section ? 'Update Section' : 'Create Section'}
-            </button>
+              {isEdit ? 'Update Section' : 'Create Section'}
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

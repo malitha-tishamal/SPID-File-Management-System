@@ -13,6 +13,7 @@ import {
 import { MdAdminPanelSettings, MdSave } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
+import Button from 'components/ui/Button';
 
 function statusBadgeClass(status: AccountStatus): string {
   if (status === 'approved') return 'bg-emerald-600 text-white shadow-sm';
@@ -290,13 +291,15 @@ export default function EditUserModal({
 
         {/* Footer actions (matching image 4) */}
         <div className="mt-7 flex items-center justify-end gap-3 border-t border-gray-100 pt-4 dark:border-navy-600">
-          <button
+          <Button
+            type="button"
+            variant="cancel"
+            size="sm"
             onClick={onClose}
             disabled={saving}
-            className="rounded-xl px-5 py-2.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-slate-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-navy-800 cursor-pointer"
           >
             Cancel
-          </button>
+          </Button>
           <button
             onClick={handleSave}
             disabled={saving || fullName.trim().length < 3 || phoneError}

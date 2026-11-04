@@ -1,7 +1,11 @@
 /**
  * Client-side deduplicated request utility for /api/sections.
- * Prevents multiple sibling components from firing duplicate concurrent HTTP requests
- * on page mount.
+ * Prevents multiple sibling components from firing duplicate concurrent HTTP
+ * requests on page mount.
+ *
+ * Results are intentionally NOT cached between mounts: a section can be
+ * disabled or re-enabled at any time, and every dropdown must reflect that
+ * without a manual page reload.
  */
 
 interface SectionItem {
@@ -12,48 +16,74 @@ interface SectionItem {
   [x: string]: any;
 }
 
-let sectionsPromise: Promise<SectionItem[]> | null = null;
-let cachedSections: SectionItem[] | null = null;
-let cacheTimestamp = 0;
-const CLIENT_CACHE_TTL_MS = 60_000; // 1 minute in-memory cache
+export interface FetchSectionOptions {
+  /** Only Active sections — use for dropdowns that create/reassign files. */
+  activeOnly?: boolean;
+  /** Keep this section in an activeOnly result even if it is disabled. */
+  include?: string;
+}
 
-export async function fetchClientSections(forceRefresh = false): Promise<SectionItem[]> {
-  const now = Date.now();
+const inFlight = new Map<string, Promise<SectionItem[]>>();
+const cache = new Map<string, { data: SectionItem[]; timestamp: number }>();
+const CACHE_TTL_MS = 30_000;
 
-  if (!forceRefresh && cachedSections && now - cacheTimestamp < CLIENT_CACHE_TTL_MS) {
-    return cachedSections;
-  }
+function buildSectionsUrl({ activeOnly, include }: FetchSectionOptions): string {
+  const params = new URLSearchParams();
+  if (activeOnly) params.set('activeOnly', 'true');
+  if (include?.trim()) params.set('include', include.trim());
+  const query = params.toString();
+  return query ? `/api/sections?${query}` : '/api/sections';
+}
 
-  if (!forceRefresh && sectionsPromise) {
-    return sectionsPromise;
-  }
-
-  sectionsPromise = (async () => {
-    try {
-      const res = await fetch('/api/sections', {
-        headers: { Accept: 'application/json' },
-      });
-      if (res.ok) {
-        const json = await res.json().catch(() => null);
-        if (json?.ok && Array.isArray(json.data?.sections)) {
-          cachedSections = json.data.sections;
-          cacheTimestamp = Date.now();
-          return cachedSections;
-        }
+async function requestSections(url: string): Promise<SectionItem[]> {
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (json?.ok && Array.isArray(json.data?.sections)) {
+        return json.data.sections as SectionItem[];
       }
-    } catch (e) {
-      console.warn('[sectionsClient] Failed to load sections:', e);
-    } finally {
-      sectionsPromise = null;
     }
-    return cachedSections || [];
-  })();
+  } catch (e) {
+    console.warn('[sectionsClient] Failed to load sections:', e);
+  }
+  return [];
+}
 
-  return sectionsPromise;
+export async function fetchClientSections(
+  forceRefresh = false,
+  options: FetchSectionOptions = {},
+): Promise<SectionItem[]> {
+  const url = buildSectionsUrl(options);
+
+  if (!forceRefresh) {
+    const cached = cache.get(url);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
+    const pending = inFlight.get(url);
+    if (pending) return pending;
+  }
+
+  const request = requestSections(url).then((items) => {
+    if (Array.isArray(items) && items.length > 0) {
+      cache.set(url, { data: items, timestamp: Date.now() });
+    }
+    return items;
+  });
+
+  inFlight.set(url, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlight.get(url) === request) inFlight.delete(url);
+  }
 }
 
 export function invalidateClientSectionsCache() {
-  cachedSections = null;
-  cacheTimestamp = 0;
-  sectionsPromise = null;
+  cache.clear();
+  inFlight.clear();
 }

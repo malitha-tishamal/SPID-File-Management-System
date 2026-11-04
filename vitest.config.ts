@@ -12,11 +12,16 @@ export default defineConfig({
       lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
       config: fileURLToPath(new URL('./src/config', import.meta.url)),
       components: fileURLToPath(new URL('./src/components', import.meta.url)),
+      contexts: fileURLToPath(new URL('./src/contexts', import.meta.url)),
       utils: fileURLToPath(new URL('./src/utils', import.meta.url)),
     },
   },
+  esbuild: {
+    // tsconfig keeps JSX untransformed for Next; component tests need it built.
+    jsx: 'automatic',
+  },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
   },
 });

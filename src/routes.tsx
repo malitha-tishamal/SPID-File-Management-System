@@ -30,10 +30,10 @@ const routes = [
     secondary: true,
   },
   {
-    name: 'Issue Files Details',
+    name: 'Issued Files',
     layout: '/admin',
     icon: <FiFileText className="h-5 w-5" />,
-    path: 'data-tables',
+    path: 'issued-files',
   },
   {
     name: 'Add New File',

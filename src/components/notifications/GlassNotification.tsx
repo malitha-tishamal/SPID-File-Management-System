@@ -11,7 +11,8 @@ export interface GlassNotificationProps {
   title?: string;
   message?: string;
   onClose: () => void;
-  autoCloseDuration?: number; // ms, default 3500 for success
+  autoCloseDuration?: number; // ms; 0 disables auto-close
+  actionLabel?: string;
 }
 
 export default function GlassNotification({
@@ -20,7 +21,8 @@ export default function GlassNotification({
   title,
   message,
   onClose,
-  autoCloseDuration = 3500,
+  autoCloseDuration = 0,
+  actionLabel,
 }: GlassNotificationProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -130,18 +132,25 @@ export default function GlassNotification({
           {message || defaultMessage}
         </p>
 
-        {/* Bottom Action for failure (or quick dismiss) */}
-        {!isSuccess && (
-          <div className="mt-7 flex justify-center">
+        <div className="mt-7 flex justify-center">
+          {isSuccess ? (
+            <button
+              onClick={onClose}
+              type="button"
+              className="inline-flex min-w-[120px] items-center justify-center rounded-xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] px-8 py-2.5 text-sm font-bold text-white shadow-md shadow-[#4318FF]/25 hover:opacity-95 active:scale-95 transition-all"
+            >
+              {actionLabel || 'OK'}
+            </button>
+          ) : (
             <button
               onClick={onClose}
               type="button"
               className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-red-500/25 hover:from-red-600 hover:to-rose-700 active:scale-95 transition-all"
             >
-              Try Again
+              {actionLabel || 'Try Again'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

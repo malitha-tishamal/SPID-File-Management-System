@@ -65,27 +65,44 @@ export class ProfileController {
       throw new ApiError(400, 'VALIDATION_ERROR', 'An image file is required.');
     }
 
+    if (file.size > 2 * 1024 * 1024) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'The selected image exceeds the 2MB size limit.');
+    }
+
     const result = await StorageService.uploadProfileImage(profile.id, file);
 
+    // Apply cache-busting timestamp to prevent stale browser display
+    const timestamp = Date.now();
+    const separator = result.publicUrl.includes('?') ? '&' : '?';
+    const permanentUrl = `${result.publicUrl}${separator}t=${timestamp}`;
+
     const admin = getSupabaseAdminClient();
-    const nowIso = new Date().toISOString();
+    const updatedProfile = await new ProfileRepository(admin).updateAvatar(profile.id, permanentUrl);
 
-    // 1. Sync avatar URL into user_metadata so directory lists and auth reflect it immediately
-    try {
-      await admin.auth.admin.updateUserById(profile.id, {
-        user_metadata: { avatar_url: result.publicUrl },
-      });
-    } catch (e) {
-      console.warn('Could not update user_metadata avatar_url:', e);
-    }
+    return jsonOk({
+      profile: updatedProfile,
+      publicUrl: permanentUrl,
+      path: result.path,
+      updated_at: updatedProfile?.updated_at || new Date().toISOString(),
+      message: 'Profile image uploaded successfully.',
+    });
+  }
 
-    // 2. Touch updated_at in profiles table so "Last Update" timestamp updates
-    try {
-      await admin.from('profiles').update({ updated_at: nowIso }).eq('id', profile.id);
-    } catch (e) {
-      console.warn('Could not update profile updated_at:', e);
-    }
+  /** DELETE /api/profile/avatar */
+  static async deleteAvatar(_req: Request) {
+    requireServerEnv();
+    const profile = await AuthorizationService.requireApprovedProfile();
 
-    return jsonOk({ ...result, updated_at: nowIso, message: 'Profile image uploaded.' });
+    // Clear the saved URL first so the avatar never points at deleted storage.
+    const admin = getSupabaseAdminClient();
+    const updatedProfile = await new ProfileRepository(admin).updateAvatar(profile.id, null);
+    await StorageService.deleteProfileImage(profile.id);
+
+    return jsonOk({
+      profile: updatedProfile,
+      publicUrl: null,
+      updated_at: updatedProfile?.updated_at || new Date().toISOString(),
+      message: 'Profile picture removed successfully.',
+    });
   }
 }

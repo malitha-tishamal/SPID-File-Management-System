@@ -30,7 +30,7 @@ export class AuditLogRepository {
   async listForUser(targetUserId: string, limit = 20): Promise<AuditLogEntry[]> {
     const { data, error } = await this.adminClient
       .from('audit_logs')
-      .select('*')
+      .select('id, actor_id, target_user_id, action, details, created_at')
       .eq('target_user_id', targetUserId)
       .order('created_at', { ascending: false })
       .limit(limit);

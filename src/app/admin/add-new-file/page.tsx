@@ -29,18 +29,6 @@ interface SectionOption {
   name: string;
 }
 
-const DEFAULT_SECTIONS: SectionOption[] = [
-  { id: 1, name: 'Administration & Human Resources Division' },
-  { id: 2, name: 'Irrigation Planning, Design & Feasibility' },
-  { id: 3, name: 'Water Management, Operations & Hydrology' },
-  { id: 4, name: 'Engineering Central Registry & Archive Records' },
-  { id: 5, name: 'Land Acquisition & Field Surveys' },
-  { id: 6, name: 'Finance, Accounts & Procurement' },
-  { id: 7, name: 'Galle Regional Engineering Office' },
-  { id: 8, name: 'Matara Regional Engineering Office' },
-  { id: 9, name: 'Hambantota Regional Engineering Office' },
-];
-
 export default function AddNewFilePage() {
   // Session & User State
   const [registrarName, setRegistrarName] = useState<string>('System Administrator (sarath_admin)');
@@ -61,7 +49,7 @@ export default function AddNewFilePage() {
   const [minuteSheets, setMinuteSheets] = useState('');
 
   // Sections List
-  const [sectionsList, setSectionsList] = useState<SectionOption[]>(DEFAULT_SECTIONS);
+  const [sectionsList, setSectionsList] = useState<SectionOption[]>([]);
 
   // Form Validation & Submission State
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -91,6 +79,14 @@ export default function AddNewFilePage() {
       return [...prev, newSec].sort((a, b) => a.name.localeCompare(b.name));
     });
     setSection(newSec.name);
+    // Re-read the authoritative Active list so the dropdown reflects the new row.
+    fetchClientSections(true, { activeOnly: true })
+      .then((sections) => {
+        if (Array.isArray(sections) && sections.length > 0) {
+          setSectionsList(sections as SectionOption[]);
+        }
+      })
+      .catch(() => {});
     if (errors.section) {
       setErrors((prev) => ({ ...prev, section: '' }));
     }
@@ -122,13 +118,13 @@ export default function AddNewFilePage() {
     }
   }, [profile]);
 
-  // Fetch sections on load using deduplicated client
+  // Fetch Active sections on load using the deduplicated client
   useEffect(() => {
     let mounted = true;
-    fetchClientSections()
+    fetchClientSections(false, { activeOnly: true })
       .then((sections) => {
         if (!mounted) return;
-        if (Array.isArray(sections) && sections.length > 0) {
+        if (Array.isArray(sections)) {
           setSectionsList(sections);
         }
       })
@@ -139,7 +135,7 @@ export default function AddNewFilePage() {
     };
   }, []);
 
-  // â”€â”€ Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Validation ──────────────────────────────────────────────────────────────
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
 
@@ -173,7 +169,7 @@ export default function AddNewFilePage() {
     return Object.keys(errs).length === 0;
   };
 
-  // â”€â”€ Reset helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Reset helpers ────────────────────────────────────────────────────────────
   const resetForm = () => {
     setFileNo('');
     setFileName('');
@@ -199,7 +195,7 @@ export default function AddNewFilePage() {
     }
   };
 
-  // â”€â”€ Handle Submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handle Submit ────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -232,7 +228,7 @@ export default function AddNewFilePage() {
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
-        // â”€â”€ Success â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Success ──────────────────────────────────────────────────────────
         const successMsg = json.data?.message || 'File added successfully and approved.';
         setNotification({
           isOpen: true,
@@ -242,13 +238,13 @@ export default function AddNewFilePage() {
         });
         resetForm();
       } else {
-        // â”€â”€ Server-side failure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Server-side failure ──────────────────────────────────────────────
         // API errors come back flat as { ok:false, code, message } (see lib/apiResponse)
         const serverMsg: string = json?.message || json?.error?.message || '';
         let errorMsg: string;
 
         if (res.status === 409) {
-          errorMsg = serverMsg || 'File name already exists. Please enter a unique file name.';
+          errorMsg = serverMsg || 'File No already exists. Please enter a unique File No.';
         } else if (res.status === 400) {
           if (serverMsg.toLowerCase().includes('end date')) {
             errorMsg = 'End date must be on or after the start date.';
@@ -279,7 +275,7 @@ export default function AddNewFilePage() {
     }
   };
 
-  // â”€â”€ Shared input class builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Shared input class builder ───────────────────────────────────────────────
   const inputClass = (errorKey: string) =>
     `h-10 w-full rounded-xl bg-white dark:bg-navy-900 px-3.5 text-xs font-medium text-slate-900 dark:text-white outline-none border transition-all placeholder:text-slate-400 ${
       errors[errorKey]
@@ -289,7 +285,7 @@ export default function AddNewFilePage() {
 
   return (
     <div className="w-full pb-8 font-dm">
-      {/* â”€â”€ BREADCRUMBS & PAGE HEADER â”€â”€ */}
+      {/* ── BREADCRUMBS & PAGE HEADER ── */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         {/* Left: Breadcrumbs & Title */}
         <div className="flex flex-col gap-2">
@@ -335,11 +331,11 @@ export default function AddNewFilePage() {
         </div>
       </div>
 
-      {/* â”€â”€ FORM CONTAINER â”€â”€ */}
+      {/* ── FORM CONTAINER ── */}
       <form onSubmit={handleSave} className="flex flex-col gap-3.5">
-        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        {/* ─────────────────────────────────────────────────────────────
             CARD 1: SESSION & REGISTRAR IDENTIFICATION
-        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -383,10 +379,10 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        {/* ─────────────────────────────────────────────────────────────
             CARD 2: BASIC INFORMATION
             Fields: File No, File Name, Section, Start Date, End Date
-        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#4318FF] dark:text-brand-300">
@@ -537,10 +533,10 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        {/* ─────────────────────────────────────────────────────────────
             CARD 3: STORAGE LOCATION
             Fields: Locker No, Shelf Name (was Shelf No), Shelf Position
-        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-[#FF5B5B] dark:text-rose-400">
@@ -603,9 +599,9 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        {/* ─────────────────────────────────────────────────────────────
             CARD 4: FILE DETAILS
-        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        ────────────────────────────────────────────────────────────── */}
         <div className="rounded-2xl bg-white dark:bg-navy-800 p-4 sm:p-5 shadow-xs border border-slate-100 dark:border-navy-700">
           <div className="mb-3 flex items-center gap-2.5">
             <div className="flex h-6 w-6 items-center justify-center rounded-md text-purple-600 dark:text-purple-400">
@@ -672,9 +668,9 @@ export default function AddNewFilePage() {
           </div>
         </div>
 
-        {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        {/* ─────────────────────────────────────────────────────────────
             FORM ACTION BUTTONS
-        â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        ────────────────────────────────────────────────────────────── */}
         <div className="mt-1 flex items-center justify-end gap-3">
           {/* Cancel Button */}
           <button
@@ -715,14 +711,14 @@ export default function AddNewFilePage() {
         </div>
       </form>
 
-      {/* â”€â”€ ADD NEW SECTION MODAL (R2) â”€â”€ */}
+      {/* ── ADD NEW SECTION MODAL (R2) ── */}
       <AddSectionModal
         isOpen={isAddSectionOpen}
         onClose={() => setIsAddSectionOpen(false)}
         onCreated={handleSectionCreated}
       />
 
-      {/* â”€â”€ BULK IMPORT MODAL (R1) â”€â”€ */}
+      {/* ── BULK IMPORT MODAL (R1) ── */}
       <BulkImportModal
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
@@ -730,7 +726,7 @@ export default function AddNewFilePage() {
         activeSections={sectionsList}
       />
 
-      {/* â”€â”€ GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL â”€â”€ */}
+      {/* ── GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL ── */}
       <GlassNotification
         isOpen={notification.isOpen}
         type={notification.type}

@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FiCheckCircle,
   FiPhone,
@@ -16,6 +16,7 @@ import {
 import { MdLockReset } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow } from 'types/auth';
 import type { AccountAction } from 'components/admin/useAccountActions';
+import { formatSriLankaDateTime } from 'lib/datetime';
 
 export const PRIMARY_ADMIN_EMAIL = 'officer@spid.gov.lk';
 
@@ -32,14 +33,13 @@ const PAGE_SIZE = 7;
 function formatLastLogin(iso: string | null): string | null {
   if (!iso) return null;
   try {
-    const d = new Date(iso);
-    return `${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    return formatSriLankaDateTime(iso);
   } catch {
     return null;
   }
 }
 
-export default function AccountTable({
+function AccountTable({
   rows,
   listLoading,
   loadingId,
@@ -94,11 +94,20 @@ export default function AccountTable({
   const start = (safePage - 1) * PAGE_SIZE;
   const paged = rows.slice(start, start + PAGE_SIZE);
 
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const allPagedSelected = paged.length > 0 && selectedIds.length === paged.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedIds.length > 0 && !allPagedSelected;
+    }
+  }, [selectedIds, allPagedSelected, paged.length]);
+
   const isLockActive = (acc: AdminUserRow) =>
     !!acc.locked_until && new Date(acc.locked_until).getTime() > Date.now();
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === paged.length) {
+    if (allPagedSelected) {
       setSelectedIds([]);
     } else {
       setSelectedIds(paged.map((r) => r.id));
@@ -112,16 +121,31 @@ export default function AccountTable({
   };
 
   const renderActions = (acc: AdminUserRow) => {
-    const isProtected =
-      (acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator') ||
-      (!!currentUserId && acc.id === currentUserId);
+    const isSelf = !!currentUserId && acc.id === currentUserId;
+    const isProtected = acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
     const busy = loadingId === acc.id;
+
+    // The signed-in administrator must never be able to suspend/delete/edit
+    // their own row from the directory — show an identity label instead.
+    if (isSelf) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 px-3 py-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-300 shadow-sm">
+          <FiUserCheck className="h-3 w-3" /> You
+        </span>
+      );
+    }
 
     return (
       <div className="flex items-center gap-1.5 whitespace-nowrap">
         {busy ? (
-          <span className="flex items-center gap-1.5 text-[11px] text-gray-500 font-semibold">
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-[#4318FF]" />
+          <span
+            role="status"
+            className="flex items-center gap-1.5 text-[11px] text-gray-500 font-semibold"
+          >
+            <span
+              aria-hidden="true"
+              className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-[#4318FF] motion-reduce:animate-none"
+            />
             Updating...
           </span>
         ) : (
@@ -197,10 +221,11 @@ export default function AccountTable({
             {/* 4. EDIT BUTTON (Pencil icon) */}
             <button
               onClick={() => onEdit(acc)}
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 dark:border-navy-500 text-slate-700 dark:text-slate-200 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-[#f4f7fe] dark:hover:bg-navy-800 transition-colors cursor-pointer"
+              aria-label={`Edit ${acc.full_name}`}
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 dark:border-navy-500 text-slate-700 dark:text-slate-200 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-[#f4f7fe] dark:hover:bg-navy-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-1 cursor-pointer"
               title="Edit profile & permissions"
             >
-              <FiEdit2 className="h-3 w-3" />
+              <FiEdit2 aria-hidden="true" className="h-3 w-3" />
             </button>
           </>
         )}
@@ -212,65 +237,134 @@ export default function AccountTable({
     <div className="overflow-hidden rounded-[20px] bg-white shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none border border-slate-100 dark:border-navy-600">
       {/* Card header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-5 py-4 dark:border-navy-600">
-        <h2 className="flex items-center gap-2 text-sm font-bold text-navy-700 dark:text-white">
-          <span className="h-2 w-2 rounded-full bg-[#4318FF]" />
-          {title}
-        </h2>
+        <div className="flex items-center gap-2.5">
+          <h2 className="flex items-center gap-2 text-sm font-bold text-navy-700 dark:text-white">
+            <span className="h-2 w-2 rounded-full bg-[#4318FF]" />
+            {title}
+          </h2>
+          {listLoading && (
+            <span
+              role="status"
+              className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-navy-900/80 border border-indigo-100 dark:border-navy-600 px-2.5 py-0.5 text-[10px] font-bold text-[#4318FF] dark:text-brand-300 animate-pulse motion-reduce:animate-none"
+            >
+              <span
+                aria-hidden="true"
+                className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300 motion-reduce:animate-none"
+              />
+              Loading records...
+            </span>
+          )}
+        </div>
         {caption && <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500">{caption}</p>}
       </div>
 
+      {/* Indeterminate loading progress bar under card header */}
+      {listLoading && (
+        <div
+          role="progressbar"
+          aria-label="Loading directory records"
+          aria-busy="true"
+          className="relative h-1 w-full overflow-hidden bg-slate-100 dark:bg-navy-800"
+        >
+          <span aria-hidden="true" className="loading-bar-indeterminate absolute inset-y-0 left-0 rounded-full bg-[#4318FF] shadow-[0_0_8px_rgba(67,24,255,0.35)] dark:bg-brand-300" />
+        </div>
+      )}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px]">
+        <table
+          className="w-full min-w-[860px]"
+          role="table"
+          aria-label={title}
+          aria-busy={listLoading}
+          aria-rowcount={listLoading ? undefined : rows.length}
+        >
+          <caption className="sr-only">
+            {title}
+            {caption ? ` — ${caption}` : ''}. Showing {rows.length}{' '}
+            {variant === 'admin' ? 'administrators' : 'staff members'}.
+          </caption>
           <thead>
             <tr className="bg-[#f4f7fe] dark:bg-navy-800">
               {variant === 'staff' && (
-                <th className="w-10 px-4 py-3 text-left">
+                <th scope="col" className="w-10 px-4 py-3 text-left">
                   <input
                     type="checkbox"
-                    checked={paged.length > 0 && selectedIds.length === paged.length}
+                    ref={selectAllRef}
+                    checked={allPagedSelected}
                     onChange={toggleSelectAll}
                     className="h-4 w-4 rounded border-gray-300 text-[#4318FF] focus:ring-[#4318FF]"
-                    aria-label="Select all"
+                    aria-label="Select all rows on this page"
                   />
                 </th>
               )}
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 {variant === 'admin' ? 'ADMIN ID' : 'USER ID'}
               </th>
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 {variant === 'admin' ? 'ADMINISTRATOR PROFILE' : 'USER PROFILE & NAME'}
               </th>
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 CONTACT &amp; CREDENTIALS
               </th>
 
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 SECTION NAME
               </th>
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 {variant === 'admin' ? 'LAST LOGIN TIME' : 'LAST LOGIN'}
               </th>
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 {variant === 'admin' ? 'ACCOUNT STATUS' : 'STATUS'}
               </th>
-              <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
                 {variant === 'admin' ? 'OPERATIONAL ACTIONS' : 'ACTIONS'}
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-navy-600">
+          <tbody className="divide-y divide-slate-300 dark:divide-navy-600">
             {listLoading ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-600 font-semibold">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-[#4318FF]" />
-                    Loading directory...
-                  </span>
-                </td>
-              </tr>
+              Array.from({ length: 5 }).map((_, idx) => (
+                <tr key={`acc-skel-${idx}`} className="animate-pulse">
+                  {variant === 'staff' && (
+                    <td className="w-10 px-4 py-4">
+                      <div className="h-4 w-4 rounded bg-slate-200 dark:bg-navy-700" />
+                    </td>
+                  )}
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-16 rounded bg-slate-200 dark:bg-navy-700" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-9 w-9 rounded-full bg-slate-200 dark:bg-navy-700 shrink-0" />
+                      <div className="space-y-1.5">
+                        <div className="h-3.5 w-28 rounded bg-slate-200 dark:bg-navy-700" />
+                        <div className="h-3 w-36 rounded bg-slate-100 dark:bg-navy-800" />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="space-y-1.5">
+                      <div className="h-3.5 w-24 rounded bg-slate-200 dark:bg-navy-700" />
+                      <div className="h-3 w-16 rounded bg-slate-100 dark:bg-navy-800" />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-28 rounded bg-slate-200 dark:bg-navy-700" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-3.5 w-24 rounded bg-slate-200 dark:bg-navy-700" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-5 w-20 rounded-full bg-slate-200 dark:bg-navy-700" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-7 w-28 rounded-lg bg-slate-200 dark:bg-navy-700" />
+                  </td>
+                </tr>
+              ))
             ) : paged.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-600 dark:text-gray-400 font-semibold">
+                <td colSpan={variant === "staff" ? 8 : 7} className="px-4 py-12 text-center text-sm text-slate-600 dark:text-gray-400 font-semibold">
                   {emptyMessage}
                 </td>
               </tr>
@@ -285,6 +379,7 @@ export default function AccountTable({
                 return (
                   <tr
                     key={acc.id}
+                    aria-rowindex={start + i + 1}
                     className={`transition-colors hover:bg-[#f8faff] dark:hover:bg-navy-800/50 ${
                       loadingId === acc.id ? 'opacity-50' : ''
                     } ${isSelected ? 'bg-indigo-50/40 dark:bg-navy-800/80' : ''}`}
@@ -313,7 +408,11 @@ export default function AccountTable({
                             {avatarSrc ? (
                               <img
                                 src={avatarSrc}
-                                alt={acc.full_name}
+                                alt=""
+                                width={36}
+                                height={36}
+                                loading="lazy"
+                                decoding="async"
                                 className="h-9 w-9 shrink-0 rounded-full object-cover border border-slate-200 dark:border-navy-600 shadow-sm"
                               />
                             ) : (
@@ -371,7 +470,7 @@ export default function AccountTable({
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${statusCfg.cls}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
+                        <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
                         {statusCfg.label}
                       </span>
                     </td>
@@ -391,43 +490,49 @@ export default function AccountTable({
           {rows.length} {variant === 'admin' ? 'administrators' : 'staff members'}
         </p>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={safePage <= 1}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 cursor-pointer"
-            aria-label="Previous page"
-          >
-            <FiChevronLeft className="h-4 w-4" />
-          </button>
-          {Array.from({ length: totalPages }, (_, idx) => idx + 1)
-            .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-            .map((p, idx, arr) => (
-              <React.Fragment key={p}>
-                {idx > 0 && arr[idx - 1] !== p - 1 && (
-                  <span className="px-1 text-[11px] text-gray-300">…</span>
-                )}
-                <button
-                  onClick={() => setPage(p)}
-                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                    p === safePage
-                      ? 'bg-[#4318FF] text-white shadow'
-                      : 'text-gray-500 hover:bg-[#f4f7fe] dark:text-gray-400 dark:hover:bg-navy-800'
-                  }`}
-                >
-                  {p}
-                </button>
-              </React.Fragment>
-            ))}
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safePage >= totalPages}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 cursor-pointer"
-            aria-label="Next page"
-          >
-            <FiChevronRight className="h-4 w-4" />
-          </button>
+          <nav aria-label="Directory pagination" className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer"
+              aria-label="Previous page"
+            >
+              <FiChevronLeft aria-hidden="true" className="h-4 w-4" />
+            </button>
+            {Array.from({ length: totalPages }, (_, idx) => idx + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+              .map((p, idx, arr) => (
+                <React.Fragment key={p}>
+                  {idx > 0 && arr[idx - 1] !== p - 1 && (
+                    <span aria-hidden="true" className="px-1 text-[11px] text-gray-300">…</span>
+                  )}
+                  <button
+                    onClick={() => setPage(p)}
+                    aria-label={`Go to page ${p}`}
+                    aria-current={p === safePage ? 'page' : undefined}
+                    className={`flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer ${
+                      p === safePage
+                        ? 'bg-[#4318FF] text-white shadow'
+                        : 'text-gray-500 hover:bg-[#f4f7fe] dark:text-gray-400 dark:hover:bg-navy-800'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                </React.Fragment>
+              ))}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer"
+              aria-label="Next page"
+            >
+              <FiChevronRight aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </nav>
         </div>
       </div>
     </div>
   );
 }
+
+export default React.memo(AccountTable);

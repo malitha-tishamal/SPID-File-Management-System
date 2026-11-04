@@ -20,6 +20,8 @@ import {
 } from 'react-icons/fi';
 import type { ProfileDTO } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
+import { formatSriLankaDate } from 'lib/datetime';
+import Button from 'components/ui/Button';
 
 type ActiveTab = 'profile' | 'security';
 
@@ -364,9 +366,7 @@ export default function StaffProfilePage() {
   const formattedUpdateDate = useMemo(() => {
     const raw = profile?.updated_at || profile?.approved_at || profile?.created_at;
     if (!raw) return '—';
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatSriLankaDate(raw);
   }, [profile?.updated_at, profile?.approved_at, profile?.created_at]);
 
   return (
@@ -501,7 +501,7 @@ export default function StaffProfilePage() {
                         setPendingAvatarFile(null);
                         setPendingAvatarBase64(null);
                       }}
-                      className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -721,7 +721,7 @@ export default function StaffProfilePage() {
           TAB 2: SECURITY & PASSWORD
          ══════════════════════════════ */}
       {activeTab === 'security' && (
-        <div className="flex flex-col gap-5 max-w-4xl">
+        <div className="flex w-full flex-col gap-5">
           <div className="rounded-[24px] bg-white dark:bg-navy-700 p-6 sm:p-8 shadow-md shadow-shadow-500 dark:shadow-none border border-slate-100 dark:border-navy-600">
             {/* Header */}
             <div className="flex items-start justify-between pb-4 border-b border-gray-100 dark:border-navy-600">
@@ -1053,20 +1053,24 @@ export default function StaffProfilePage() {
               Your profile picture will be removed and your avatar will revert to your name initials.
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
-              <button
+              <Button
                 type="button"
+                variant="cancel"
+                size="sm"
                 onClick={() => setShowAvatarRemoveModal(false)}
-                className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                className="flex-1"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="danger"
+                size="sm"
                 onClick={handleRemoveAvatar}
-                className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-2.5 text-xs font-bold text-white shadow-md shadow-red-600/20 transition-all cursor-pointer"
+                className="flex-1"
               >
                 Remove Photo
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -52,6 +52,9 @@ vi.mock('config/supabase/server', () => ({
       signInWithPassword: mockSignInWithPassword,
       signOut: mockSignOut,
       signUp: mockSignUp,
+      // Login first checks for an existing session to enforce one active
+      // session per browser; the default mock has none.
+      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
     },
   }),
 }));

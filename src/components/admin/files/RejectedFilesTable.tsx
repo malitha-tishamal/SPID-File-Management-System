@@ -1,14 +1,14 @@
 'use client';
 
-import React from 'react';
-import {
-  FiEye,
-  FiArchive,
-  FiXCircle,
-  FiChevronLeft,
-  FiChevronRight,
-} from 'react-icons/fi';
+import React, { memo } from 'react';
+import { FiEye, FiXCircle, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
+import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_ROW_CLASS } from 'lib/tableStyles';
 import type { FileRecordRow } from 'models/FileRepository';
+import { formatSriLankaDateTimeCompact } from 'lib/datetime';
+import FilesTableSkeleton from './FilesTableSkeleton';
+import FilesPagination from './FilesPagination';
+import LocationDetailsButton from './LocationDetailsButton';
+import TableLoadingSpinner from './TableLoadingSpinner';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'ST';
@@ -38,7 +38,7 @@ function getSectionBadge(section?: string | null) {
 }
 
 function formatDate(iso?: string | null): string {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
   try {
     return new Date(iso).toISOString().split('T')[0];
   } catch {
@@ -49,6 +49,8 @@ function formatDate(iso?: string | null): string {
 export default function RejectedFilesTable({
   files,
   loading = false,
+  refreshing = false,
+  error = null,
   total = 0,
   page = 1,
   limit = 15,
@@ -56,9 +58,12 @@ export default function RejectedFilesTable({
   isFiltered = false,
   onPageChange,
   onView,
+  onRetry,
 }: {
   files: FileRecordRow[];
   loading?: boolean;
+  refreshing?: boolean;
+  error?: string | null;
   total?: number;
   page?: number;
   limit?: number;
@@ -66,17 +71,33 @@ export default function RejectedFilesTable({
   isFiltered?: boolean;
   onPageChange?: (newPage: number) => void;
   onView: (file: FileRecordRow) => void;
+  onRetry?: () => void;
 }) {
-  if (loading) {
+  if (error && files.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700">
-        <span className="h-8 w-8 animate-spin rounded-full border-3 border-rose-500 border-t-transparent" />
-        <p className="mt-3 text-xs font-semibold text-slate-400">Loading rejected submissionsâ€¦</p>
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-rose-100 bg-white px-4 py-16 text-center dark:border-rose-900/40 dark:bg-navy-800">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-500 dark:bg-rose-950/40 dark:text-rose-300">
+          <FiAlertCircle className="h-7 w-7" />
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-slate-800 dark:text-white">Failed to Load Rejected Files</h4>
+          <p className="mt-1 max-w-sm text-xs text-slate-400">{error}</p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#3311CC] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/50 cursor-pointer"
+          >
+            <FiRefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        )}
       </div>
     );
   }
 
-  if (files.length === 0) {
+  if (!loading && !refreshing && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-navy-800 rounded-2xl border border-slate-100 dark:border-navy-700 text-center px-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-500 dark:bg-rose-950/40 dark:text-rose-300 mb-3">
@@ -91,24 +112,47 @@ export default function RejectedFilesTable({
   }
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700">
+    <div
+      className="relative w-full overflow-hidden rounded-2xl bg-white shadow-xs border border-slate-100 dark:bg-navy-800 dark:border-navy-700"
+      aria-busy={loading || undefined}
+    >
+      {refreshing && (
+        <div className="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-navy-900/35 backdrop-blur-[1px]" />
+      )}
       <div className="w-full overflow-x-auto">
-        <table className="w-full text-left border-collapse table-auto min-w-[980px] xl:min-w-0">
+        <table aria-label="Rejected files list" className="w-full min-w-[860px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+          <colgroup>
+            <col className="w-[3%]" />
+            <col className="w-[9%]" />
+            <col className="w-[20%]" />
+            <col className="w-[11%]" />
+            <col className="w-[13%]" />
+            <col className="w-[10%]" />
+            <col className="w-[10%]" />
+            <col className="w-[15%]" />
+            <col className="w-[9%]" />
+          </colgroup>
           <thead>
-            <tr className="border-b border-slate-100 dark:border-navy-700 bg-slate-50/60 dark:bg-navy-900/40 text-[10px] font-black uppercase tracking-wider text-slate-400">
-              <th className="py-2.5 px-2 w-9 text-center">NO</th>
-              <th className="py-2.5 px-2 w-[108px]">FILE NUMBER</th>
-              <th className="py-2.5 px-2 min-w-[155px]">FILE NAME</th>
-              <th className="py-2.5 px-2 w-[130px]">SECTION / DEPT</th>
-              <th className="py-2.5 px-2 w-[120px]">STAFF NAME</th>
-              <th className="py-2.5 px-2 w-[90px]">SUBMISSION DATE</th>
-              <th className="py-2.5 px-2 w-[90px]">REJECTION DATE</th>
-              <th className="py-2.5 px-2 w-[115px]">REJECTED BY</th>
-              <th className="py-2.5 px-2 text-center w-[70px]">ACTION</th>
+            <tr className={TABLE_HEAD_ROW_CLASS}>
+              <th scope="col" className="py-2.5 px-1.5 text-center">NO</th>
+              <th scope="col" className="py-2.5 px-1.5">FILE NUMBER</th>
+              <th scope="col" className="py-2.5 px-1.5">FILE NAME</th>
+              <th scope="col" className="py-2.5 px-1.5">SECTION / DEPT</th>
+              <th scope="col" className="py-2.5 px-1.5">STAFF NAME</th>
+              <th scope="col" className="py-2.5 px-1.5">SUBMISSION DATE</th>
+              <th scope="col" className="py-2.5 px-1.5">REJECTION DATE</th>
+              <th scope="col" className="py-2.5 px-1.5">REJECTED BY</th>
+              <th scope="col" className="py-2.5 px-1.5 text-center">ACTION</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-navy-700 text-xs">
-            {files.map((file, idx) => {
+          <tbody className={TABLE_BODY_CLASS}>
+            {loading ? (
+              <tr>
+                <td colSpan={9} className="p-0">
+                  <TableLoadingSpinner label="Loading rejected files..." />
+                </td>
+              </tr>
+            ) : files.map((file, idx) => {
               const rowNo = String((page - 1) * limit + idx + 1).padStart(2, '0');
               const rejectedByName =
                 file.rejected_by_name ||
@@ -118,38 +162,40 @@ export default function RejectedFilesTable({
               return (
                 <tr
                   key={file.id ?? idx}
-                  className="hover:bg-slate-50/80 dark:hover:bg-navy-700/50 transition-colors"
+                  className={TABLE_ROW_CLASS}
                 >
                   {/* NO */}
-                  <td className="py-2.5 px-2 text-center font-bold text-slate-400 text-xs">
+                  <td className="py-2.5 px-1.5 align-top text-center font-bold text-slate-400 text-xs">
                     {rowNo}
                   </td>
 
                   {/* FILE NUMBER */}
-                  <td className="py-2.5 px-2 whitespace-nowrap">
+                  <td className="py-2.5 px-1.5 align-top break-words">
                     <span className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight">
                       {file.file_no}
                     </span>
                   </td>
 
                   {/* FILE NAME */}
-                  <td className="py-2.5 px-2">
+                  <td className="py-2.5 px-1.5 align-top break-words">
                     <div
-                      className="font-bold text-slate-800 dark:text-white leading-snug line-clamp-2 text-xs"
+                      className="break-words font-bold text-slate-800 dark:text-white leading-snug text-xs"
                       title={file.file_name}
                     >
                       {file.file_name}
                     </div>
-                    <div className="text-[10px] font-medium text-slate-400 flex items-center gap-1 mt-0.5">
-                      <FiArchive className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{file.archive_repository || 'Central Record Room'}</span>
+                    <div className="mt-0.5">
+                      <LocationDetailsButton
+                        file={file}
+                        className="inline-flex max-w-full items-center gap-1 text-[10px] font-medium text-slate-400"
+                      />
                     </div>
                   </td>
 
                   {/* SECTION / DEPT */}
-                  <td className="py-2.5 px-2">
+                  <td className="py-2.5 px-1.5 align-top break-words">
                     <span
-                      className={`inline-flex items-start rounded-2xl px-2 py-1 text-[10px] font-bold border leading-snug ${getSectionBadge(
+                      className={`inline-flex items-start rounded-2xl px-2 py-1 text-[10px] font-bold border leading-snug break-words ${getSectionBadge(
                         file.section_name
                       )}`}
                     >
@@ -158,56 +204,59 @@ export default function RejectedFilesTable({
                   </td>
 
                   {/* STAFF NAME */}
-                  <td className="py-2.5 px-2">
+                  <td className="py-2.5 px-1.5 align-top break-words">
                     <div
-                      className="flex items-center gap-1.5"
+                      className="flex items-start gap-1.5"
                       title={file.registrar_name || 'Staff Member'}
                     >
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 dark:bg-navy-700 dark:text-slate-200 text-[9px] font-bold">
                         {getInitials(file.registrar_name)}
                       </div>
-                      <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate max-w-[85px]">
+                      <span className="min-w-0 break-words font-bold text-slate-800 dark:text-white text-[11px] leading-tight">
                         {file.registrar_name || 'Staff Member'}
                       </span>
                     </div>
                   </td>
 
                   {/* SUBMISSION DATE */}
-                  <td className="py-2.5 px-2 whitespace-nowrap">
-                    <div className="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                  <td className="py-2.5 px-1.5 align-top">
+                    <div className="whitespace-nowrap font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
                       {formatDate(file.created_at)}
                     </div>
                   </td>
 
                   {/* REJECTION DATE */}
-                  <td className="py-2.5 px-2 whitespace-nowrap">
-                    <div className="font-semibold text-rose-600 dark:text-rose-400 text-[11px]">
+                  <td className="py-2.5 px-1.5 align-top">
+                    <div className="whitespace-nowrap font-semibold text-rose-600 dark:text-rose-400 text-[11px]">
                       {formatDate(file.rejected_at || file.approved_at)}
                     </div>
                   </td>
 
                   {/* REJECTED BY */}
-                  <td className="py-2.5 px-2">
-                    <div className="flex items-center gap-1.5">
+                  <td className="py-2.5 px-1.5 align-top break-words">
+                    <div className="flex items-start gap-1.5">
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300 text-[9px] font-bold">
                         {getInitials(rejectedByName)}
                       </div>
-                      <span className="font-bold text-slate-800 dark:text-white text-[11px] truncate max-w-[120px]" title={`${rejectedByName} (Admin)`}>
+                      <span className="min-w-0 break-words font-bold text-slate-800 dark:text-white text-[11px] leading-tight" title={`${rejectedByName} (Admin)`}>
                         {rejectedByName} (Admin)
                       </span>
                     </div>
                   </td>
 
                   {/* ACTION */}
-                  <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onView(file)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
-                      title="View rejection details"
-                    >
-                      <FiEye className="h-4 w-4" />
-                    </button>
+                  <td className="py-2.5 px-1.5 align-top text-center">
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onView(file)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title="View rejection details"
+                        aria-label="View rejection details"
+                      >
+                        <FiEye className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -216,68 +265,15 @@ export default function RejectedFilesTable({
         </table>
       </div>
 
-      {/* Pagination Footer â€” hidden when a search/filter is active */}
-      {!isFiltered && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 dark:border-navy-700 px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
-          <div>
-            {total === 0
-              ? 'No rejected submissions'
-              : `Showing ${(page - 1) * limit + 1}â€“${Math.min(page * limit, total)} of ${total} rejected submission${total !== 1 ? 's' : ''}`}
-          </div>
-
-          {totalPages >= 1 && onPageChange && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => onPageChange(page - 1)}
-                disabled={page <= 1}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                <FiChevronLeft className="h-3.5 w-3.5" />
-              </button>
-
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                if (
-                  totalPages > 7 &&
-                  p !== 1 &&
-                  p !== totalPages &&
-                  Math.abs(p - page) > 1
-                ) {
-                  if (p === 2 || p === totalPages - 1) {
-                    return (
-                      <span key={p} className="px-1 text-slate-400 text-xs">
-                        ...
-                      </span>
-                    );
-                  }
-                  return null;
-                }
-
-                return (
-                  <button
-                    key={p}
-                    onClick={() => onPageChange(p)}
-                    className={`flex h-7 w-7 items-center justify-center rounded-lg font-bold text-xs transition-colors cursor-pointer ${
-                      page === p
-                        ? 'bg-[#4318FF] text-white shadow-xs'
-                        : 'border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-
-              <button
-                onClick={() => onPageChange(page + 1)}
-                disabled={page >= totalPages}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                <FiChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <FilesPagination
+        total={total}
+        page={page}
+        limit={limit}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        itemLabel="rejection"
+        isFiltered={isFiltered}
+      />
     </div>
   );
 }

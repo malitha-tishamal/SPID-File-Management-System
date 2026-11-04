@@ -3,6 +3,7 @@ import { PropsWithChildren } from 'react';
 import React from 'react';
 import { isWindowAvailable } from 'utils/navigation';
 import FixedPlugin from 'components/fixedPlugin/FixedPlugin';
+import RecoveryLinkBridge from 'components/auth/RecoveryLinkBridge';
 
 export default function AuthLayout({ children }: PropsWithChildren) {
   if (isWindowAvailable()) document.documentElement.dir = 'ltr';
@@ -16,6 +17,9 @@ export default function AuthLayout({ children }: PropsWithChildren) {
 
       {/* Floating Theme Switcher */}
       <FixedPlugin />
+
+      {/* Routes recovery tokens that landed on another auth page to /auth/reset-password */}
+      <RecoveryLinkBridge />
 
       {/* Centered Page Content */}
       <main className="relative z-10 w-full flex-grow flex flex-col items-center justify-center">

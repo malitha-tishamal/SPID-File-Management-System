@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- SPID File Management System — 0008: File schema update
 -- Changes:
---   1. Add UNIQUE constraint on files.file_name (business key)
+--   1. Add composite UNIQUE constraint on files.file_no and files.file_name
 --   2. Rename shelf_no → shelf_name
 --   3. Drop year column; add start_date and end_date
 --   4. Extend status enum to include APPROVED / PENDING / REJECTED states
@@ -9,16 +9,15 @@
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
--- 1. Add UNIQUE constraint on file_name
---    (The column already has NOT NULL from the original DDL.)
+-- 1. Add composite UNIQUE constraint on file_no and file_name
 -- ---------------------------------------------------------------------------
 do $$ begin
   if not exists (
     select 1 from pg_constraint
-    where conname = 'uq_files_file_name' and conrelid = 'public.files'::regclass
+    where conname = 'uq_files_file_identity' and conrelid = 'public.files'::regclass
   ) then
     alter table public.files
-      add constraint uq_files_file_name unique (file_name);
+      add constraint uq_files_file_identity unique (file_no, file_name);
   end if;
 end $$;
 

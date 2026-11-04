@@ -10,17 +10,59 @@ export interface SectionRow {
   created_at?: string;
 }
 
+function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === '42703' || /column .+ does not exist/i.test(error.message ?? ''));
+}
+
+/** Only Active sections may be picked for a new file or a changed section. */
+export function isActiveSection(section: Pick<SectionRow, 'status'> | null | undefined): boolean {
+  if (!section) return false;
+  return (section.status ?? 'approved') === 'approved';
+}
+
+const SECTION_LIST_COLUMNS = 'id, name, status';
+
 /** Model layer: sections reference data and management. */
 export class SectionRepository {
   constructor(private client: SupabaseClient) {}
 
-  /** Returns all sections (id + name only) — used for dropdowns. */
+  /** Returns all sections (id, name, status) — used for filters and dropdowns. */
   async list(): Promise<SectionRow[]> {
     const { data, error } = await this.client
       .from('sections')
-      .select('id, name')
+      .select(SECTION_LIST_COLUMNS)
       .order('name', { ascending: true });
-    if (error) return [];
+    if (error) {
+      if (!isMissingColumnError(error)) return [];
+      const fallback = await this.client
+        .from('sections')
+        .select('id, name')
+        .order('name', { ascending: true });
+      if (fallback.error) return [];
+      return ((fallback.data as SectionRow[]) ?? []).map(s => ({
+        ...s,
+        status: 'approved' as SectionStatus,
+      }));
+    }
+    return (data as SectionRow[]) ?? [];
+  }
+
+  /**
+   * Returns only Active sections. Used wherever a section is chosen for a new
+   * file or a changed file assignment, so disabled sections can never be
+   * submitted from the UI.
+   */
+  async listActive(): Promise<SectionRow[]> {
+    const { data, error } = await this.client
+      .from('sections')
+      .select(SECTION_LIST_COLUMNS)
+      .eq('status', 'approved')
+      .order('name', { ascending: true });
+    if (error) {
+      if (!isMissingColumnError(error)) throw error;
+      // Legacy schema has no status column — every section is implicitly active.
+      return this.list();
+    }
     return (data as SectionRow[]) ?? [];
   }
 
@@ -31,7 +73,8 @@ export class SectionRepository {
       .select('id, name, status, section_lead, created_at')
       .order('id', { ascending: true });
     if (error) {
-      // If status/section_lead columns don't exist yet, fall back to basic list
+      if (!isMissingColumnError(error)) throw error;
+      // Older schema without status/section_lead columns
       const fallback = await this.list();
       return fallback.map(s => ({ ...s, status: 'approved' as SectionStatus, section_lead: null }));
     }
@@ -45,12 +88,13 @@ export class SectionRepository {
       .ilike('name', name.trim())
       .maybeSingle();
     if (error) {
-      // Fallback if columns don't exist
+      if (!isMissingColumnError(error)) throw error;
       const fallback = await this.client
         .from('sections')
         .select('id, name')
         .ilike('name', name.trim())
         .maybeSingle();
+      if (fallback.error) throw fallback.error;
       if (fallback.data) {
         return { ...fallback.data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
       }
@@ -66,12 +110,13 @@ export class SectionRepository {
       .eq('id', id)
       .maybeSingle();
     if (error) {
-      // Fallback if columns don't exist
+      if (!isMissingColumnError(error)) throw error;
       const fallback = await this.client
         .from('sections')
         .select('id, name')
         .eq('id', id)
         .maybeSingle();
+      if (fallback.error) throw fallback.error;
       if (fallback.data) {
         return { ...fallback.data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
       }
@@ -98,18 +143,15 @@ export class SectionRepository {
       if (error) throw error;
       return data as SectionRow;
     } catch (err: any) {
-      // If columns don't exist, fallback to basic insert
-      if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('does not exist')) {
-        const basicInsert: Record<string, unknown> = { name: name.trim() };
-        const { data, error } = await this.client
-          .from('sections')
-          .insert(basicInsert)
-          .select('id, name, created_at')
-          .single();
-        if (error) throw error;
-        return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
-      }
-      throw err;
+      if (!isMissingColumnError(err)) throw err;
+      const basicInsert: Record<string, unknown> = { name: name.trim() };
+      const { data, error } = await this.client
+        .from('sections')
+        .insert(basicInsert)
+        .select('id, name, created_at')
+        .single();
+      if (error) throw error;
+      return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
     }
   }
 
@@ -132,21 +174,18 @@ export class SectionRepository {
       if (error) throw error;
       return data as SectionRow;
     } catch (err: any) {
-      // If columns don't exist, fallback to name-only update
-      if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('does not exist')) {
-        const basicUpdate: Record<string, unknown> = {};
-        if (patch.name !== undefined) basicUpdate.name = patch.name;
+      if (!isMissingColumnError(err)) throw err;
+      const basicUpdate: Record<string, unknown> = {};
+      if (patch.name !== undefined) basicUpdate.name = patch.name;
 
-        const { data, error } = await this.client
-          .from('sections')
-          .update(basicUpdate)
-          .eq('id', id)
-          .select('id, name, created_at')
-          .single();
-        if (error) throw error;
-        return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
-      }
-      throw err;
+      const { data, error } = await this.client
+        .from('sections')
+        .update(basicUpdate)
+        .eq('id', id)
+        .select('id, name, created_at')
+        .single();
+      if (error) throw error;
+      return { ...data, status: 'approved' as SectionStatus, section_lead: null } as SectionRow;
     }
   }
 

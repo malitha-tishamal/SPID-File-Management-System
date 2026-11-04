@@ -11,6 +11,8 @@
  *   formula characters are passed through unchanged).
  */
 
+import { formatSriLankaDateTimeCompact } from 'lib/datetime';
+
 /** Characters that trigger spreadsheet formula execution if in cell position 1 */
 const CSV_INJECTION_PREFIXES = ['=', '+', '-', '@', '\t', '\r'];
 
@@ -104,14 +106,7 @@ export function exportToCsv(headers: string[], rows: unknown[][], filename: stri
 export function formatDateTimeForCsv(iso?: string | null): string {
   if (!iso) return '';
   try {
-    const d = new Date(iso);
-    const date = d.toISOString().split('T')[0];
-    const time = d.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    return `${date} ${time}`;
+    return formatSriLankaDateTimeCompact(iso);
   } catch {
     return iso;
   }

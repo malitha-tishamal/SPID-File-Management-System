@@ -217,6 +217,26 @@ describe('FileRepository Pagination & Filtering Logic', () => {
     expect(result.files.every((f) => f.section_name.includes('Legal'))).toBe(true);
   });
 
+  it('filters by an inclusive created date range', async () => {
+    const mockClient = createMockClient(sampleRecords);
+    const repo = new FileRepository(mockClient);
+
+    const result = await repo.listFiltered({
+      tab: 'all',
+      dateFrom: '2026-10-10',
+      dateTo: '2026-10-12',
+      limit: 10000,
+    });
+
+    expect(result.files.length).toBeGreaterThan(0);
+    expect(
+      result.files.every((file) => {
+        const createdDate = file.created_at?.slice(0, 10);
+        return createdDate && createdDate >= '2026-10-10' && createdDate <= '2026-10-12';
+      }),
+    ).toBe(true);
+  });
+
   it('filters by storage unit accurately', async () => {
     const mockClient = createMockClient(sampleRecords);
     const repo = new FileRepository(mockClient);
@@ -380,4 +400,3 @@ describe('FileRepository Pagination & Filtering Logic', () => {
     expect(text).toContain('Pending Review');
   });
 });
-

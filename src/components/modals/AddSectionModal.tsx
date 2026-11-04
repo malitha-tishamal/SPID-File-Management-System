@@ -1,14 +1,28 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FiX, FiAlertCircle } from 'react-icons/fi';
 import { capitalizeFirstLetter, type SectionOption } from 'utils/fileImport';
+import { fetchClientSections } from 'lib/sectionsClient';
+import type { SectionNameLike } from 'lib/sectionName';
+import {
+  normalizeSectionName,
+  SECTION_NAME_MAX_LENGTH,
+  SECTION_NAME_MIN_LENGTH,
+} from 'lib/sectionName';
+import { useSectionNameCheck } from 'lib/useSectionNameCheck';
+import Modal from 'components/ui/Modal';
+import Button from 'components/ui/Button';
+import SpellCheckedNameInput from 'components/ui/SpellCheckedNameInput';
 
 interface AddSectionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated: (section: SectionOption) => void;
 }
+
+const FIELD_SHELL =
+  'w-full rounded-xl bg-[#F4F7FE] dark:bg-navy-900 text-xs font-medium border border-transparent focus-within:border-[#4318FF]';
 
 export default function AddSectionModal({
   isOpen,
@@ -19,6 +33,7 @@ export default function AddSectionModal({
   const [sectionLead, setSectionLead] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [allSections, setAllSections] = useState<SectionNameLike[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -26,20 +41,23 @@ export default function AddSectionModal({
       setSectionLead('');
       setError(null);
       setSaving(false);
+
+      // Duplicate checks must cover disabled sections too, so fetch the full
+      // list instead of relying on the active-only dropdown data.
+      fetchClientSections()
+        .then((sections) => {
+          if (Array.isArray(sections)) setAllSections(sections as SectionNameLike[]);
+        })
+        .catch(() => {});
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !saving && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [saving, isOpen, onClose]);
-
-  if (!isOpen) return null;
+  const duplicateCheck = useSectionNameCheck({
+    name,
+    sections: allSections,
+    enabled: isOpen,
+  });
+  const duplicateMessage = duplicateCheck.message;
 
   /**
    * Handle section name change with automatic first-letter capitalization (Requirement 5).
@@ -59,18 +77,26 @@ export default function AddSectionModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
 
-    // Final normalization: trim and ensure first letter is capitalized
-    const normalizedName = capitalizeFirstLetter(name);
-    const normalizedLead = sectionLead ? capitalizeFirstLetter(sectionLead) : undefined;
+    // Final normalization: trim, collapse whitespace, capitalize words.
+    const normalizedName = normalizeSectionName(name);
+    const normalizedLead = sectionLead
+      ? capitalizeFirstLetter(sectionLead.trim())
+      : undefined;
 
-    if (!normalizedName || normalizedName.length < 3) {
-      setError('Section name must be at least 3 characters.');
+    if (!normalizedName || normalizedName.length < SECTION_NAME_MIN_LENGTH) {
+      setError(`Section name must be at least ${SECTION_NAME_MIN_LENGTH} characters.`);
       return;
     }
 
-    if (normalizedName.length > 120) {
-      setError('Section name must be 120 characters or fewer.');
+    if (normalizedName.length > SECTION_NAME_MAX_LENGTH) {
+      setError(`Section name must be ${SECTION_NAME_MAX_LENGTH} characters or fewer.`);
+      return;
+    }
+
+    if (duplicateMessage) {
+      setError(duplicateMessage);
       return;
     }
 
@@ -92,19 +118,18 @@ export default function AddSectionModal({
       if (res.ok && json?.ok) {
         const createdSection: SectionOption = {
           id: json.data?.section?.id,
-          name: normalizedName,
+          name: normalizeSectionName(json.data?.section?.name ?? normalizedName),
+          status: json.data?.section?.status,
         };
         onCreated(createdSection);
         onClose();
       } else {
-        if (res.status === 409) {
-          setError(`A section named "${normalizedName}" already exists.`);
-        } else {
-          setError(
-            json?.error?.message ||
-              'Failed to create section. Please check requirements and try again.',
-          );
-        }
+        setError(
+          json?.message ||
+            (res.status === 409
+              ? `Section '${normalizedName}' already exists.`
+              : 'Failed to create section. Please check requirements and try again.'),
+        );
       }
     } catch {
       setError('Network connection failed. Please try again.');
@@ -114,17 +139,19 @@ export default function AddSectionModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm animate-in fade-in duration-150"
-      onClick={() => !saving && onClose()}
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      busy={saving}
+      labelledBy="add-section-title"
+      panelClassName="w-full max-w-md rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl dark:border-navy-700 dark:bg-navy-800"
     >
-      <div
-        className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-800 border border-slate-100 dark:border-navy-700"
-        onClick={(e) => e.stopPropagation()}
-      >
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-navy-800 dark:text-white">
+          <h3
+            id="add-section-title"
+            className="text-lg font-bold text-navy-800 dark:text-white"
+          >
             Add New Section
           </h3>
           <button
@@ -142,7 +169,10 @@ export default function AddSectionModal({
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Error Notice */}
           {error && (
-            <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 border border-red-200 dark:bg-red-900/20 dark:border-red-800/40 dark:text-red-300">
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 border border-red-200 dark:bg-red-900/20 dark:border-red-800/40 dark:text-red-300"
+            >
               <FiAlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -150,81 +180,83 @@ export default function AddSectionModal({
 
           {/* Section Name */}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <label
+              htmlFor="add-section-name"
+              className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
+            >
               Section Name <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
+            <SpellCheckedNameInput
+              id="add-section-name"
               value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
+              onChange={handleNameChange}
+              sections={allSections}
+              extraDictionaryText={sectionLead}
               placeholder="e.g. Engineering Central Registry"
-              className="w-full rounded-xl bg-[#F4F7FE] dark:bg-navy-900 py-2.5 px-3.5 text-xs font-medium text-slate-800 dark:text-white border border-transparent focus:border-[#4318FF] focus:outline-none transition-colors placeholder:text-slate-400"
               disabled={saving}
               autoFocus
+              maxLength={SECTION_NAME_MAX_LENGTH}
+              invalid={Boolean(duplicateMessage || error)}
+              ariaDescribedBy="add-section-name-hint"
+              fieldClassName={FIELD_SHELL}
             />
+            <p
+              id="add-section-name-hint"
+              className={`mt-1.5 text-[11px] font-medium ${
+                duplicateMessage
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+              aria-live="polite"
+            >
+              {duplicateMessage ?? 'At least 3 characters. Spelling suggestions never block creation.'}
+            </p>
           </div>
 
           {/* Section Lead */}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <label
+              htmlFor="add-section-lead"
+              className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
+            >
               Section Lead (Optional)
             </label>
             <input
+              id="add-section-lead"
               type="text"
               value={sectionLead}
               onChange={(e) => setSectionLead(e.target.value)}
               placeholder="e.g. Dr. J. Philips"
+              spellCheck={false}
+              autoCorrect="off"
               className="w-full rounded-xl bg-[#F4F7FE] dark:bg-navy-900 py-2.5 px-3.5 text-xs font-medium text-slate-800 dark:text-white border border-transparent focus:border-[#4318FF] focus:outline-none transition-colors placeholder:text-slate-400"
               disabled={saving}
             />
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-2">
-            <button
+          <div className="flex flex-col-reverse items-stretch gap-3 pt-2 sm:flex-row sm:items-center">
+            <Button
               type="button"
+              variant="cancel"
               onClick={onClose}
               disabled={saving}
-              className="flex-1 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 cursor-pointer"
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={saving || !name.trim()}
-              className="flex-1 rounded-xl bg-[#4318FF] py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/20 transition-colors hover:bg-[#3311CC] disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+              variant="primary"
+              loading={saving}
+              loadingText="Creating..."
+              disabled={!name.trim() || Boolean(duplicateMessage)}
+              className="flex-1"
             >
-              {saving ? (
-                <>
-                  <svg
-                    className="h-3.5 w-3.5 animate-spin text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
-                  <span>Creating...</span>
-                </>
-              ) : (
-                'Create Section'
-              )}
-            </button>
+              Create Section
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,7 +1,25 @@
+// In-memory 15s session profile cache to avoid redundant DB round-trips for admin checks
+const sessionProfileCache = new Map<string, { profile: ProfileDTO; expiresAt: number }>();
+
+export function invalidateSessionProfileCache(userId?: string) {
+  if (userId) {
+    sessionProfileCache.delete(userId);
+  } else {
+    sessionProfileCache.clear();
+  }
+}
+
 import type { ProfileDTO } from 'types/auth';
 import { ApiError } from 'lib/apiResponse';
 import { getSupabaseAdminClient, getSupabaseServerClient } from 'config/supabase/server';
 import { ProfileRepository } from 'models/ProfileRepository';
+import { cookies } from 'next/headers';
+import {
+  SESSION_META_COOKIE,
+  isSessionExpired,
+  parseSessionMeta,
+  type SessionMeta,
+} from 'lib/sessionPolicy';
 
 const STATUS_DENIALS: Record<
   string,
@@ -32,12 +50,51 @@ const STATUS_DENIALS: Record<
 export class AuthorizationService {
   /** Returns the signed-in user's profile, or null when unauthenticated. */
   static async getSessionProfile(): Promise<ProfileDTO | null> {
-    const supabase = await getSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return null;
-    return new ProfileRepository(supabase).findById(user.id);
+    let meta: SessionMeta | null = null;
+    try {
+      const cookieStore = await cookies();
+      meta = parseSessionMeta(cookieStore.get(SESSION_META_COOKIE)?.value);
+    } catch {}
+
+    // No activity anchor, or an anchor older than 2 hours, means the session
+    // is over — even if the Supabase refresh token is still technically valid.
+    if (!meta || isSessionExpired(meta)) return null;
+
+    let userId: string | null = null;
+    try {
+      const supabase = await getSupabaseServerClient();
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+      if (!error && user?.id) userId = user.id;
+    } catch {}
+
+    if (userId && userId !== meta.id) {
+      // The cookie jar now belongs to a different identity; the anchor is stale.
+      return null;
+    }
+
+    // Supabase token temporarily unavailable (refresh race) — trust the meta
+    // cookie only while its inactivity deadline is still valid.
+    if (!userId) userId = meta.id;
+
+    const now = Date.now();
+    const cached = sessionProfileCache.get(userId);
+    if (cached && now < cached.expiresAt) {
+      return cached.profile;
+    }
+
+    try {
+      const admin = getSupabaseAdminClient();
+      const profile = await new ProfileRepository(admin).findById(userId);
+      if (profile) {
+        sessionProfileCache.set(userId, { profile, expiresAt: now + 15_000 });
+      }
+      return profile;
+    } catch {
+      return null;
+    }
   }
 
   /** Enforces: authenticated + approved account. */
@@ -66,5 +123,6 @@ export class AuthorizationService {
   static async revokeAllSessions(userId: string): Promise<void> {
     const admin = getSupabaseAdminClient();
     await admin.auth.admin.signOut(userId);
+    invalidateSessionProfileCache(userId);
   }
 }

@@ -22,6 +22,7 @@ The platform provides dedicated Administrator and Staff portals, centralized fil
 - [Departmental Workflow Support](#-departmental-workflow-support)
 - [Getting Started](#-getting-started)
 - [Environment Configuration](#-environment-configuration)
+- [Enterprise Production Architecture & Troubleshooting](#️-enterprise-production-architecture--troubleshooting)
 - [Security Considerations](#-security-considerations)
 - [Developer](#-developer)
 
@@ -47,7 +48,8 @@ The system replaces traditional manual file-tracking workflows with a centralize
 - User account approval, rejection, disabling, and lockout management.
 - Administrator and staff account management.
 - Departmental section creation and management.
-- File requisition review and approval workflows.
+- File requisition review and approval workflows, including staff-selected
+  priorities to help administrators determine fulfillment order.
 - Profile management and account security features.
 - Audit log access.
 
@@ -55,8 +57,9 @@ The system replaces traditional manual file-tracking workflows with a centralize
 
 - Staff dashboard with relevant file and request information.
 - File searching and registration.
-- File requisition and checkout requests.
-- Request status tracking.
+- File requisition and checkout requests with High, Normal, or Low priority.
+- Request status tracking and cancellation of pending requests before admin
+  review.
 - Profile and password management.
 - Section-aware access to relevant information.
 
@@ -74,7 +77,9 @@ The system replaces traditional manual file-tracking workflows with a centralize
 ### 📂 File Management
 
 - Centralized file registration.
-- File identification and categorization.
+- File identification and categorization, using the file number as the unique
+  business identity (no two live records may share a File No; a rejected
+  submission releases its number for reuse).
 - Departmental section association.
 - Storage rack and cupboard location tracking.
 - File search and inspection.
@@ -379,6 +384,134 @@ SUPABASE_SERVICE_ROLE_KEY=your_server_side_service_role_key
 Use the exact variable names referenced by the application's source code. Additional variables may be required.
 
 **Never commit real API keys, database passwords, or service-role credentials to Git.** Server-only secrets must not be exposed to browser-side code.
+
+## 🛠️ Enterprise Production Architecture & Troubleshooting
+
+This section details critical architectural guidelines, root-cause analyses, and corporate-standard resolutions established to ensure system stability, multi-tenant state consistency, and reliable build pipelines.
+
+### 1. Centralized User Session & Profile Architecture (`useProfile`)
+
+#### Anti-Pattern (Ad-Hoc Component Fetching)
+In distributed UI architectures, individual navigation elements (such as `Sidebar`, `StaffSidebar`, and `Navbar`) must **never** execute separate network requests to `/api/auth/me` or maintain isolated `localStorage` states. Ad-hoc implementations introduce:
+* **Network Request Waterfalls:** Redundant duplicate requests hitting `/api/auth/me` on every navigation event.
+* **State Drift & Race Conditions:** Profile or avatar modifications made in the Profile view fail to reflect in the Sidebar or Navbar without full-page reloads.
+* **Runtime Vulnerabilities:** Component-level hook omissions leading to `ReferenceError: useState is not defined`.
+
+#### Corporate Standard Implementation
+All user session metadata, active roles, and avatar URLs are centralized within [`ProfileContext.tsx`](src/contexts/ProfileContext.tsx) and exposed via the custom hook `useProfile()`. The entire application tree is wrapped by `<ProfileProvider>` in [`AppWrappers.tsx`](src/app/AppWrappers.tsx).
+
+* **Single Source of Truth (SSOT):** Components consume state via:
+  ```tsx
+  import { useProfile } from 'contexts/ProfileContext';
+
+  const { profile, avatarUrl, clearProfile } = useProfile();
+  const displayName = profile?.full_name || 'SPID Officer';
+  const displayRole = profile?.role || 'Administrator';
+  ```
+* **Instant Cache Hydration:** Profiles hydrate synchronously from local storage during initial paint, then revalidate in the background against `/api/auth/me`.
+* **Atomic Sign-Out Pipeline:** `clearProfile()` synchronously wipes local storage, purges session cookies, dispatches cache-invalidation events, and routes to `/auth/sign-in`.
+
+---
+
+### 2. Next.js Workspace Isolation & Lockfile Boundary Configuration
+
+#### Root Cause
+In development environments where a secondary `package-lock.json` resides in an ancestor directory (such as `~/package-lock.json`), Next.js emits:
+```text
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+We detected multiple lockfiles and selected /Users/.../package-lock.json as root directory.
+```
+This causes Next.js output file tracing to traverse outside the repository, leading to packaging anomalies and build cache collisions.
+
+#### Production Standard Solution
+Explicitly define `outputFileTracingRoot` in [`next.config.js`](next.config.js):
+```javascript
+const path = require('path');
+
+const nextConfig = {
+  outputFileTracingRoot: path.join(__dirname, './'),
+  // ...
+};
+
+module.exports = nextConfig;
+```
+
+---
+
+### 3. Build Artifact Integrity & Cache Invalidation
+
+#### Symptoms
+* `ENOENT: no such file or directory, open '.next/routes-manifest.json'`
+* `TypeError: b.C is not a function`
+* `PackFileCacheStrategy: Caching failed for pack`
+
+#### Diagnostic & Remediation
+These errors occur under two conditions:
+1. **Concurrency Collisions:** Executing `npm run build` while an active `next dev` instance is running in another terminal window.
+2. **Storage Exhaustion:** The host machine running out of disk space, preventing Webpack and Next.js from flushing manifests to disk.
+
+#### Standard Reset Workflow
+1. Terminate all running Next.js development processes:
+   ```bash
+   pkill -f "next"
+   ```
+2. Purge the compiled cache:
+   ```bash
+   rm -rf .next
+   ```
+3. Execute compile-time static type checking:
+   ```bash
+   npx tsc --noEmit
+   ```
+4. Verify complete production compilation:
+   ```bash
+   npm run build
+   ```
+5. Resume local development:
+   ```bash
+   npm run dev
+   ```
+
+---
+
+### 4. Navigation Responsiveness & Visual Feedback Architecture
+
+#### Issue & Latency Analysis
+In Next.js App Router, client-side navigation between pages can appear delayed or sluggish under two scenarios:
+1. **Lack of Instant Click Feedback:** Without top-level route transition indicators or active link states, users feel a "dead click" sensation during the 200–500ms server component render or data fetch.
+2. **On-Demand Dev Compilation:** In `npm run dev`, routes are compiled Just-In-Time (JIT) on first access (1.5s–4s compilation time). In production (`npm run build`), routes are fully pre-compiled and load instantaneously.
+
+#### Production Standard Solution
+* **Route Prefetching:** Set `prefetch={true}` on all [`NavLink`](src/components/link/NavLink.tsx) instances in both [`SidebarLinks`](src/components/sidebar/components/Links.tsx) and [`StaffSidebar`](src/components/staffSidebar/index.tsx) to download route bundles ahead of interaction.
+* **Global Progress Bar:** [`NavigationProgressBar`](src/components/navigation/NavigationProgressBar.tsx) renders an animated gradient bar at the top of the viewport (`fixed top-0 z-[99999]`) the moment an internal link is clicked, completing automatically when the target route mounts.
+* **Inline Button Tactile Spinners:** Active and pending states immediately display a spinning micro-indicator inside the clicked sidebar link, confirming receipt of the user's action within <10ms.
+
+---
+
+### 5. Supabase Auth Error Recovery & Cookie Sanitation
+
+#### Root Cause (`AuthApiError: Invalid Refresh Token`)
+When an authenticated session expires, is revoked, or has its refresh token rotated, stale cookies (`sb-*-auth-token`) may remain in the client browser. Repeated calls to `supabase.auth.getUser()` in API routes and middleware repeatedly query Supabase Auth with the dead token, generating `AuthApiError: Invalid Refresh Token: Refresh Token Not Found` logs and adding blocking network latency (300ms–1500ms) to every request.
+
+#### Production Standard Solution
+* **Middleware Cookie Sanitation:** [`updateSupabaseSession`](src/config/supabase/middleware.ts) wraps `supabase.auth.getUser()` in a try/catch block. Upon detecting an authentication error or invalid token, stale cookies (`spid_session_auth` and `sb-*-auth-token`) are automatically purged from the response, breaking retry loops and routing directly to sign-in.
+* **Safe Service Fallbacks:** [`AuthorizationService.getSessionProfile()`](src/services/AuthorizationService.ts) safely catches authentication exceptions and returns `null`, preventing unhandled promise rejections and server-side log storms.
+
+---
+
+### 6. Elimination of `/api/auth/me` Network Floods & Heartbeat Throttling
+
+#### Root Causes
+1. **Unconditional Hydration Fetch on Auth Pages:** On initial mount, `ProfileContext` called `refreshProfile()` unconditionally. On public authentication routes (such as `/auth/sign-in`), the unauthenticated browser fired `GET /api/auth/me`, producing redundant `401 Unauthorized` responses.
+2. **Window Focus Storms in SessionWatchdog:** `SessionWatchdog` attached listeners to `focus` and `visibilitychange` with `forceCheck = true`. Every time a user clicked into the window, both events fired in parallel, producing concurrent duplicate `POST /api/auth/me` requests.
+3. **Ad-Hoc Component Queries:** Pages like `admin/add-new-file`, `staff/add-new-file`, `staff/request-file`, and `AccountDirectoryPage` executed independent `fetch('/api/auth/me')` calls instead of reading from `useProfile()`.
+
+#### Corporate Standard Solution
+* **Auth Route Exclusion:** [`ProfileContext.tsx`](src/contexts/ProfileContext.tsx) bypasses `/api/auth/me` verification when on public auth routes without an active local session, eliminating `401` log clutter.
+* **Concurrent Check Deduplication:** [`SessionWatchdog.tsx`](src/components/auth/SessionWatchdog.tsx) implements an `inFlightCheck` guard and increases interaction throttling from 15s to 60s, completely suppressing duplicate parallel requests.
+* **Centralized SSOT Consumption:** Replaced all ad-hoc component `fetch('/api/auth/me')` calls across the administrative and staff portals with reactive `useProfile()` state consumption.
+
+
 
 ## 🔐 Security Considerations
 

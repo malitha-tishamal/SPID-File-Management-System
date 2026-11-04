@@ -15,6 +15,7 @@ import {
 import { MdAdminPanelSettings } from 'react-icons/md';
 import type { UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
+import Button from 'components/ui/Button';
 
 export default function RegisterUserModal({
   variant,
@@ -263,14 +264,15 @@ export default function RegisterUserModal({
 
           {/* Actions */}
           <div className="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-navy-600">
-            <button
+            <Button
               type="button"
+              variant="cancel"
+              size="sm"
               onClick={onClose}
               disabled={loading}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100 dark:border-navy-600 dark:text-gray-300 dark:hover:bg-navy-800 cursor-pointer disabled:opacity-50"
             >
               Cancel
-            </button>
+            </Button>
             <button
               type="submit"
               disabled={loading}

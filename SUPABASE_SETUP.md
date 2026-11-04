@@ -5,12 +5,12 @@
 Copy `.env.example` to `.env.local` and fill in the values from your Supabase
 project (**Dashboard → Project Settings → API**):
 
-| Variable | Where it is used | Secret? |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Browser + server | No |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` (publishable key) | Browser + server | No |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Server API routes only** | **YES — never expose** |
-| `NEXT_PUBLIC_SITE_URL` | Password-reset redirect links | No |
+| Variable                                          | Where it is used              | Secret?                |
+| ------------------------------------------------- | ----------------------------- | ---------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`                        | Browser + server              | No                     |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` (publishable key) | Browser + server              | No                     |
+| `SUPABASE_SERVICE_ROLE_KEY`                       | **Server API routes only**    | **YES — never expose** |
+| `NEXT_PUBLIC_SITE_URL`                            | Password-reset redirect links | No                     |
 
 - `.env.local` is git-ignored; never commit real keys.
 - The service-role key bypasses Row Level Security. It is used only by trusted
@@ -19,7 +19,8 @@ project (**Dashboard → Project Settings → API**):
 
 ## 2. Run the Database Migrations
 
-In **Supabase Dashboard → SQL Editor**, run the files in this exact order:
+In **Supabase Dashboard → SQL Editor**, run all files in
+`supabase/migrations/` in numerical order:
 
 1. `supabase/migrations/0001_core_schema.sql` — sections, profiles,
    login_security, audit_logs tables, indexes, constraints
@@ -31,6 +32,21 @@ In **Supabase Dashboard → SQL Editor**, run the files in this exact order:
 4. `supabase/migrations/0004_storage_buckets_and_policies.sql` —
    `profile-images` (public) and `official-documents` (private) buckets with
    per-user folder policies for approved accounts
+   After applying migrations `0005` through `0010`, apply these additional
+   migrations:
+
+- `supabase/migrations/0011_staff_file_requests.sql` — staff physical-file
+  requests, request status, and row-level security policies
+- `supabase/migrations/0012_unlimited_file_request_duration.sql` — allows
+  positive request durations longer than 14 days
+- `supabase/migrations/0013_file_request_priority.sql` — stores staff-selected
+  request priority (High, Normal, or Low); existing requests default to Normal
+- `supabase/migrations/0014_files_composite_identity.sql` — enforces a unique
+  `(file_no, file_name)` pair while preserving the `id` primary key
+- `supabase/migrations/0015_cancel_staff_file_requests.sql` — allows staff to
+  cancel pending requests while retaining cancellation history
+- `supabase/migrations/0016_file_search_indexes.sql` — adds trigram indexes to
+  accelerate substring searches on file number, name, and registrar
 
 ## 3. Authentication Settings (Dashboard → Authentication)
 
@@ -38,9 +54,16 @@ In **Supabase Dashboard → SQL Editor**, run the files in this exact order:
   verification. Verification alone never approves an account — approval is a
   separate administrator action.
 - **Site URL**: set to your production URL (e.g. `https://spid.gov.lk`).
-- **Redirect URLs**: add
+- **Redirect URLs**: add **both** (Authentication → URL Configuration):
   - `http://localhost:3000/auth/reset-password`
   - `https://<your-production-domain>/auth/reset-password`
+
+> **Important:** Supabase only honours a reset `redirectTo` that matches this
+> allow-list. If it is missing, the emailed link silently falls back to the
+> **Site URL** and the user lands on the sign-in screen instead of the
+> new-password form. The app also forwards recovery tokens from the sign-in
+> screen to `/auth/reset-password` as a safety net, but adding the URLs above
+> is still required.
 - Rate limits: Supabase Auth applies its own limits; the app integrates with
   them instead of bypassing them.
 

@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import React from 'react';
 import { IoWater } from 'react-icons/io5';
 
@@ -12,7 +13,7 @@ export default function AuthBrandHeader({ variant }: AuthBrandHeaderProps) {
       {/* SPID Circular Emblem with bottom-right status badge */}
       <div className="relative mb-3 flex items-center justify-center">
         <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-white p-1.5 shadow-md border border-slate-200/80 flex items-center justify-center">
-          <img
+          <Image width={80} height={80} priority
             src="/img/spid/spid-logo.png"
             alt="Southern Provincial Irrigation Department Emblem"
             className="h-full w-full object-contain select-none"

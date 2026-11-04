@@ -1,7 +1,10 @@
 import { ApiError } from 'lib/apiResponse';
-import { SITE_URL } from 'config/env';
+import { SITE_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from 'config/env';
+import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient, getSupabaseServerClient } from 'config/supabase/server';
+import { isRecoverySession } from 'lib/session';
 import { ProfileRepository } from 'models/ProfileRepository';
+import { AuditLogRepository } from 'models/AuditLogRepository';
 import { SectionRepository } from 'models/SectionRepository';
 import { LockoutService } from 'services/LockoutService';
 import { AuthorizationService } from 'services/AuthorizationService';
@@ -183,14 +186,22 @@ export class AuthService {
       throw new ApiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
-    // 1. Temporary failed-login lockout (checked before touching Auth).
+    // 1. Failed-login lockout (checked before touching Auth).
     const lockState = await LockoutService.check(profile.id);
     if (lockState?.locked) {
+      if (lockState.permanent) {
+        throw new ApiError(
+          429,
+          'LOGIN_LOCKED_OUT',
+          'Your account has been permanently locked due to repeated failed sign-in attempts. Please contact the system administrator to unlock it.',
+          { remaining_seconds: lockState.remaining_seconds, permanent: true }
+        );
+      }
       throw new ApiError(
         429,
         'LOGIN_LOCKED_OUT',
         `Your account is temporarily locked due to repeated failed sign-in attempts. Please try again in ${lockState.remaining_seconds} seconds or contact the administrator.`,
-        { remaining_seconds: lockState.remaining_seconds }
+        { remaining_seconds: lockState.remaining_seconds, permanent: false }
       );
     }
 
@@ -204,8 +215,24 @@ export class AuthService {
       );
     }
 
-    // 3. Credential verification against Supabase Auth.
+    // 3. Single-active-session per browser: if this cookie jar already
+    //    carries a session for ANY account, revoke it server-side before
+    //    issuing a new one — logging in as a different account (even the
+    //    same role) always signs the previous account out.
     const supabase = await getSupabaseServerClient();
+    const {
+      data: { session: existingSession },
+    } = await supabase.auth.getSession();
+    if (existingSession) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // Revocation is best-effort; the new sign-in below still replaces
+        // the session cookies, so the old account cannot act in this browser.
+      }
+    }
+
+    // 4. Credential verification against Supabase Auth.
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
@@ -230,17 +257,57 @@ export class AuthService {
       // Failed credentials -> atomic server-side lockout bookkeeping.
       const result = await LockoutService.recordFailedAttempt(profile.id);
       if (result?.locked) {
+        if (result.permanent) {
+          throw new ApiError(
+            429,
+            'LOGIN_LOCKED_OUT',
+            'Your account has been permanently locked due to repeated failed sign-in attempts. Please contact the system administrator to unlock it.',
+            { remaining_seconds: result.remaining_seconds, permanent: true }
+          );
+        }
         throw new ApiError(
           429,
           'LOGIN_LOCKED_OUT',
           `Too many failed sign-in attempts. Login is locked for ${result.remaining_seconds} seconds.`,
-          { remaining_seconds: result.remaining_seconds }
+          { remaining_seconds: result.remaining_seconds, permanent: false }
         );
       }
       throw new ApiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
-    // 4. Auth passed — enforce approval status BEFORE granting a session.
+    // 5. Inactivity policy: an approved account whose last successful sign-in
+    //    is more than 2 months old is disabled automatically and must be
+    //    re-approved by an administrator before it can sign in again.
+    if (profile.account_status === 'approved' && profile.last_login_at) {
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      if (new Date(profile.last_login_at).getTime() < twoMonthsAgo.getTime()) {
+        await profiles.updateStatus(profile.id, 'disabled', null);
+        await supabase.auth.signOut();
+        await AuthorizationService.revokeAllSessions(profile.id);
+        try {
+          await new AuditLogRepository(admin).log({
+            actorId: null,
+            targetUserId: profile.id,
+            action: 'account_auto_disabled_inactivity',
+            details: {
+              email: profile.email,
+              last_login_at: profile.last_login_at,
+            },
+          });
+        } catch {}
+        try {
+          invalidateUsersCache();
+        } catch {}
+        throw new ApiError(
+          403,
+          'ACCOUNT_DISABLED',
+          'Your account has been disabled due to inactivity (last sign-in was over 2 months ago). Please contact the system administrator to reactivate it.'
+        );
+      }
+    }
+
+    // 6. Auth passed — enforce approval status BEFORE granting a session.
     if (profile.account_status !== 'approved') {
       await supabase.auth.signOut();
       const messages: Record<string, { code: ApiErrorCode; message: string }> = {
@@ -267,9 +334,12 @@ export class AuthService {
       throw new ApiError(403, denial.code, denial.message);
     }
 
-    // 5. Success — reset consecutive-failure counters and stamp last login.
-    await LockoutService.resetOnSuccess(profile.id);
-    await new ProfileRepository(getSupabaseAdminClient()).touchLastLogin(profile.id);
+    // 7. Success — reset consecutive-failure counters and stamp last login.
+    //    Both writes are independent, so they share one round trip instead of two.
+    await Promise.all([
+      LockoutService.resetOnSuccess(profile.id),
+      new ProfileRepository(admin).touchLastLogin(profile.id),
+    ]);
     try {
       invalidateUsersCache();
     } catch {}
@@ -286,26 +356,111 @@ export class AuthService {
    * account existence is never revealed. Reset never changes approval status.
    */
   static async requestPasswordReset(email: string): Promise<void> {
-    const supabase = await getSupabaseServerClient();
-    await supabase.auth.resetPasswordForEmail(email.trim(), {
+    // Deliberately non-PKCE: a PKCE recovery code can only be redeemed in the
+    // browser that requested it (the verifier lives in that browser's cookies).
+    // Implicit links work on any device, including when the user is already
+    // signed in, and the reset page verifies the token server-side.
+    const resetClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+        flowType: 'implicit',
+      },
+    });
+    await resetClient.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: `${SITE_URL}/auth/reset-password`,
     });
   }
 
-  /** Consumes the recovery session from the reset link and sets a new password. */
-  static async resetPassword(newPassword: string): Promise<void> {
-    const supabase = await getSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      throw new ApiError(
-        401,
-        'UNAUTHORIZED',
-        'This password reset link is invalid or has expired. Please request a new one.'
-      );
+  /**
+   * Consumes the recovery session from the reset link and sets a new password.
+   * Accepts either a cookie-backed session (PKCE flow) or the access token
+   * delivered in the link's URL hash, which the SSR browser client rejects.
+   */
+  static async resetPassword(input: { newPassword: string; accessToken?: string }): Promise<void> {
+    const { newPassword, accessToken } = input;
+
+    let userId: string;
+    let email: string | null = null;
+    let cookieClient: Awaited<ReturnType<typeof getSupabaseServerClient>> | null = null;
+
+    if (accessToken) {
+      const admin = getSupabaseAdminClient();
+      const {
+        data: { user },
+        error,
+      } = await admin.auth.getUser(accessToken);
+      if (error || !user) {
+        throw new ApiError(
+          401,
+          'UNAUTHORIZED',
+          'This password reset link is invalid or has expired. Please request a new one.'
+        );
+      }
+      if (!isRecoverySession(accessToken)) {
+        throw new ApiError(
+          401,
+          'UNAUTHORIZED',
+          'This password reset link is invalid or has expired. Please request a new one from "Forgot Password?".'
+        );
+      }
+      userId = user.id;
+      email = user.email ?? null;
+    } else {
+      const supabase = await getSupabaseServerClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        throw new ApiError(
+          401,
+          'UNAUTHORIZED',
+          'This password reset link is invalid or has expired. Please request a new one.'
+        );
+      }
+      if (!isRecoverySession(session.access_token)) {
+        throw new ApiError(
+          401,
+          'UNAUTHORIZED',
+          'This password reset link is invalid or has expired. Please request a new one from "Forgot Password?".'
+        );
+      }
+      userId = session.user.id;
+      email = session.user.email ?? null;
+      cookieClient = supabase;
     }
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+    if (email) {
+      // A successful sign-in with the submitted value means it is the current
+      // password, which must not be reused as the "new" password.
+      const probe = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { error: reusedError } = await probe.auth.signInWithPassword({
+        email,
+        password: newPassword,
+      });
+      if (!reusedError) {
+        throw new ApiError(
+          400,
+          'VALIDATION_ERROR',
+          'Your new password must be different from your current password. Please choose a different password.'
+        );
+      }
+    }
+
+    if (cookieClient) {
+      const { error } = await cookieClient.auth.updateUser({ password: newPassword });
+      if (error) {
+        throw new ApiError(400, 'AUTH_ERROR', error.message || 'Failed to update the password.');
+      }
+      return;
+    }
+
+    const { error } = await getSupabaseAdminClient().auth.admin.updateUserById(userId, {
+      password: newPassword,
+    });
     if (error) {
       throw new ApiError(400, 'AUTH_ERROR', error.message || 'Failed to update the password.');
     }

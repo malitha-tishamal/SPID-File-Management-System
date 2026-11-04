@@ -10,6 +10,7 @@ import Links from './components/Links';
 import { IRoute } from 'types/navigation';
 import ConfirmLogoutModal from 'components/modals/ConfirmLogoutModal';
 import { useProfile } from 'contexts/ProfileContext';
+import { broadcastLogout, clearLastActivity } from 'lib/authSync';
 
 function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
   const { routes, open, setOpen } = props;
@@ -23,6 +24,11 @@ function SidebarHorizon(props: { routes: IRoute[]; [x: string]: any }) {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
+
+    // Broadcast logout so other tabs drop this session too
+    broadcastLogout();
+    clearLastActivity();
+
     clearProfile();
     try {
       document.cookie = 'spid_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';

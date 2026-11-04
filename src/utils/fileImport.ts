@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 export interface SectionOption {
   id?: number | string;
   name: string;
+  status?: string;
 }
 
 export interface ValidatedRecord {
@@ -365,9 +366,9 @@ export function generateBulkImportTemplate(availableSections?: string[]): Uint8A
     [
       'File Name *',
       'Yes',
-      'Text (unique, max 255 chars)',
+      'Text (max 255 chars)',
       'Kalu Ganga Basin Survey',
-      'Unique official title for the file dossier.',
+      'Official title for the file dossier.',
     ],
     [
       'Section *',
@@ -431,7 +432,7 @@ export function generateBulkImportTemplate(availableSections?: string[]): Uint8A
     ...sampleSections.map((s, idx) => [idx + 1, s]),
     [''],
     ['4. IMPORTANT RULES & CONSTRAINTS'],
-    ['- Each "File Name" must be globally unique. Duplicate file names will be rejected.'],
+    ['- The combination of "File No" and "File Name" must be unique.'],
     ['- Dates must be in YYYY-MM-DD format (e.g. 2024-05-15). End Date cannot precede Start Date.'],
     ['- "Shelf Position" must strictly be one of: Front, Middle, Back.'],
     ['- Both Excel (.xlsx, .xls) and CSV (.csv) file formats are fully supported for upload.'],
@@ -475,11 +476,30 @@ export function downloadBulkImportSample(availableSections?: string[]): void {
 /**
  * Parses raw ArrayBuffer or File (CSV or XLSX/XLS) and validates rows.
  */
+export const MAX_IMPORT_ROWS = 5000;
+
 export async function parseAndValidateImportBuffer(
   buffer: ArrayBuffer,
   activeSections?: string[],
 ): Promise<ImportValidationResult> {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  } catch (err: any) {
+    return {
+      isValid: false,
+      totalRows: 0,
+      validRows: [],
+      errors: [
+        {
+          row: 0,
+          reason: `Failed to parse spreadsheet file: ${err?.message || 'Corrupted or unsupported format.'}`,
+        },
+      ],
+      headersFound: [],
+      missingRequiredHeaders: [...REQUIRED_CANONICAL_FIELDS],
+    };
+  }
 
   // Prefer 'File Import Template' sheet, else first sheet
   const sheetName = wb.SheetNames.includes('File Import Template')
@@ -539,11 +559,25 @@ export async function parseAndValidateImportBuffer(
   }
 
   const dataRows = rawMatrix.slice(1);
+  if (dataRows.length > MAX_IMPORT_ROWS) {
+    return {
+      isValid: false,
+      totalRows: dataRows.length,
+      validRows: [],
+      errors: [
+        {
+          row: 0,
+          reason: `Spreadsheet exceeds the maximum limit of ${MAX_IMPORT_ROWS} rows (found ${dataRows.length} rows). Please split your import into smaller batches.`,
+        },
+      ],
+      headersFound: Array.from(foundFields),
+      missingRequiredHeaders: [],
+    };
+  }
   const validRows: ValidatedRecord[] = [];
   const errors: RowError[] = [];
 
-  const seenFileNamesInBatch = new Set<string>();
-  const seenFileNosInBatch = new Set<string>();
+  const seenFileIdentitiesInBatch = new Set<string>();
 
   const activeSectionSet = activeSections && activeSections.length > 0
     ? new Set(activeSections.map((s) => s.trim().toLowerCase()))
@@ -633,17 +667,16 @@ export async function parseAndValidateImportBuffer(
       return;
     }
 
-    // Duplicate check in batch
-    const lowerName = fileName.toLowerCase();
-    if (seenFileNamesInBatch.has(lowerName)) {
+    const fileNoKey = fileNo.toLowerCase();
+    if (seenFileIdentitiesInBatch.has(fileNoKey)) {
       errors.push({
         row: rowNum,
         file_name: fileName,
-        reason: `Duplicate File Name "${fileName}" found within the upload file.`,
+        reason: `Duplicate File No "${fileNo}" found within the upload file.`,
       });
       return;
     }
-    seenFileNamesInBatch.add(lowerName);
+    seenFileIdentitiesInBatch.add(fileNoKey);
 
     // Optional fields
     const lockerNo = rowObj.locker_no ? String(rowObj.locker_no).trim() : null;

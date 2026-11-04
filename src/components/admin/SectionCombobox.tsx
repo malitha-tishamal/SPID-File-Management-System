@@ -141,7 +141,7 @@ export default function SectionCombobox({
                     className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl transition-colors text-left cursor-pointer ${
                       isSelected
                         ? 'bg-[#F4F2FF] text-[#4318FF] font-bold dark:bg-brand-900/30 dark:text-brand-300'
-                        : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-navy-700/60 font-medium'
+                        : 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium'
                     }`}
                   >
                     <span className="truncate">{s.name}</span>
@@ -164,7 +164,7 @@ export default function SectionCombobox({
               className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold text-[#4318FF] dark:text-brand-300 hover:bg-[#F4F2FF] dark:hover:bg-brand-900/30 transition-all cursor-pointer border border-transparent hover:border-[#4318FF]/20"
             >
               <FiPlus className="h-3.5 w-3.5 stroke-[2.5]" />
-              <span>+ Add Section</span>
+              <span>Add Section</span>
             </button>
           </div>
         </div>

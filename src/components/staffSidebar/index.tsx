@@ -10,6 +10,7 @@ import DashIcon from 'components/icons/DashIcon';
 import { FiSettings, FiLogOut } from 'react-icons/fi';
 import ConfirmLogoutModal from 'components/modals/ConfirmLogoutModal';
 import { useProfile } from 'contexts/ProfileContext';
+import { broadcastLogout, clearLastActivity } from 'lib/authSync';
 
 interface StaffRoute {
   name: string;
@@ -36,6 +37,11 @@ export default function StaffSidebar(props: {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
+
+    // Broadcast logout so other tabs drop this session too
+    broadcastLogout();
+    clearLastActivity();
+
     clearProfile();
     try {
       document.cookie =
@@ -83,7 +89,7 @@ export default function StaffSidebar(props: {
       >
         {/* ── SPID Logo & Brand with Toggle Button ── */}
         <div className="mx-5 mt-6 flex items-center justify-between gap-2">
-          <Link href="/staff/dashboard" className="flex items-center gap-3 min-w-0 group">
+          <Link href="/staff/default" className="flex items-center gap-3 min-w-0 group">
             <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0 dark:bg-navy-900 dark:border-navy-700 group-hover:scale-105 transition-transform">
               <Image
                 width={80}

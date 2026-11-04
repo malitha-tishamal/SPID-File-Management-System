@@ -7,6 +7,7 @@ import { RiRestartLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
 import { useToast } from 'components/toast/ToastContext';
+import { isValidEmailFormat } from 'validators/authValidators';
 
 export default function ForgotPasswordPage() {
   const { showToast } = useToast();
@@ -19,12 +20,20 @@ export default function ForgotPasswordPage() {
 
   const handleResetRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setErrorMsg('');
 
     const cleanEmail = email.trim();
 
     if (!cleanEmail) {
       const msg = 'Please provide your registered official email.';
+      setErrorMsg(msg);
+      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      return;
+    }
+
+    if (!isValidEmailFormat(cleanEmail)) {
+      const msg = 'Please enter a valid email address (e.g. officer@spid.gov.lk).';
       setErrorMsg(msg);
       showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
@@ -90,7 +99,11 @@ export default function ForgotPasswordPage() {
           </div>
 
           {errorMsg && (
-            <div className="mb-4 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800">
+            <div
+              role="alert"
+              aria-atomic="true"
+              className="mb-4 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800"
+            >
               {errorMsg}
             </div>
           )}
@@ -131,8 +144,9 @@ export default function ForgotPasswordPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="officer@spid.gov.lk"
-                    className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
+                    autoComplete="email"
+                    placeholder="Enter your registered email address"
+                    className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
                   />
                 </div>
               </div>
@@ -141,13 +155,14 @@ export default function ForgotPasswordPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
+                aria-busy={isLoading}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
-                  <span>Sending Instructions...</span>
+                  <span>Sending...</span>
                 ) : (
                   <>
-                    <span>Send Reset Instructions</span>
+                    <span>Send Reset Link</span>
                     <FiSend className="h-4 w-4" />
                   </>
                 )}

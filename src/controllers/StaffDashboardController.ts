@@ -20,12 +20,12 @@ export class StaffDashboardController {
       const [thisMonthFilesRes, todayFilesRes] = await Promise.all([
         admin
           .from('files')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact', head: true })
           .or(`created_by.eq.${profile.id},registered_by.eq.${profile.id}`)
           .gte('created_at', monthStartIso),
         admin
           .from('files')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact', head: true })
           .or(`created_by.eq.${profile.id},registered_by.eq.${profile.id}`)
           .gte('created_at', todayStartIso),
       ]);

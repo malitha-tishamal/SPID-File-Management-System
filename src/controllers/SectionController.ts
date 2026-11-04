@@ -1,14 +1,20 @@
 import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
 import { SectionRepository } from 'models/SectionRepository';
-import type { SectionStatus } from 'models/SectionRepository';
+import type { SectionRow, SectionStatus } from 'models/SectionRepository';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 
 import { invalidatePublicSectionsCache } from 'lib/sectionsCacheStore';
-import { capitalizeFirstLetter } from 'utils/fileImport';
+import {
+  findSectionDuplicate,
+  normalizeSectionName,
+  sectionDuplicateMessage,
+  SECTION_NAME_MAX_LENGTH,
+  SECTION_NAME_MIN_LENGTH,
+} from 'lib/sectionName';
 
-let cachedAdminSections: any = null;
+let cachedAdminSections: SectionRow[] | null = null;
 let lastAdminCacheTime = 0;
 const ADMIN_SECTIONS_CACHE_TTL_MS = 10_000; // 10 seconds
 
@@ -22,7 +28,8 @@ export function invalidateSectionsCache() {
 
 /**
  * Controller layer: section management.
- * All write operations require Administrator role.
+ * All write operations require Administrator role, except section creation
+ * from the shared Add New File form, which approved staff may also use.
  */
 export class SectionController {
   /** GET /api/admin/sections — list all sections with full details. */
@@ -47,30 +54,44 @@ export class SectionController {
     return res;
   }
 
-  /** POST /api/admin/sections — create a new section. */
+  /** POST /api/admin/sections — create a new section (admin only). */
   static async createSection(req: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
-    const name = capitalizeFirstLetter(String(body.name ?? ''));
+    const name = normalizeSectionName(String(body.name ?? ''));
     const sectionLead = body.section_lead ? String(body.section_lead).trim() : undefined;
 
-    if (!name || name.length < 3) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Section name must be at least 3 characters.');
+    if (!name || name.length < SECTION_NAME_MIN_LENGTH) {
+      throw new ApiError(400, 'VALIDATION_ERROR', `Section name must be at least ${SECTION_NAME_MIN_LENGTH} characters.`);
     }
-    if (name.length > 120) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Section name must be 120 characters or fewer.');
+    if (name.length > SECTION_NAME_MAX_LENGTH) {
+      throw new ApiError(400, 'VALIDATION_ERROR', `Section name must be ${SECTION_NAME_MAX_LENGTH} characters or fewer.`);
     }
 
     const admin = getSupabaseAdminClient();
     const repo = new SectionRepository(admin);
 
-    // Check duplicate
+    // Duplicate check across ALL sections (disabled included) using the same
+    // whitespace/case-insensitive normalization as the UI.
+    const allSections = await repo.list();
+    const duplicate = findSectionDuplicate(allSections, name);
+    if (duplicate) {
+      throw new ApiError(409, 'VALIDATION_ERROR', sectionDuplicateMessage(name, duplicate));
+    }
+
+    // Fallback for an empty/partial list response.
     const existing = await repo.findByName(name);
     if (existing) {
-      throw new ApiError(409, 'VALIDATION_ERROR', 'A section with this name already exists.');
+      throw new ApiError(
+        409,
+        'VALIDATION_ERROR',
+        existing.status === 'disabled'
+          ? 'This section already exists but is disabled. Enable it from Section Management.'
+          : `Section '${name}' already exists.`,
+      );
     }
 
     const section = await repo.create(name, sectionLead);
@@ -107,12 +128,12 @@ export class SectionController {
     const patch: { name?: string; status?: SectionStatus; section_lead?: string | null } = {};
 
     if (body.name !== undefined) {
-      const name = String(body.name).trim();
-      if (name.length < 3) throw new ApiError(400, 'VALIDATION_ERROR', 'Section name must be at least 3 characters.');
-      if (name.length > 120) throw new ApiError(400, 'VALIDATION_ERROR', 'Section name must be 120 characters or fewer.');
-      if (name.toLowerCase() !== target.name.toLowerCase()) {
-        const dup = await repo.findByName(name);
-        if (dup && dup.id !== id) throw new ApiError(409, 'VALIDATION_ERROR', 'A section with this name already exists.');
+      const name = normalizeSectionName(String(body.name));
+      if (name.length < SECTION_NAME_MIN_LENGTH) throw new ApiError(400, 'VALIDATION_ERROR', `Section name must be at least ${SECTION_NAME_MIN_LENGTH} characters.`);
+      if (name.length > SECTION_NAME_MAX_LENGTH) throw new ApiError(400, 'VALIDATION_ERROR', `Section name must be ${SECTION_NAME_MAX_LENGTH} characters or fewer.`);
+      const duplicate = findSectionDuplicate(await repo.list(), name, id);
+      if (duplicate) {
+        throw new ApiError(409, 'VALIDATION_ERROR', sectionDuplicateMessage(name, duplicate));
       }
       patch.name = name;
     }

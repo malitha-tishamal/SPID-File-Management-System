@@ -179,7 +179,7 @@ describe('File Parser & Import Validation', () => {
         10,
         2,
       ],
-      // Row 3: duplicate file name with Row 4
+      // Same file name with a different file number is allowed.
       [
         'PDI/02',
         'Duplicate Title',
@@ -192,10 +192,10 @@ describe('File Parser & Import Validation', () => {
         10,
         2,
       ],
-      // Row 4: duplicate title
+      // Row 4: repeated file number with a different file name is rejected
       [
-        'PDI/03',
-        'Duplicate Title',
+        'PDI/02',
+        'Different Title',
         'Administration',
         '2024-01-01',
         '2025-01-01',
@@ -231,6 +231,19 @@ describe('File Parser & Import Validation', () => {
         -5,
         2,
       ],
+      // Row 7: repeated file number
+      [
+        'PDI/02',
+        'Duplicate Title',
+        'Administration',
+        '2024-01-01',
+        '2025-01-01',
+        'L-1',
+        'S-1',
+        'Front',
+        10,
+        2,
+      ],
     ];
     const ws = XLSX.utils.aoa_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, 'File Import Template');
@@ -241,11 +254,52 @@ describe('File Parser & Import Validation', () => {
 
     const reasons = result.errors.map((e) => e.reason);
     expect(reasons.some((r) => r.includes('must be on or after Start Date'))).toBe(true);
-    expect(reasons.some((r) => r.includes('Duplicate File Name'))).toBe(true);
+    expect(
+      reasons.filter((r) => r.includes('Duplicate File No "PDI/02"')).length,
+    ).toBe(2);
     expect(reasons.some((r) => r.includes('Invalid Shelf Position'))).toBe(true);
     expect(reasons.some((r) => r.includes('Total Pages must be a non-negative number'))).toBe(
       true,
     );
+  });
+
+  it('allows the same file name under different file numbers', async () => {
+    const rows = [
+      ['File No', 'File Name', 'Section', 'Start Date', 'End Date'],
+      ['PDI/01', 'Shared Name', 'Administration', '2024-01-01', '2025-01-01'],
+      ['PDI/02', 'Shared Name', 'Administration', '2024-01-01', '2025-01-01'],
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet(rows),
+      'File Import Template',
+    );
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+    const result = await parseAndValidateImportBuffer(buffer);
+    expect(result.isValid).toBe(true);
+    expect(result.validRows).toHaveLength(2);
+  });
+
+  it('rejects a repeated file number even when the file name differs', async () => {
+    const rows = [
+      ['File No', 'File Name', 'Section', 'Start Date', 'End Date'],
+      ['PDI/01', 'Shared Name', 'Administration', '2024-01-01', '2025-01-01'],
+      ['pdi/01', 'Different Name', 'Administration', '2024-01-01', '2025-01-01'],
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet(rows),
+      'File Import Template',
+    );
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+    const result = await parseAndValidateImportBuffer(buffer);
+    expect(result.isValid).toBe(false);
+    expect(result.validRows).toHaveLength(1);
+    expect(result.errors[0].reason).toContain('Duplicate File No "pdi/01"');
   });
 
   it('parses valid CSV text buffer correctly', async () => {
@@ -292,5 +346,24 @@ describe('File Parser & Import Validation', () => {
     const result = await parseAndValidateImportBuffer(buf, ['Finance', 'Administration']);
     expect(result.isValid).toBe(false);
     expect(result.errors[0].reason).toContain('is not an active section in the SPID system');
+  });
+
+  it('safely catches corrupted or binary data via try/catch without crashing', async () => {
+    // Random binary invalid buffer
+    const badBuf = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02]).buffer;
+    const result = await parseAndValidateImportBuffer(badBuf);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('rejects spreadsheets exceeding MAX_IMPORT_ROWS (5000 rows)', async () => {
+    const header = 'File No,File Name,Section,Start Date,End Date\n';
+    const rows = Array.from({ length: 5001 }, (_, i) => `F-${i},Name-${i},Finance,2024-01-01,2024-12-31\n`).join('');
+    const enc = new TextEncoder();
+    const buf = enc.encode(header + rows).buffer;
+
+    const result = await parseAndValidateImportBuffer(buf, ['Finance']);
+    expect(result.isValid).toBe(false);
+    expect(result.errors[0].reason).toContain('exceeds the maximum limit of 5000 rows');
   });
 });

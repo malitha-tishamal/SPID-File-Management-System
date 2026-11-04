@@ -8,7 +8,7 @@ export const findCurrentRoute = (
   routes: IRoute[],
   pathname: string,
 ): IRoute => {
-  if (!isWindowAvailable()) return null;
+  if (!routes || !pathname) return null;
 
   for (let route of routes) {
     if (!!route.items) {

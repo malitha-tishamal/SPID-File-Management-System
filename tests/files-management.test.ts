@@ -31,6 +31,9 @@ interface MockFile {
   approved_by: string | null;
   approved_by_name?: string | null;
   approved_at: string | null;
+  reject_reason?: string | null;
+  rejected_at?: string | null;
+  rejected_by_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -179,6 +182,20 @@ vi.mock('config/supabase/server', () => ({
         };
       }
 
+      if (table === 'sections') {
+        return {
+          select: () => ({
+            ilike: () => ({
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            }),
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            }),
+            order: () => Promise.resolve({ data: [], error: null }),
+          }),
+        };
+      }
+
       if (table === 'audit_logs') {
         return {
           insert: (entry: any) => {
@@ -303,6 +320,85 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(json.data.counts.pendingCount).toBe(1);
   });
 
+  it('metaOnly returns dashboard counts and settings without listing files', async () => {
+    const req = new Request('http://localhost:3000/api/admin/files?metaOnly=true');
+    const res = await FileController.listFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.data.files).toBeUndefined();
+    expect(json.data.counts.pendingCount).toBe(1);
+    expect(json.data.counts.allFilesCount).toBe(1);
+    expect(typeof json.data.requireApproval).toBe('boolean');
+  });
+
+  it('metaOnly can include the summed page count for the dashboard', async () => {
+    const req = new Request(
+      'http://localhost:3000/api/admin/files?metaOnly=true&includePageTotal=true',
+    );
+    const res = await FileController.listFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data.totalPageNumbers).toBe(35);
+  });
+
+  it('rejects a date range whose start is later than its end', async () => {
+    const req = new Request(
+      'http://localhost:3000/api/admin/files?tab=all&dateFrom=2026-10-10&dateTo=2026-10-01',
+    );
+
+    await expect(FileController.listFiles(req)).rejects.toThrow(
+      new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'Start date must be on or before end date.',
+      ),
+    );
+  });
+
+  it('falls back to safe pagination values for malformed page and limit', async () => {
+    const req = new Request(
+      'http://localhost:3000/api/admin/files?tab=all&page=abc&limit=xyz',
+    );
+    const res = await FileController.listFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data.page).toBe(1);
+    expect(json.data.limit).toBe(15);
+  });
+
+  it('includeCounts=false skips summary counts on table list requests', async () => {
+    const req = new Request(
+      'http://localhost:3000/api/admin/files?tab=all&includeCounts=false&includeSettings=false',
+    );
+    const res = await FileController.listFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.data.files).toHaveLength(1);
+    expect(json.data.counts).toBeUndefined();
+    expect(json.data.requireApproval).toBeUndefined();
+  });
+
+  it('includeMeta=false skips summary counts and settings on table list requests', async () => {
+    const req = new Request(
+      'http://localhost:3000/api/admin/files?tab=all&includeMeta=false',
+    );
+    const res = await FileController.listFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.data.files).toHaveLength(1);
+    expect(json.data.total).toBe(1);
+    expect(json.data.counts).toBeUndefined();
+    expect(json.data.requireApproval).toBeUndefined();
+  });
+
   // 3. All Files tab loads finalized file records (APPROVED / active)
   it('3: loads finalized file records when tab=all and excludes pending submissions', async () => {
     const req = new Request('http://localhost:3000/api/admin/files?tab=all');
@@ -336,12 +432,13 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(allJson.data.files.map((f: any) => f.id)).toContain(2);
   });
 
-  // 5. Rejecting a request sets status to REJECTED and does NOT add to All Files
-  it('5: rejecting a request sets REJECTED status and does not add file to All Files', async () => {
+  // 5. Rejecting a request sets status to REJECTED, persists reason & audit info, and does NOT add to All Files
+  it('5: rejecting a request sets REJECTED status, persists rejection reason, and moves file to Rejected tab', async () => {
+    const rejectionReason = 'Invalid survey documentation and missing hydrological signatures';
     const req = new Request('http://localhost:3000/api/admin/files/2/reject', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'Invalid survey documentation' }),
+      body: JSON.stringify({ reason: rejectionReason }),
     });
     const res = await FileController.rejectFile(2, req);
     const json = await res.json();
@@ -349,6 +446,9 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(res.status).toBe(200);
     expect(json.ok).toBe(true);
     expect(json.data.file.status).toBe('REJECTED');
+    expect(json.data.file.reject_reason).toBe(rejectionReason);
+    expect(json.data.file.rejected_by_name).toBe('Malitha Tishamal');
+    expect(json.data.file.rejected_at).toBeDefined();
 
     // Confirm it does NOT appear in All Files tab
     const allReq = new Request('http://localhost:3000/api/admin/files?tab=all');
@@ -356,11 +456,76 @@ describe('Manage System Files — Full Workflow Suite', () => {
     const allJson = await allRes.json();
     expect(allJson.data.files.map((f: any) => f.id)).not.toContain(2);
 
-    // Confirm it left the pending queue
+    // Confirm it left the pending File Requests queue
     const reqsReq = new Request('http://localhost:3000/api/admin/files?tab=requests');
     const reqsRes = await FileController.listFiles(reqsReq);
     const reqsJson = await reqsRes.json();
     expect(reqsJson.data.files.map((f: any) => f.id)).not.toContain(2);
+
+    // Confirm it DOES appear in Rejected Files tab (tab=rejected) with complete metadata
+    const rejectedReq = new Request('http://localhost:3000/api/admin/files?tab=rejected');
+    const rejectedRes = await FileController.listFiles(rejectedReq);
+    const rejectedJson = await rejectedRes.json();
+    expect(rejectedRes.status).toBe(200);
+    expect(rejectedJson.ok).toBe(true);
+    expect(rejectedJson.data.files.map((f: any) => f.id)).toContain(2);
+
+    const rejectedRecord = rejectedJson.data.files.find((f: any) => f.id === 2);
+    expect(rejectedRecord).toBeDefined();
+    expect(rejectedRecord.status).toBe('REJECTED');
+    expect(rejectedRecord.file_no).toBe('FL-2026-0002');
+    expect(rejectedRecord.reject_reason).toBe(rejectionReason);
+    expect(rejectedRecord.rejected_by_name).toBe('Malitha Tishamal');
+    expect(rejectedRecord.registrar_name).toBe('Elena Rostova');
+    expect(rejectedRecord.registrar_role).toBe('Staff');
+    expect(rejectedJson.data.counts.rejectedCount).toBe(1);
+  });
+
+  // 5b: Rejection without a reason persists undefined/null and does not invent reasons
+  it('5b: rejection without a reason leaves reject_reason null/undefined without inventing reasons', async () => {
+    // Add another pending file
+    mockFilesStore.push({
+      id: 3,
+      file_no: 'FL-2026-0003',
+      file_name: 'Pending Staff Request Without Reason',
+      section_name: 'Finance & Accounts',
+      start_date: '2026-03-01',
+      end_date: '2026-12-31',
+      locker_no: 'Rack B-01',
+      shelf_name: 'Shelf 1',
+      shelf_position: 'Front',
+      page_numbers: 15,
+      minute_sheets_count: 3,
+      registrar_name: 'Marcus Grohs',
+      registrar_role: 'Staff',
+      registered_by: 'staff-2',
+      status: 'PENDING',
+      approved_by: null,
+      approved_at: null,
+      created_at: '2026-10-10T10:00:00.000Z',
+      updated_at: '2026-10-10T10:00:00.000Z',
+    });
+
+    const req = new Request('http://localhost:3000/api/admin/files/3/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const res = await FileController.rejectFile(3, req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.data.file.status).toBe('REJECTED');
+    expect(json.data.file.reject_reason).toBeUndefined();
+
+    // Verify it appears in Rejected Files tab
+    const rejectedReq = new Request('http://localhost:3000/api/admin/files?tab=rejected');
+    const rejectedRes = await FileController.listFiles(rejectedReq);
+    const rejectedJson = await rejectedRes.json();
+    const file3 = rejectedJson.data.files.find((f: any) => f.id === 3);
+    expect(file3).toBeDefined();
+    expect(file3.reject_reason).toBeUndefined();
   });
 
   // 6. A pending request cannot be approved twice
@@ -408,7 +573,8 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(res.status).toBe(201);
     expect(json.ok).toBe(true);
     expect(json.data.file.status).toBe('PENDING');
-    expect(json.data.message).toContain('awaiting administrator approval');
+    expect(json.data.pending).toBe(true);
+    expect(json.data.message).toContain('sent to the administrator for review');
   });
 
   // 8. Staff submission with approval disabled creates an APPROVED file directly
@@ -443,7 +609,8 @@ describe('Manage System Files — Full Workflow Suite', () => {
     expect(res.status).toBe(201);
     expect(json.ok).toBe(true);
     expect(json.data.file.status).toBe('APPROVED');
-    expect(json.data.message).toContain('File added successfully to the repository.');
+    expect(json.data.pending).toBe(false);
+    expect(json.data.message).toContain('added to the file repository successfully');
   });
 
   // 9. Changing approval setting persists

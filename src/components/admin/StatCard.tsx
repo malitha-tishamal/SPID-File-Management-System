@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import Skeleton from 'components/ui/Skeleton';
 
 export type StatTone = 'purple' | 'green' | 'blue' | 'red' | 'amber' | 'gray';
 
@@ -22,13 +23,14 @@ const TONE_ICON: Record<StatTone, string> = {
 };
 
 /** Shared KPI card for the directory pages. */
-export default function StatCard({
+function StatCard({
   icon: Icon,
   tone,
   label,
   value,
   pill,
   sub,
+  loading = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   tone: StatTone;
@@ -36,9 +38,13 @@ export default function StatCard({
   value: string | number;
   pill?: string;
   sub?: string;
+  loading?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none border border-slate-100 dark:border-navy-600">
+    <div
+      className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none border border-slate-100 dark:border-navy-600"
+      aria-busy={loading || undefined}
+    >
       <div
         className={`pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-gradient-to-b ${TONE_ICON[tone]} opacity-10`}
       />
@@ -52,8 +58,17 @@ export default function StatCard({
           <p className="truncate text-[11px] font-extrabold uppercase tracking-wider text-slate-800 dark:text-gray-300">
             {label}
           </p>
-          <p className="text-2xl font-black text-black dark:text-white leading-tight">{value}</p>
-          {sub && <p className="text-[11px] font-semibold text-slate-600 dark:text-gray-400 mt-0.5">{sub}</p>}
+          {loading ? (
+            <div className="mt-1.5 space-y-1.5">
+              <Skeleton className="h-6 w-16" />
+              {sub && <Skeleton className="h-2.5 w-24" rounded="sm" />}
+            </div>
+          ) : (
+            <>
+              <p className="text-2xl font-black text-black dark:text-white leading-tight">{value}</p>
+              {sub && <p className="text-[11px] font-semibold text-slate-600 dark:text-gray-400 mt-0.5">{sub}</p>}
+            </>
+          )}
         </div>
         {pill && (
           <span
@@ -66,3 +81,5 @@ export default function StatCard({
     </div>
   );
 }
+
+export default React.memo(StatCard);

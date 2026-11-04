@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   FiUser,
@@ -22,6 +22,9 @@ import {
 import { MdAdminPanelSettings, MdSecurity } from 'react-icons/md';
 import type { ProfileDTO, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
+import { formatSriLankaDate } from 'lib/datetime';
+import { useProfile } from 'contexts/ProfileContext';
+import Button from 'components/ui/Button';
 
 type ActiveTab = 'profile' | 'security';
 
@@ -32,9 +35,18 @@ interface ProfileFeedback {
   badge?: string;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
 export default function ProfileManagementPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
-  const [profile, setProfile] = useState<ProfileDTO | null>(null);
+  const {
+    profile: contextProfile,
+    avatarUrl,
+    setAvatar,
+    updateProfile,
+    refreshProfile,
+  } = useProfile();
+  const [profile, setProfile] = useState<ProfileDTO | null>(contextProfile);
   const [sections, setSections] = useState<SectionRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -55,7 +67,7 @@ export default function ProfileManagementPage() {
 
   // Avatar upload state
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(avatarUrl);
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [pendingAvatarBase64, setPendingAvatarBase64] = useState<string | null>(null);
   const [showAvatarConfirmModal, setShowAvatarConfirmModal] = useState(false);
@@ -64,30 +76,41 @@ export default function ProfileManagementPage() {
   // Modal feedback state
   const [feedback, setFeedback] = useState<ProfileFeedback | null>(null);
 
+  // Keep preview in sync with context avatarUrl when not selecting a pending image
+  useEffect(() => {
+    if (!pendingAvatarBase64) {
+      setAvatarPreview(avatarUrl);
+    }
+  }, [avatarUrl, pendingAvatarBase64]);
+
+  // Keep profile in sync with contextProfile
+  useEffect(() => {
+    if (contextProfile) {
+      setProfile(contextProfile);
+      setFullName((prev) => prev || contextProfile.full_name || '');
+      setSectionId((prev) => (prev !== null ? prev : contextProfile.section_id));
+      if (!phoneDigits && contextProfile.mobile_phone) {
+        const clean = contextProfile.mobile_phone.replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
+        setPhoneDigits(clean);
+      }
+    }
+  }, [contextProfile]);
+
   // Load profile and sections
   const loadData = async () => {
     setLoading(true);
     try {
-      try {
-        const storedAvatar = localStorage.getItem('spid_user_avatar');
-        if (storedAvatar) setAvatarPreview(storedAvatar);
-      } catch {}
-
-      const [meRes, secRes] = await Promise.all([
-        fetch('/api/auth/me'),
+      const [p, secRes] = await Promise.all([
+        refreshProfile(),
         fetch('/api/sections'),
       ]);
 
-      if (meRes.ok) {
-        const meJson = await meRes.json();
-        if (meJson.ok && meJson.data?.profile) {
-          const p = meJson.data.profile as ProfileDTO;
-          setProfile(p);
-          setFullName(p.full_name || '');
-          setSectionId(p.section_id);
-          const cleanPhone = (p.mobile_phone || '').replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
-          setPhoneDigits(cleanPhone);
-        }
+      if (p) {
+        setProfile(p);
+        setFullName(p.full_name || '');
+        setSectionId(p.section_id);
+        const cleanPhone = (p.mobile_phone || '').replace(/\D/g, '').replace(/^94/, '').replace(/^0/, '');
+        setPhoneDigits(cleanPhone);
       }
 
       if (secRes.ok) {
@@ -161,6 +184,13 @@ export default function ProfileManagementPage() {
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
+        if (json.data?.profile) {
+          const updated = json.data.profile as ProfileDTO;
+          // Saving contact details must never clear an existing avatar.
+          const normalized = { ...updated, avatar_url: updated.avatar_url ?? avatarUrl };
+          setProfile(normalized);
+          updateProfile(normalized);
+        }
         setFeedback({
           type: 'profile-success',
           badge: 'PROFILE SYNCHRONIZED',
@@ -168,7 +198,6 @@ export default function ProfileManagementPage() {
           description:
             'Official Southern Provincial Irrigation Department staff credentials and departmental registry allocation have been securely committed to the canonical registry.',
         });
-        loadData();
       } else {
         setFeedback({
           type: 'profile-error',
@@ -277,6 +306,17 @@ export default function ProfileManagementPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type) && !/\.(jpe?g|png|gif|webp)$/i.test(file.name)) {
+      setFeedback({
+        type: 'profile-error',
+        badge: 'UNSUPPORTED FORMAT',
+        title: 'Invalid File Format',
+        description: 'Please upload a supported image file. Supported formats: JPG, JPEG, PNG, GIF, WebP.',
+      });
+      e.target.value = '';
+      return;
+    }
+
     if (file.size > 2 * 1024 * 1024) {
       setFeedback({
         type: 'profile-error',
@@ -284,6 +324,7 @@ export default function ProfileManagementPage() {
         title: 'Image Too Large',
         description: 'The selected image exceeds the 2MB size limit. Please select a smaller photo.',
       });
+      e.target.value = '';
       return;
     }
 
@@ -293,6 +334,7 @@ export default function ProfileManagementPage() {
       if (base64) {
         setPendingAvatarFile(file);
         setPendingAvatarBase64(base64);
+        setAvatarPreview(base64);
         setShowAvatarConfirmModal(true);
       }
     };
@@ -300,9 +342,9 @@ export default function ProfileManagementPage() {
     e.target.value = '';
   };
 
-  // Confirm and persist avatar to server and client storage
+  // Confirm and persist avatar to server and shared context
   const confirmSaveAvatar = async () => {
-    if (!pendingAvatarFile || !pendingAvatarBase64) return;
+    if (!pendingAvatarFile) return;
 
     setAvatarUploading(true);
     try {
@@ -316,14 +358,25 @@ export default function ProfileManagementPage() {
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
-        setAvatarPreview(pendingAvatarBase64);
-        try {
-          localStorage.setItem('spid_user_avatar', pendingAvatarBase64);
-          window.dispatchEvent(new Event('spid_avatar_updated'));
-        } catch {}
+        const permanentUrl = json.data?.publicUrl || json.data?.profile?.avatar_url;
+        if (!permanentUrl) {
+          throw new Error('The server did not return a saved image URL.');
+        }
 
+        const serverProfile = json.data?.profile as ProfileDTO | undefined;
         const newUpdateIso = json?.data?.updated_at || new Date().toISOString();
-        setProfile((prev) => (prev ? { ...prev, updated_at: newUpdateIso } : null));
+        const savedProfile: ProfileDTO | null = serverProfile
+          ? { ...serverProfile, avatar_url: permanentUrl }
+          : profile
+          ? { ...profile, avatar_url: permanentUrl, updated_at: newUpdateIso }
+          : null;
+
+        setAvatar(permanentUrl);
+        setAvatarPreview(permanentUrl);
+        if (savedProfile) {
+          setProfile(savedProfile);
+          updateProfile(savedProfile);
+        }
 
         setShowAvatarConfirmModal(false);
         setPendingAvatarFile(null);
@@ -337,6 +390,11 @@ export default function ProfileManagementPage() {
             'Your official profile photograph has been successfully updated and synchronized across all SPID systems and directories.',
         });
       } else {
+        // Preserve previous avatar on upload failure
+        setShowAvatarConfirmModal(false);
+        setPendingAvatarFile(null);
+        setPendingAvatarBase64(null);
+        setAvatarPreview(avatarUrl);
         setFeedback({
           type: 'profile-error',
           badge: 'UPLOAD FAILED',
@@ -345,6 +403,11 @@ export default function ProfileManagementPage() {
         });
       }
     } catch {
+      // Preserve previous avatar on network error
+      setShowAvatarConfirmModal(false);
+      setPendingAvatarFile(null);
+      setPendingAvatarBase64(null);
+      setAvatarPreview(avatarUrl);
       setFeedback({
         type: 'profile-error',
         badge: 'NETWORK DISCREPANCY',
@@ -357,23 +420,52 @@ export default function ProfileManagementPage() {
   };
 
   const handleRemoveAvatar = async () => {
-    setAvatarPreview(null);
-    setPendingAvatarFile(null);
-    setPendingAvatarBase64(null);
-    setShowAvatarRemoveModal(false);
     try {
-      localStorage.removeItem('spid_user_avatar');
-      window.dispatchEvent(new Event('spid_avatar_updated'));
-    } catch {}
+      const res = await fetch('/api/profile/avatar', { method: 'DELETE' });
+      const json = await res.json().catch(() => null);
 
-    const nowIso = new Date().toISOString();
-    setProfile((prev) => (prev ? { ...prev, updated_at: nowIso } : null));
-    setFeedback({
-      type: 'profile-success',
-      badge: 'AVATAR REMOVED',
-      title: 'Profile Picture Reset',
-      description: 'Your profile picture has been reset to default initials.',
-    });
+      if (res.ok && json?.ok) {
+        setAvatarPreview(null);
+        setAvatar(null);
+        setPendingAvatarFile(null);
+        setPendingAvatarBase64(null);
+        setShowAvatarRemoveModal(false);
+
+        const nowIso = new Date().toISOString();
+        const clearedProfile = json.data?.profile
+          ? { ...(json.data.profile as ProfileDTO), avatar_url: null }
+          : profile
+          ? { ...profile, avatar_url: null, updated_at: nowIso }
+          : null;
+        if (clearedProfile) {
+          setProfile(clearedProfile);
+          updateProfile(clearedProfile);
+        }
+
+        setFeedback({
+          type: 'profile-success',
+          badge: 'AVATAR REMOVED',
+          title: 'Profile Picture Reset',
+          description: 'Your profile picture has been reset to default initials.',
+        });
+      } else {
+        setFeedback({
+          type: 'profile-error',
+          badge: 'RESET FAILED',
+          title: 'Failed to Remove Avatar',
+          description: json?.message || 'Could not remove your profile picture. Please try again.',
+        });
+        setShowAvatarRemoveModal(false);
+      }
+    } catch {
+      setFeedback({
+        type: 'profile-error',
+        badge: 'NETWORK DISCREPANCY',
+        title: 'Connection Error',
+        description: 'Could not connect to the profile service. Please check your network.',
+      });
+      setShowAvatarRemoveModal(false);
+    }
   };
 
   const displayName = profile?.full_name || 'Malitha Tishamal';
@@ -384,9 +476,7 @@ export default function ProfileManagementPage() {
   const formattedUpdateDate = useMemo(() => {
     const raw = profile?.updated_at || profile?.approved_at || profile?.created_at;
     if (!raw) return '—';
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatSriLankaDate(raw);
   }, [profile?.updated_at, profile?.approved_at, profile?.created_at]);
 
   return (
@@ -496,7 +586,12 @@ export default function ProfileManagementPage() {
                   <label className="flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-600 cursor-pointer transition-colors active:scale-95">
                     <FiUploadCloud className="h-4 w-4" />
                     <span>Upload New Avatar</span>
-                    <input type="file" accept="image/*" onChange={handleAvatarFile} className="hidden" />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      onChange={handleAvatarFile}
+                      className="hidden"
+                    />
                   </label>
                   <button
                     type="button"
@@ -523,8 +618,9 @@ export default function ProfileManagementPage() {
                       onClick={() => {
                         setPendingAvatarFile(null);
                         setPendingAvatarBase64(null);
+                        setAvatarPreview(avatarUrl);
                       }}
-                      className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -744,7 +840,7 @@ export default function ProfileManagementPage() {
           TAB 2: SECURITY & PASSWORD (IMAGE 2)
          ═══════════════════════════════════════════════════════════════════ */}
       {activeTab === 'security' && (
-        <div className="flex flex-col gap-5 max-w-4xl">
+        <div className="flex w-full flex-col gap-5">
           <div className="rounded-[24px] bg-white dark:bg-navy-700 p-6 sm:p-8 shadow-md shadow-shadow-500 dark:shadow-none border border-slate-100 dark:border-navy-600">
             {/* Header */}
             <div className="flex items-start justify-between pb-4 border-b border-gray-100 dark:border-navy-600">
@@ -798,15 +894,16 @@ export default function ProfileManagementPage() {
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
                     New Password <span className="text-red-500">*</span>
                   </label>
+                  <span className="text-[10px] text-slate-400">8–16 characters with mixed casing</span>
                 </div>
                 <div className="relative">
-                  <FiKey className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                  <FiLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
                   <input
                     type={showNewPassword ? 'text' : 'password'}
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter strong password (e.g. Kanneliya#Dams2025)"
+                    placeholder="Enter new strong password"
                     className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-10 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
                   />
                   <button
@@ -817,67 +914,69 @@ export default function ProfileManagementPage() {
                     {showNewPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                   </button>
                 </div>
+
+                {/* Password strength progress bar */}
+                {newPassword.length > 0 && (
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                      <span className="text-slate-400">Security Strength</span>
+                      <span
+                        className={
+                          passStrengthScore >= 4
+                            ? 'text-emerald-500'
+                            : passStrengthScore >= 3
+                            ? 'text-amber-500'
+                            : 'text-red-500'
+                        }
+                      >
+                        {passStrengthScore >= 4 ? 'EXCELLENT' : passStrengthScore >= 3 ? 'MODERATE' : 'WEAK'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[1, 2, 3, 4].map((step) => (
+                        <div
+                          key={step}
+                          className={`h-1.5 rounded-full transition-colors ${
+                            passStrengthScore >= step
+                              ? passStrengthScore >= 4
+                                ? 'bg-emerald-500'
+                                : passStrengthScore >= 3
+                                ? 'bg-amber-500'
+                                : 'bg-red-500'
+                              : 'bg-slate-200 dark:bg-navy-800'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Password Resilience Meter (Matching Screenshot 2) */}
-              <div>
-                <div className="flex items-center justify-between text-[11px] mb-1.5">
-                  <span className="font-bold text-slate-500">Password Resilience:</span>
-                  <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
-                    <FiShield className="h-3.5 w-3.5" />
-                    {passStrengthScore >= 3 ? 'Strong (Government Grade)' : passStrengthScore >= 2 ? 'Moderate' : 'Weak'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[1, 2, 3, 4].map((step) => (
-                    <div
-                      key={step}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${
-                        step <= passStrengthScore
-                          ? 'bg-emerald-500'
-                          : 'bg-slate-200 dark:bg-navy-800'
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                {/* 4 Criteria Checklist */}
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-xl bg-[#f8faff] dark:bg-navy-800 p-3 text-[11px]">
-                  <p className={`flex items-center gap-1.5 ${passCriteria.length ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least 8-16 characters
-                  </p>
-                  <p className={`flex items-center gap-1.5 ${passCriteria.upper ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least one uppercase letter (A-Z)
-                  </p>
-                  <p className={`flex items-center gap-1.5 ${passCriteria.digit ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least one numerical digit (0-9)
-                  </p>
-                  <p className={`flex items-center gap-1.5 ${passCriteria.special ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> Special symbol (@, #, $, %, etc.)
-                  </p>
-                </div>
-              </div>
-
-              {/* Confirm New Password */}
+              {/* Confirm Password */}
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
                     Confirm New Password <span className="text-red-500">*</span>
                   </label>
-                  {passwordsMatch && (
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                      <FiCheck className="h-3.5 w-3.5" /> Passwords match
+                  {confirmPassword.length > 0 && (
+                    <span
+                      className={`flex items-center gap-1 text-[10px] font-bold ${
+                        passwordsMatch ? 'text-emerald-500' : 'text-red-500'
+                      }`}
+                    >
+                      {passwordsMatch ? <FiCheck className="h-3 w-3" /> : <FiX className="h-3 w-3" />}
+                      {passwordsMatch ? 'Passwords Match' : 'Mismatch'}
                     </span>
                   )}
                 </div>
                 <div className="relative">
-                  <FiRefreshCw className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                  <FiLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
                   <input
                     type={showConfirmPassword ? 'text' : 'password'}
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter new password"
+                    placeholder="Repeat new password"
                     className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-10 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
                   />
                   <button
@@ -890,13 +989,28 @@ export default function ProfileManagementPage() {
                 </div>
               </div>
 
-              {/* Footer Actions */}
+              {/* Action Buttons */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-slate-100 dark:border-navy-600 pt-5">
+                <p className="text-[11px] font-medium text-slate-400">
+                  Password changes are logged in the SPID Immutable Security Audit Trail.
+                </p>
                 <div className="flex items-center gap-3">
                   <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                    }}
+                    disabled={savingPassword}
+                    className="rounded-xl bg-[#ff5a60] px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-red-600 transition-colors cursor-pointer"
+                  >
+                    Clear Fields
+                  </button>
+                  <button
                     type="submit"
-                    disabled={savingPassword || !passwordsMatch || passStrengthScore < 3}
-                    className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/25 hover:bg-brand-600 transition-colors disabled:opacity-50 cursor-pointer"
+                    disabled={savingPassword || passStrengthScore < 3 || !passwordsMatch}
+                    className="flex items-center gap-2 rounded-xl bg-[#4318FF] px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/25 hover:bg-brand-600 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {savingPassword ? (
                       <>
@@ -905,48 +1019,23 @@ export default function ProfileManagementPage() {
                       </>
                     ) : (
                       <>
-                        <FiRefreshCw className="h-4 w-4" />
-                        <span>Update Password &amp; Re-authenticate</span>
+                        <FiCheck className="h-4 w-4" />
+                        <span>Update Security Credentials</span>
                       </>
                     )}
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentPassword('');
-                      setNewPassword('');
-                      setConfirmPassword('');
-                    }}
-                    className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-navy-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-
-                <div className="text-[10px] font-mono font-bold text-slate-400">
-                  KEYID: SPID-SHA256-4089
                 </div>
               </div>
             </form>
           </div>
-
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          FEEDBACK MODALS (MATCHING IMAGES 3, 4, 5)
-         ═══════════════════════════════════════════════════════════════════ */}
+      {/* ── Glassmorphism Feedback Alert Modal ── */}
       {feedback && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-md animate-fadeIn"
-          onClick={() => setFeedback(null)}
-        >
-          <div
-            className="relative w-full max-w-md overflow-hidden rounded-[28px] bg-white p-7 sm:p-9 text-center shadow-2xl dark:bg-navy-700 border border-slate-100 dark:border-navy-600"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Tone-tinted ambient glow */}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="relative w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl dark:bg-navy-800 border border-slate-100 dark:border-navy-700 text-center animate-scaleUp overflow-hidden">
+            {/* Ambient background glow */}
             <div
               className={`pointer-events-none absolute -left-10 -top-12 h-44 w-44 rounded-full ${
                 feedback.type.includes('success') ? 'bg-emerald-400' : 'bg-red-400'
@@ -976,7 +1065,7 @@ export default function ProfileManagementPage() {
               )}
             </div>
 
-            {/* Badge Pill (e.g. PROFILE SYNCHRONIZED or AUTHENTICATION DISCREPANCY) */}
+            {/* Badge Pill */}
             {feedback.badge && (
               <div className="mt-4 flex justify-center">
                 <span
@@ -1017,6 +1106,7 @@ export default function ProfileManagementPage() {
                 setShowAvatarConfirmModal(false);
                 setPendingAvatarFile(null);
                 setPendingAvatarBase64(null);
+                setAvatarPreview(avatarUrl);
               }}
               className="absolute right-5 top-5 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-navy-700 dark:hover:text-white transition-colors cursor-pointer"
             >
@@ -1056,6 +1146,7 @@ export default function ProfileManagementPage() {
                   setShowAvatarConfirmModal(false);
                   setPendingAvatarFile(null);
                   setPendingAvatarBase64(null);
+                  setAvatarPreview(avatarUrl);
                 }}
                 className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
               >
@@ -1098,20 +1189,24 @@ export default function ProfileManagementPage() {
               Your profile picture will be removed and your avatar will revert to your name initials.
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
-              <button
+              <Button
                 type="button"
+                variant="cancel"
+                size="sm"
                 onClick={() => setShowAvatarRemoveModal(false)}
-                className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                className="flex-1"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="danger"
+                size="sm"
                 onClick={handleRemoveAvatar}
-                className="flex-1 rounded-2xl bg-red-600 hover:bg-red-700 py-2.5 text-xs font-bold text-white shadow-md shadow-red-600/20 transition-all cursor-pointer"
+                className="flex-1"
               >
                 Remove Photo
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useRef, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiShield } from 'react-icons/fi';
@@ -9,6 +9,8 @@ import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
 import { useToast } from 'components/toast/ToastContext';
 import { useProfile } from 'contexts/ProfileContext';
+import { markActivityNow } from 'lib/authSync';
+import { isValidEmailFormat } from 'validators/authValidators';
 import type { ApiErrorCode } from 'types/auth';
 
 const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string; text: string }> = {
@@ -30,12 +32,12 @@ const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string;
   inactivity: {
     type: 'warning',
     title: 'SESSION EXPIRED:',
-    text: 'You have been signed out due to 2 hours of inactivity. Please sign in again.',
+    text: 'Your session has expired due to 2 hours of inactivity. Please log in again to continue.',
   },
   unknown: {
     type: 'warning',
     title: 'SESSION EXPIRED:',
-    text: 'You have been signed out due to 2 hours of inactivity. Please sign in again.',
+    text: 'Your session has expired. Please log in again to continue.',
   },
   rejected: {
     type: 'error',
@@ -59,6 +61,13 @@ function SignInContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; title: string; text: string } | null>(null);
+  const errorBannerRef = useRef<HTMLDivElement>(null);
+
+  // Move focus to the alert so keyboard and screen-reader users hear the
+  // failure immediately instead of hunting for it further up the page.
+  useEffect(() => {
+    if (errorBanner) errorBannerRef.current?.focus();
+  }, [errorBanner]);
 
   // Arriving from middleware/session watchdog with a status denial, or forwarding recovery links
   useEffect(() => {
@@ -107,11 +116,19 @@ function SignInContent() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setErrorBanner(null);
 
     const inputEmail = email.trim();
     if (!inputEmail) {
       const msg = 'Please enter your official email address.';
+      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
+      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      return;
+    }
+
+    if (!isValidEmailFormat(inputEmail)) {
+      const msg = 'Please enter a valid email address (e.g. officer@spid.gov.lk).';
       setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
       showToast({ type: 'error', title: 'Validation Error', message: msg });
       return;
@@ -147,7 +164,7 @@ function SignInContent() {
         const msg: string = json.message || 'Invalid email or password.';
 
         if (code === 'LOGIN_LOCKED_OUT' && typeof json.remaining_seconds === 'number') {
-          // A permanent lock has no countdown â€” it only ends when an administrator clears it.
+          // A permanent lock has no countdown — it only ends when an administrator clears it.
           if (!json.permanent) {
             setLockoutSeconds(json.remaining_seconds);
           }
@@ -173,9 +190,27 @@ function SignInContent() {
       const destination =
         callbackUrl && callbackUrl.startsWith(allowedPrefix) ? callbackUrl : defaultDest;
 
+      // Start the inactivity clock at sign-in so the first heartbeat always
+      // has a fresh anchor instead of a stale value from a previous session.
+      markActivityNow();
+
       // Populate shared state immediately so the sidebar/navbar show the
       // authenticated user's own avatar without waiting for a page reload.
       applyProfile(profile);
+
+      // Broadcast login event to other tabs so they can redirect if showing a different account
+      try {
+        const channel = new BroadcastChannel('spid_auth_sync');
+        channel.postMessage({
+          type: 'LOGIN_SUCCESS',
+          userId: profile.id,
+          timestamp: Date.now(),
+        });
+        channel.close();
+      } catch (e) {
+        // BroadcastChannel not supported, localStorage sync will handle it
+        console.warn('[AuthSync] BroadcastChannel not available during login');
+      }
 
       showToast({
         type: 'success',
@@ -226,7 +261,12 @@ function SignInContent() {
           {/* Inline alert banner if error occurs */}
           {errorBanner && (
             <div
-              className={`mb-4 rounded-xl p-3 text-xs font-medium border ${
+              ref={errorBannerRef}
+              id="sign-in-error"
+              tabIndex={-1}
+              role={errorBanner.type === 'warning' ? 'status' : 'alert'}
+              aria-atomic="true"
+              className={`mb-4 rounded-xl p-3 text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 ${
                 errorBanner.type === 'warning'
                   ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                   : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
@@ -259,10 +299,15 @@ function SignInContent() {
                   id="email"
                   type="email"
                   required
+                  autoComplete="username"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  aria-describedby={errorBanner ? 'sign-in-error' : undefined}
+                  placeholder="Enter your email address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="officer@spid.gov.lk"
-                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
+                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 transition duration-150"
                 />
               </div>
             </div>
@@ -286,15 +331,18 @@ function SignInContent() {
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
+                  aria-describedby={errorBanner ? 'sign-in-error' : undefined}
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
-                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-400/90 dark:placeholder:text-slate-500 focus:placeholder-transparent border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
+                  className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 transition duration-150"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-pressed={showPassword}
+                  className="absolute right-3 rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
                   aria-label="Toggle password visibility"
                 >
                   {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
@@ -327,18 +375,24 @@ function SignInContent() {
             {/* Sign In Button */}
             <button
               type="submit"
-              disabled={isLoading}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
+              disabled={isLoading || lockoutSeconds > 0}
+              aria-busy={isLoading}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isLoading ? (
-                <span>Authenticating...</span>
+                <span>Signing In...</span>
+              ) : lockoutSeconds > 0 ? (
+                <span>Locked — retry in {lockoutSeconds}s</span>
               ) : (
                 <>
-                  <span>Sign In to Portal</span>
+                  <span>Sign In</span>
                   <FiArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
+            <p role="status" aria-live="polite" className="sr-only">
+              {isLoading ? 'Signing in, please wait.' : ''}
+            </p>
           </form>
 
           {/* Registration link & Security badge */}
@@ -364,7 +418,7 @@ function SignInContent() {
 
             <div className="mt-4 flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-navy-900/60 px-3 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-navy-700">
               <FiShield className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>Official Government Record Portal â€¢ 256-Bit SSL Secured</span>
+              <span>Official Government Record Portal • 256-Bit SSL Secured</span>
             </div>
           </div>
         </div>

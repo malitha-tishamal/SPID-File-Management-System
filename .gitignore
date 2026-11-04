@@ -83,3 +83,8 @@ Thumbs.db
 gitignoredfiles/
 /gitignoredfiles/
 
+
+.lighthouseci/
+test-results/
+playwright-report/
+*.md
