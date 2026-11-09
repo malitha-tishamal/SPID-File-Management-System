@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiLogOut, FiX } from 'react-icons/fi';
 import Modal from 'components/ui/Modal';
 import Button from 'components/ui/Button';
@@ -16,6 +17,7 @@ export default function ConfirmLogoutModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('profile');
   return (
     <Modal
       open={isOpen}
@@ -33,7 +35,7 @@ export default function ConfirmLogoutModal({
         type="button"
         onClick={onCancel}
         disabled={loading}
-        aria-label="Close"
+        aria-label={t('common:buttons.close')}
         className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100/80 dark:hover:bg-navy-700 dark:hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
       >
         <FiX className="h-4 w-4" />
@@ -54,10 +56,10 @@ export default function ConfirmLogoutModal({
         id="logout-confirm-title"
         className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-2.5"
       >
-        Confirm Logout
+        {t('logout.title')}
       </h3>
       <p className="mx-auto max-w-sm text-sm sm:text-base font-medium leading-relaxed text-slate-500 dark:text-slate-300">
-        Are you sure you want to log out of your account?
+        {t('logout.message')}
       </p>
 
       {/* Action buttons */}
@@ -69,18 +71,18 @@ export default function ConfirmLogoutModal({
           disabled={loading}
           className="flex-1"
         >
-          Cancel
+          {t('common:buttons.cancel')}
         </Button>
         <Button
           type="button"
           variant="danger"
           onClick={onConfirm}
           loading={loading}
-          loadingText="Logging out..."
+          loadingText={t('logout.loading')}
           icon={<FiLogOut className="h-4 w-4" />}
           className="flex-1"
         >
-          Logout
+          {t('logout.confirm')}
         </Button>
       </div>
     </Modal>

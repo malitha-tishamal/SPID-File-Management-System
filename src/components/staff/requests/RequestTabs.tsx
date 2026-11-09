@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiActivity, FiCheckCircle, FiClock, FiXCircle } from 'react-icons/fi';
 import {
   STAFF_REQUEST_TABS,
@@ -36,6 +37,7 @@ interface RequestTabsProps {
  * pattern.
  */
 export default function RequestTabs({ activeTab, counts, onChange }: RequestTabsProps) {
+  const { t } = useTranslation('requests');
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const moveTo = (index: number) => {
@@ -63,7 +65,7 @@ export default function RequestTabs({ activeTab, counts, onChange }: RequestTabs
   return (
     <div
       role="tablist"
-      aria-label="Request status"
+      aria-label={t('tabs.aria')}
       className="mb-4 flex flex-wrap items-center gap-2"
     >
       {STAFF_REQUEST_TABS.map((tab, index) => {
@@ -91,7 +93,7 @@ export default function RequestTabs({ activeTab, counts, onChange }: RequestTabs
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
-            <span className="whitespace-nowrap">{tab.label}</span>
+            <span className="whitespace-nowrap">{t(`tabs.${tab.id}`)}</span>
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                 isActive ? 'bg-[#3311CC] text-white' : TAB_BADGE_IDLE[tab.id]

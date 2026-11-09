@@ -12,6 +12,7 @@ import {
   MdAdminPanelSettings,
   MdCategory,
   MdAssignment,
+  MdSecurity,
 } from 'react-icons/md';
 import { FiFileText } from 'react-icons/fi';
 
@@ -64,6 +65,12 @@ const routes = [
     layout: '/admin',
     icon: <MdAssignment className="h-5 w-5" />,
     path: 'staff-file-request',
+  },
+  {
+    name: 'Security Logs',
+    layout: '/admin',
+    icon: <MdSecurity className="h-5 w-5" />,
+    path: 'security-logs',
   },
   {
     name: 'Sign In',

@@ -7,11 +7,14 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   FiAlertCircle,
   FiCalendar,
   FiCheckCircle,
   FiChevronDown,
+  FiClock,
   FiFileText,
   FiFlag,
   FiFolder,
@@ -23,8 +26,10 @@ import {
 } from 'react-icons/fi';
 import { useToast } from 'components/toast/ToastContext';
 import { useProfile } from 'contexts/ProfileContext';
+import CompetingBadge from 'components/requests/CompetingBadge';
+import type { CompetingInfo } from 'lib/competing-requests';
 import type { ProfileDTO } from 'types/auth';
-import { formatSriLankaDate } from 'lib/datetime';
+import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
 import {
   classifyPendingPriority,
   type OwnPendingRequest,
@@ -33,6 +38,8 @@ import {
 import RequestPriorityDialog, {
   type RequestPriorityDialogState,
 } from 'components/staff/requests/RequestPriorityDialog';
+import AttributedUser from 'components/ui/AttributedUser';
+import { attributedNameText } from 'utils/userDisplay';
 
 type ArchiveFile = {
   id: number;
@@ -58,6 +65,7 @@ type RequestPriority = 'HIGH' | 'NORMAL' | 'LOW';
 
 const requestPriorities: {
   value: RequestPriority;
+  /** i18n key, resolved with `t()` at render time. */
   label: string;
   description: string;
   iconClass: string;
@@ -65,24 +73,24 @@ const requestPriorities: {
 }[] = [
   {
     value: 'HIGH',
-    label: 'High',
-    description: 'Urgent — please prioritize',
+    label: 'common:priority.HIGH',
+    description: 'page.priorityHighHint',
     iconClass: 'text-rose-600 dark:text-rose-400',
     selectedClass:
       'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30',
   },
   {
     value: 'NORMAL',
-    label: 'Normal',
-    description: 'Standard processing',
+    label: 'common:priority.NORMAL',
+    description: 'page.priorityNormalHint',
     iconClass: 'text-amber-500 dark:text-amber-400',
     selectedClass:
       'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30',
   },
   {
     value: 'LOW',
-    label: 'Low',
-    description: 'When convenient',
+    label: 'common:priority.LOW',
+    description: 'page.priorityLowHint',
     iconClass: 'text-blue-600 dark:text-blue-400',
     selectedClass:
       'border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30',
@@ -104,12 +112,14 @@ const labelClass =
 const cardClass =
   'rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_4px_18px_rgba(28,45,90,0.045)] dark:border-navy-700 dark:bg-navy-800 sm:p-6';
 
-function getLocation(file: ArchiveFile) {
+function getLocation(file: ArchiveFile, t: TFunction) {
   return [
-    file.archive_repository || 'Central Record Room',
-    file.locker_no ? `Locker ${file.locker_no}` : null,
-    file.shelf_name ? `Shelf ${file.shelf_name}` : null,
-    file.shelf_position ? `${file.shelf_position} Position` : null,
+    file.archive_repository || t('page.locationFallback'),
+    file.locker_no ? t('page.locationLocker', { no: file.locker_no }) : null,
+    file.shelf_name ? t('page.locationShelf', { name: file.shelf_name }) : null,
+    file.shelf_position
+      ? t('page.locationPosition', { position: file.shelf_position })
+      : null,
   ]
     .filter(Boolean)
     .join(' — ');
@@ -132,6 +142,7 @@ function HighlightMatch({ text, term }: { text: string; term: string }) {
 }
 
 export default function StaffRequestFilePage() {
+  const { t } = useTranslation('requests');
   const { showToast } = useToast();
   const { profile: contextProfile } = useProfile();
   const [profile, setProfile] = useState<ProfileDTO | null>(contextProfile);
@@ -155,13 +166,32 @@ export default function StaffRequestFilePage() {
       file_id: number;
       file_no: string;
       requester_name: string;
+      /** Soft-delete marker from migration 0027; undefined on older deployments. */
+      requester_is_deleted?: boolean;
       requester_section: string | null;
       request_date: string;
       duration_days: number;
       priority: RequestPriority;
       created_at: string;
+      /** Rank the API assigns inside the pending group for this file. */
+      competing?: CompetingInfo | null;
     }[];
     own_pending?: OwnPendingRequest | null;
+    /**
+     * The live issuance for this file, read from the approved request row that
+     * has not been returned. Null when the folder is physically available.
+     */
+    issuance?: {
+      request_id: number;
+      file_no: string;
+      file_name: string;
+      holder_id?: string | null;
+      holder_name: string;
+      /** Soft-delete marker for the current holder; undefined on older deployments. */
+      holder_is_deleted?: boolean;
+      issued_at: string | null;
+      expected_return_date: string | null;
+    } | null;
   } | null>(null);
   const [checkingCompeting, setCheckingCompeting] = useState(false);
   const [ownPending, setOwnPending] = useState<OwnPendingRequest | null>(null);
@@ -201,7 +231,7 @@ export default function StaffRequestFilePage() {
         });
         const json = (await res.json()) as ApiResult<{ files: ArchiveFile[] }>;
         if (!res.ok || !json.ok)
-          throw new Error(json.message || 'Unable to search the file index.');
+          throw new Error(json.message || t('feedback.indexSearchFailed'));
 
         setResults(json.data?.files ?? []);
         setShowResults(true);
@@ -209,7 +239,7 @@ export default function StaffRequestFilePage() {
         if (error instanceof Error && error.name !== 'AbortError') {
           showToast({
             type: 'error',
-            title: 'File search failed',
+            title: t('feedback.fileSearchFailedTitle'),
             message: error.message,
           });
         }
@@ -240,7 +270,7 @@ export default function StaffRequestFilePage() {
         });
         const json = (await res.json()) as ApiResult<{ files: ArchiveFile[] }>;
         if (!res.ok || !json.ok)
-          throw new Error(json.message || 'Unable to search the file index.');
+          throw new Error(json.message || t('feedback.indexSearchFailed'));
 
         setNameResults(json.data?.files ?? []);
         setShowNameResults(true);
@@ -248,7 +278,7 @@ export default function StaffRequestFilePage() {
         if (error instanceof Error && error.name !== 'AbortError') {
           showToast({
             type: 'error',
-            title: 'File name search failed',
+            title: t('feedback.fileNameSearchFailedTitle'),
             message: error.message,
           });
         }
@@ -288,13 +318,13 @@ export default function StaffRequestFilePage() {
     if (!requestDate) return '';
     const date = new Date(`${requestDate}T00:00:00`);
     date.setDate(date.getDate() + durationDays);
-    if (Number.isNaN(date.getTime())) return 'Beyond supported calendar range';
+    if (Number.isNaN(date.getTime())) return t('page.calendarRange');
     return date.toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
     });
-  }, [requestDate, durationDays]);
+  }, [requestDate, durationDays, t]);
 
   const selectFile = useCallback((file: ArchiveFile) => {
     setSelectedFile(file);
@@ -337,21 +367,24 @@ export default function StaffRequestFilePage() {
         const res = await fetch(`/api/staff/requestable-files?${params}`);
         const json = (await res.json()) as ApiResult<{ files: ArchiveFile[] }>;
         if (!res.ok || !json.ok) {
-          throw new Error(json.message || 'Unable to load the selected file.');
+          throw new Error(json.message || t('feedback.loadSelectedFileFailed'));
         }
         const file = json.data?.files.find(
           (candidate) => candidate.file_no.toLowerCase() === fileNo.toLowerCase(),
         );
         if (!file) {
-          throw new Error('This file is no longer available to request.');
+          throw new Error(t('feedback.fileNoLongerAvailable'));
         }
         if (!cancelled) selectFile(file);
       } catch (error) {
         if (!cancelled) {
           showToast({
             type: 'error',
-            title: 'Unable to select file',
-            message: error instanceof Error ? error.message : 'Please search for the file again.',
+            title: t('feedback.selectFileFailedTitle'),
+            message:
+              error instanceof Error
+                ? error.message
+                : t('feedback.searchFileAgain'),
           });
         }
       } finally {
@@ -485,7 +518,7 @@ export default function StaffRequestFilePage() {
       }>;
       if (!res.ok || !json.ok) {
         if (openConflictDialog(json.conflict, file, priority)) return;
-        throw new Error(json.message || 'Could not submit your request.');
+        throw new Error(json.message || t('feedback.submitFailed'));
       }
 
       if (json.data?.upgraded) {
@@ -496,18 +529,16 @@ export default function StaffRequestFilePage() {
       } else {
         showToast({
           type: 'success',
-          title: 'Request sent',
-          message:
-            json.data?.message ||
-            'Your request has been sent to the administrator.',
+          title: t('feedback.requestSentTitle'),
+          message: json.data?.message || t('feedback.requestSentBody'),
         });
       }
       resetForm();
     } catch (error) {
       showToast({
         type: 'error',
-        title: 'Request not submitted',
-        message: error instanceof Error ? error.message : 'Please try again.',
+        title: t('feedback.requestNotSubmittedTitle'),
+        message: error instanceof Error ? error.message : t('feedback.tryAgain'),
       });
     } finally {
       submittingRef.current = false;
@@ -523,16 +554,16 @@ export default function StaffRequestFilePage() {
     if (!selectedFile) {
       showToast({
         type: 'warning',
-        title: 'Select a file',
-        message: 'Search the archive and choose a registered file first.',
+        title: t('feedback.selectFileTitle'),
+        message: t('feedback.selectFileBody'),
       });
       return;
     }
     if (!Number.isSafeInteger(durationDays) || durationDays < 1) {
       showToast({
         type: 'warning',
-        title: 'Check the requested duration',
-        message: 'Enter a positive whole-number duration.',
+        title: t('feedback.checkDurationTitle'),
+        message: t('feedback.checkDurationBody'),
       });
       return;
     }
@@ -570,10 +601,10 @@ export default function StaffRequestFilePage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="mb-2 text-[11px] font-medium text-slate-400">
-            Pages <span className="mx-1.5">/</span> Record Room{' '}
+            {t('page.pages')} <span className="mx-1.5">/</span> {t('page.recordRoom')}{' '}
             <span className="mx-1.5">/</span>{' '}
             <span className="text-slate-600 dark:text-slate-300">
-              Request File
+              {t('page.requestFileBreadcrumb')}
             </span>
           </p>
           <div className="flex items-center gap-3">
@@ -582,17 +613,17 @@ export default function StaffRequestFilePage() {
             </span>
             <div>
               <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">
-                Request a File
+                {t('page.requestFileTitle')}
               </h1>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Submit a request to access a physical record from the archive.
+                {t('page.requestFileSubtitle')}
               </p>
             </div>
           </div>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Requests
-          require administrator approval
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{' '}
+          {t('page.approvalNotice')}
         </div>
       </div>
 
@@ -602,7 +633,7 @@ export default function StaffRequestFilePage() {
           className="mb-4 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs font-semibold text-indigo-700 dark:border-navy-600 dark:bg-navy-800 dark:text-brand-300"
         >
           <FiRefreshCw className="h-4 w-4 animate-spin" />
-          Loading selected file…
+          {t('page.loadingSelectedFile')}
         </div>
       )}
 
@@ -613,10 +644,10 @@ export default function StaffRequestFilePage() {
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700 dark:text-brand-300">
                 <FiShield />
               </span>
-              Session &amp; Staff Identification
+              {t('page.staffIdentificationTitle')}
             </h2>
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <FiCheckCircle /> Auto-Verified
+              <FiCheckCircle /> {t('page.autoVerified')}
             </span>
           </div>
           {profileError ? (
@@ -629,7 +660,7 @@ export default function StaffRequestFilePage() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className={labelClass}>Requesting Staff Name</label>
+                <label className={labelClass}>{t('page.staffNameLabel')}</label>
                 <div className="relative">
                   <input
                     className={`${inputClass} pr-10`}
@@ -637,14 +668,14 @@ export default function StaffRequestFilePage() {
                     value={
                       profile
                         ? `${profile.full_name} (${profile.email})`
-                        : 'Loading your staff profile…'
+                        : t('page.loadingProfile')
                     }
                   />
                   <FiUser className="absolute right-3 top-3.5 text-slate-400" />
                 </div>
               </div>
               <div>
-                <label className={labelClass}>Staff Role / Section</label>
+                <label className={labelClass}>{t('page.staffRoleLabel')}</label>
                 <div className="relative">
                   <input
                     className={`${inputClass} pr-10`}
@@ -656,7 +687,7 @@ export default function StaffRequestFilePage() {
                               ? ` / ${profile.section_name}`
                               : ''
                           }`
-                        : 'Loading your staff profile…'
+                        : t('page.loadingProfile')
                     }
                   />
                   <FiFolder className="absolute right-3 top-3.5 text-slate-400" />
@@ -672,16 +703,17 @@ export default function StaffRequestFilePage() {
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-navy-700 dark:text-blue-300">
                 <FiFolder />
               </span>
-              File Information
+              {t('page.fileInfoTitle')}
             </h2>
             <span className="text-[10px] font-medium text-slate-400">
-              Physical Archive Index
+              {t('page.physicalArchiveIndex')}
             </span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1.1fr_1fr]">
             <div className="relative" ref={fileNoBoxRef}>
               <label className={labelClass}>
-                File No / File Name <span className="text-rose-500">*</span>
+                {t('page.fileNoOrNameLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
@@ -710,7 +742,7 @@ export default function StaffRequestFilePage() {
                       setShowResults,
                     )
                   }
-                  placeholder="Search File No or File Name"
+                  placeholder={t('page.fileNoOrNamePlaceholder')}
                   autoComplete="off"
                   role="combobox"
                   aria-autocomplete="list"
@@ -737,10 +769,10 @@ export default function StaffRequestFilePage() {
                 }`}
               >
                 {selectedFile
-                  ? '✓ Registered file verified in index'
+                  ? t('page.fileVerifiedHint')
                   : search.trim().length > 0 && search.trim().length < 2
-                  ? 'Enter a file number or name to search'
-                  : 'Search by file number or name; matching is not case-sensitive'}
+                  ? t('page.fileSearchShortHint')
+                  : t('page.fileSearchHint')}
               </p>
               {showResults && results.length > 0 && (
                 <div
@@ -763,7 +795,10 @@ export default function StaffRequestFilePage() {
                           : 'hover:bg-slate-50 dark:hover:bg-navy-700'
                       }`}
                     >
-                      <span className="block text-xs font-bold text-[#4318FF] dark:text-brand-300">
+                      <span
+                        className="block break-words text-xs font-bold text-[#4318FF] dark:text-brand-300 [overflow-wrap:anywhere]"
+                        title={file.file_no}
+                      >
                         <HighlightMatch text={file.file_no} term={search} />
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-slate-500">
@@ -779,13 +814,14 @@ export default function StaffRequestFilePage() {
                 results.length === 0 &&
                 !selectedFile && (
                   <p className="mt-1.5 text-[10px] text-slate-400">
-                    No approved matching files found.
+                    {t('page.noMatchingFiles')}
                   </p>
                 )}
             </div>
             <div className="relative" ref={fileNameBoxRef}>
               <label className={labelClass}>
-                File Name <span className="text-rose-500">*</span>
+                {t('page.fileNameLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
@@ -811,7 +847,7 @@ export default function StaffRequestFilePage() {
                       setShowNameResults,
                     )
                   }
-                  placeholder="Search or enter file name"
+                  placeholder={t('page.fileNamePlaceholder')}
                   autoComplete="off"
                   role="combobox"
                   aria-autocomplete="list"
@@ -832,7 +868,7 @@ export default function StaffRequestFilePage() {
                 )}
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400">
-                Auto-filled from archive — type to search, click a result to fill
+                {t('page.fileNameHint')}
               </p>
               {showNameResults && nameResults.length > 0 && (
                 <div
@@ -872,45 +908,48 @@ export default function StaffRequestFilePage() {
                 nameResults.length === 0 &&
                 !(selectedFile && selectedFile.file_name === fileName) && (
                   <p className="mt-1.5 text-[10px] text-slate-400">
-                    No approved matching files found.
+                    {t('page.noMatchingFiles')}
                   </p>
                 )}
             </div>
             <div>
               <label className={labelClass}>
-                Section / Department <span className="text-rose-500">*</span>
+                {t('page.sectionLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
                   className={`${inputClass} pr-10`}
                   readOnly
                   value={selectedFile?.section_name ?? ''}
-                  placeholder="Auto-filled from file index"
+                  placeholder={t('page.sectionPlaceholder')}
                 />
                 <FiFolder className="absolute right-3 top-3.5 text-slate-400" />
               </div>
               <p className="mt-1.5 text-[10px] text-slate-400">
-                Custodial department
+                {t('page.sectionHint')}
               </p>
             </div>
           </div>
           <div className="mt-4">
             <label className={labelClass}>
-              Physical Storage Location <span className="text-rose-500">*</span>
+              {t('page.storageLabel')} <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <input
                 className={`${inputClass} pr-10`}
                 readOnly
-                value={selectedFile ? getLocation(selectedFile) : ''}
-                placeholder="Auto-filled from registered archive location"
+                value={selectedFile ? getLocation(selectedFile, t) : ''}
+                placeholder={t('page.storagePlaceholder')}
               />
               <FiChevronDown className="absolute right-3 top-3.5 text-slate-400" />
             </div>
             {selectedFile && (
               <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-400">
-                <FiMapPin /> Registered physical coordinates:{' '}
-                {getLocation(selectedFile)}
+                <FiMapPin />{' '}
+                {t('page.storageCoordinates', {
+                  location: getLocation(selectedFile, t),
+                })}
               </p>
             )}
           </div>
@@ -922,16 +961,17 @@ export default function StaffRequestFilePage() {
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-50 text-purple-600 dark:bg-navy-700 dark:text-purple-300">
                 <FiCalendar />
               </span>
-              Request Date &amp; Access Duration
+              {t('page.scheduleTitle')}
             </h2>
             <span className="text-[10px] font-medium text-slate-400">
-              Standard Circulation Protocol
+              {t('page.protocol')}
             </span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="request-date" className={labelClass}>
-                Request Access Date <span className="text-rose-500">*</span>
+                {t('page.accessDateLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <input
                 id="request-date"
@@ -943,12 +983,13 @@ export default function StaffRequestFilePage() {
                 required
               />
               <p className="mt-1.5 text-[10px] text-slate-400">
-                Date on which the physical file is required at the desk
+                {t('page.accessDateHint')}
               </p>
             </div>
             <div>
               <label htmlFor="duration" className={labelClass}>
-                Requested Duration <span className="text-rose-500">*</span>
+                {t('page.durationLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -963,30 +1004,30 @@ export default function StaffRequestFilePage() {
                 />
                 <select
                   className={inputClass}
-                  aria-label="Duration unit"
+                  aria-label={t('page.durationUnitAria')}
                   value={durationUnit}
                   onChange={(event) =>
                     setDurationUnit(event.target.value as DurationUnit)
                   }
                 >
-                  <option value="days">Days (Standard Checkout)</option>
-                  <option value="weeks">Weeks (7 days per week)</option>
-                  <option value="months">Months (30 days per month)</option>
+                  <option value="days">{t('page.unitDays')}</option>
+                  <option value="weeks">{t('page.unitWeeks')}</option>
+                  <option value="months">{t('page.unitMonths')}</option>
                 </select>
               </div>
               <div className="mt-1.5 flex justify-between gap-2 text-[10px] text-slate-400">
                 <span>
-                  Expected return date:{' '}
+                  {t('page.expectedReturnLabel')}{' '}
                   <strong className="text-slate-600 dark:text-slate-300">
                     {expectedReturnDate}
                   </strong>
                 </span>
                 <span>
                   {durationUnit === 'weeks'
-                    ? '7 days per week'
+                    ? t('page.daysPerWeek')
                     : durationUnit === 'months'
-                    ? '30 days per month'
-                    : 'Standard checkout'}
+                    ? t('page.daysPerMonth')
+                    : t('page.standardCheckout')}
                 </span>
               </div>
             </div>
@@ -1000,7 +1041,7 @@ export default function StaffRequestFilePage() {
                 <div className="flex-1 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-sm font-extrabold text-slate-800 dark:text-white">
-                      You already have a pending request for this file
+                      {t('page.pendingTitle')}
                     </h4>
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
@@ -1012,20 +1053,117 @@ export default function StaffRequestFilePage() {
                       }`}
                     >
                       <FiFlag className="h-3 w-3" />
-                      {ownPending.priority} Priority
+                      {t('page.priorityChip', {
+                        priority: t(`common:priority.${ownPending.priority}`),
+                      })}
                     </span>
                   </div>
                   <p className="mt-1 text-slate-600 dark:text-slate-300">
-                    Only one pending request per file is allowed. The same or a
-                    lower priority is blocked; choosing a higher priority
-                    cancels this request and replaces it after you confirm.
+                    {t('page.pendingBody')}
                   </p>
                   <a
                     href="/staff/your-requests?tab=pending"
                     className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-[#4318FF] underline-offset-2 hover:underline dark:text-brand-300"
                   >
-                    Review your pending request
+                    {t('page.reviewPendingLink')}
                   </a>
+                </div>
+              </div>
+            </div>
+          )}
+          {competingData?.issuance && (
+            <div
+              role="alert"
+              className="mt-5 rounded-2xl border border-rose-300 bg-rose-50/85 p-4 shadow-sm dark:border-rose-800/70 dark:bg-rose-950/40"
+            >
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                  <FiAlertCircle className="h-5 w-5" />
+                </span>
+                <div className="flex-1 text-xs">
+                  <h4 className="text-sm font-extrabold text-rose-800 dark:text-rose-200">
+                    {t('page.unavailableTitle')}
+                  </h4>
+                  <p className="mt-1 font-semibold text-rose-900 dark:text-rose-100">
+                    {t('page.unavailableBody', {
+                      name: attributedNameText(
+                        competingData.issuance.holder_name,
+                        {
+                          deleted: competingData.issuance.holder_is_deleted,
+                          label: t('common:deletedUser'),
+                        },
+                      ),
+                    })}
+                    {competingData.issuance.expected_return_date ? (
+                      <span className="block mt-0.5 text-rose-800 dark:text-rose-200 font-medium">
+                        <Trans
+                          ns="requests"
+                          i18nKey="page.availableFrom"
+                          values={{
+                            date: formatSriLankaDate(
+                              `${String(
+                                competingData.issuance.expected_return_date,
+                              ).slice(0, 10)}T00:00:00Z`,
+                            ),
+                          }}
+                          components={{ b: <strong /> }}
+                        />
+                      </span>
+                    ) : null}
+                  </p>
+
+                  <div className="mt-3 grid gap-2.5 rounded-xl border border-rose-200/70 bg-white/85 p-3 sm:grid-cols-2 dark:border-rose-900/50 dark:bg-navy-900/70">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                        {t('page.fileNumber')}
+                      </p>
+                      <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                        {competingData.issuance.file_no}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                        {t('page.currentHolder')}
+                      </p>
+                      <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                        <AttributedUser
+                          name={competingData.issuance.holder_name}
+                          deleted={competingData.issuance.holder_is_deleted}
+                        />
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                        {t('page.issuedDate')}
+                      </p>
+                      <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                        {competingData.issuance.issued_at
+                          ? formatSriLankaDateTime(
+                              competingData.issuance.issued_at,
+                            )
+                          : t('page.issuedDateMissing')}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                        {t('page.expectedAvailableDate')}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-1.5 font-bold text-slate-800 dark:text-white">
+                        <FiClock className="h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden="true" />
+                        {competingData.issuance.expected_return_date
+                          ? formatSriLankaDate(
+                              `${String(
+                                competingData.issuance.expected_return_date,
+                              ).slice(0, 10)}T00:00:00Z`,
+                            )
+                          : t('page.expectedReturnMissing')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-2.5 text-[11px] font-semibold text-rose-800 dark:text-rose-200">
+                    {t('page.unavailableNote')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1039,14 +1177,14 @@ export default function StaffRequestFilePage() {
                 <div className="flex-1 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-sm font-extrabold text-amber-950 dark:text-amber-200">
-                      Active Competing Request Notice
+                      {t('page.competingTitle')}
                     </h4>
                     <span className="rounded-full bg-amber-200/80 px-2.5 py-0.5 text-[10px] font-extrabold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
-                      {competingData.count} {competingData.count === 1 ? 'Pending Request' : 'Pending Requests'}
+                      {t('page.competingCount', { count: competingData.count })}
                     </span>
                   </div>
                   <p className="mt-1 text-slate-700 dark:text-slate-300">
-                    This file has already been requested by another staff member. Please note the current requested priority:
+                    {t('page.competingBody')}
                   </p>
                   <div className="mt-2.5 space-y-2 rounded-xl bg-white/80 p-3 dark:bg-navy-900/80 border border-amber-200/60 dark:border-navy-700">
                     {competingData.requests.map((cr, idx) => (
@@ -1056,33 +1194,48 @@ export default function StaffRequestFilePage() {
                       >
                         <div>
                           <span className="font-bold text-slate-800 dark:text-white">
-                            {cr.requester_name}
+                            <AttributedUser
+                              name={cr.requester_name}
+                              deleted={cr.requester_is_deleted}
+                            />
                           </span>{' '}
                           <span className="text-slate-500 dark:text-slate-400">
-                            ({cr.requester_section || 'Staff'})
+                            ({cr.requester_section || t('page.staffFallback')})
                           </span>
                           <span className="mx-1.5 text-slate-300 dark:text-slate-600">•</span>
                           <span className="text-slate-500 dark:text-slate-400">
-                            Needed on {formatSriLankaDate(cr.request_date)} ({cr.duration_days} {cr.duration_days === 1 ? 'day' : 'days'})
+                            {t('page.neededOn', {
+                              date: formatSriLankaDate(cr.request_date),
+                              duration: t('common:datetime.days', {
+                                count: cr.duration_days,
+                              }),
+                            })}
                           </span>
                         </div>
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
-                            cr.priority === 'HIGH'
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                              : cr.priority === 'NORMAL'
-                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                          }`}
-                        >
-                          <FiFlag className="h-3 w-3" />
-                          {cr.priority} Priority
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+                              cr.priority === 'HIGH'
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                : cr.priority === 'NORMAL'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                            }`}
+                          >
+                            <FiFlag className="h-3 w-3" />
+                            {t('page.priorityChip', {
+                              priority: t(`common:priority.${cr.priority}`),
+                            })}
+                          </span>
+                          {/* Rank wording comes from the shared helper, so this
+                              notice and the admin queue never disagree. */}
+                          <CompetingBadge info={cr.competing} />
+                        </div>
                       </div>
                     ))}
                   </div>
                   <p className="mt-2.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                    ℹ️ You can still proceed and submit your request. Both requests will be evaluated by the administrator based on operational priority and urgency.
+                    {t('page.competingNote')}
                   </p>
                 </div>
               </div>
@@ -1090,7 +1243,7 @@ export default function StaffRequestFilePage() {
           )}
 
           <fieldset className="mt-5 border-t border-slate-100 pt-4 dark:border-navy-700">
-            <legend className={labelClass}>Request Priority</legend>
+            <legend className={labelClass}>{t('page.priorityLegend')}</legend>
             <div className="grid gap-3 sm:grid-cols-3">
               {requestPriorities.map((item) => (
                 <label
@@ -1115,18 +1268,17 @@ export default function StaffRequestFilePage() {
                   />
                   <span>
                     <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                      {item.label}
+                      {t(item.label)}
                     </span>
                     <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
-                      {item.description}
+                      {t(item.description)}
                     </span>
                   </span>
                 </label>
               ))}
             </div>
             <p className="mt-2 text-[10px] text-slate-400">
-              Administrators use this priority to help decide which requests to
-              fulfill first.
+              {t('page.priorityHint')}
             </p>
           </fieldset>
         </section>
@@ -1138,7 +1290,7 @@ export default function StaffRequestFilePage() {
             disabled={submitting}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300"
           >
-            <FiRefreshCw /> Reset Form
+            <FiRefreshCw /> {t('page.resetForm')}
           </button>
           <button
             type="submit"
@@ -1151,7 +1303,7 @@ export default function StaffRequestFilePage() {
             ) : (
               <FiCheckCircle />
             )}{' '}
-            {submitting ? 'Submitting…' : 'Submit Request'}
+            {submitting ? t('page.submitting') : t('page.submitRequest')}
           </button>
         </div>
       </form>

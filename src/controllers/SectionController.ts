@@ -4,6 +4,7 @@ import { SectionRepository } from 'models/SectionRepository';
 import type { SectionRow, SectionStatus } from 'models/SectionRepository';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
+import { TranslationService } from 'services/TranslationService';
 
 import { invalidatePublicSectionsCache } from 'lib/sectionsCacheStore';
 import {
@@ -106,6 +107,7 @@ export class SectionController {
     } catch {}
 
     invalidateSectionsCache();
+    void new TranslationService(admin).warm([section.name]);
     return jsonOk({ section, message: `Section "${name}" has been created.` }, 201);
   }
 
@@ -161,6 +163,7 @@ export class SectionController {
     } catch {}
 
     invalidateSectionsCache();
+    void new TranslationService(admin).warm([updated.name]);
     return jsonOk({ section: updated, message: `Section "${updated.name}" has been updated.` });
   }
 
@@ -178,11 +181,13 @@ export class SectionController {
     const target = await repo.findById(id);
     if (!target) throw new ApiError(404, 'NOT_FOUND', 'Section not found.');
 
-    // Check if any profiles reference this section
+    // Check if any active profiles reference this section. Soft-deleted
+    // accounts keep their records but must not block section cleanup.
     const { count } = await admin
       .from('profiles')
       .select('id', { count: 'exact', head: true })
-      .eq('section_id', id);
+      .eq('section_id', id)
+      .eq('is_deleted', false);
 
     if (count && count > 0) {
       throw new ApiError(

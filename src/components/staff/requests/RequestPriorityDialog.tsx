@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from 'react-i18next';
 import {
   FiAlertTriangle,
   FiArrowUp,
@@ -12,10 +13,7 @@ import {
 import Modal from 'components/ui/Modal';
 import Button from 'components/ui/Button';
 import type { StaffRequestPriority } from 'lib/staffRequests';
-import {
-  REQUEST_CONFLICT_MESSAGES,
-  type OwnPendingRequest,
-} from 'lib/staffRequestPriority';
+import type { OwnPendingRequest } from 'lib/staffRequestPriority';
 
 export type RequestPriorityDialogState =
   | { kind: 'duplicate'; existing: OwnPendingRequest }
@@ -28,10 +26,11 @@ export type RequestPriorityDialogState =
     }
   | { kind: 'success'; fileNo: string };
 
+/** Keys, not copy: the label is resolved with `t()` at render time. */
 const priorityLabel: Record<StaffRequestPriority, string> = {
-  HIGH: 'High',
-  NORMAL: 'Normal',
-  LOW: 'Low',
+  HIGH: 'common:priority.HIGH',
+  NORMAL: 'common:priority.NORMAL',
+  LOW: 'common:priority.LOW',
 };
 
 const priorityChipClass: Record<StaffRequestPriority, string> = {
@@ -42,12 +41,13 @@ const priorityChipClass: Record<StaffRequestPriority, string> = {
 };
 
 function PriorityChip({ priority }: { priority: StaffRequestPriority }) {
+  const { t } = useTranslation('requests');
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black ${priorityChipClass[priority]}`}
     >
       <FiFlag aria-hidden="true" className="h-3 w-3" />
-      {priorityLabel[priority]}
+      {t(priorityLabel[priority])}
     </span>
   );
 }
@@ -71,6 +71,7 @@ export default function RequestPriorityDialog({
   onConfirmUpgrade,
 }: RequestPriorityDialogProps) {
   const router = useRouter();
+  const { t } = useTranslation('requests');
 
   const viewMyRequests = () => {
     onClose();
@@ -83,20 +84,20 @@ export default function RequestPriorityDialog({
   const isUpgrade = state.kind === 'upgrade';
 
   const title = isSuccess
-    ? 'Priority Upgraded Successfully'
+    ? t('priorityDialog.successTitle')
     : state.kind === 'duplicate'
-      ? 'Request Already Exists'
+      ? t('priorityDialog.duplicateTitle')
       : state.kind === 'blocked'
-        ? 'Active Request Already Exists'
-        : 'Upgrade Request Priority?';
+        ? t('priorityDialog.blockedTitle')
+        : t('priorityDialog.upgradeTitle');
 
   const description = isSuccess
-    ? REQUEST_CONFLICT_MESSAGES.upgraded
+    ? t('priorityDialog.upgradedBody')
     : state.kind === 'duplicate'
-      ? REQUEST_CONFLICT_MESSAGES.duplicate
+      ? t('priorityDialog.duplicateBody')
       : state.kind === 'blocked'
-        ? REQUEST_CONFLICT_MESSAGES.lowerPriority
-        : REQUEST_CONFLICT_MESSAGES.upgrade;
+        ? t('priorityDialog.lowerPriorityBody')
+        : t('priorityDialog.upgradeBody');
 
   const icon = isSuccess ? (
     <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -122,7 +123,7 @@ export default function RequestPriorityDialog({
           type="button"
           onClick={onClose}
           disabled={processing}
-          aria-label="Close dialog"
+          aria-label={t('priorityDialog.closeAria')}
           className="absolute -right-1 -top-1 cursor-pointer rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-navy-700 dark:hover:text-white"
         >
           <FiX className="h-4 w-4" />
@@ -146,22 +147,25 @@ export default function RequestPriorityDialog({
         {state.kind === 'upgrade' && (
           <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-3.5 text-left dark:border-navy-700 dark:bg-navy-900/60">
             <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-2 text-[11px]">
-              <dt className="font-bold text-slate-400">File Number</dt>
-              <dd className="truncate font-bold text-slate-800 dark:text-white">
+              <dt className="font-bold text-slate-400">{t('page.fileNumber')}</dt>
+              <dd
+                className="min-w-0 truncate font-bold text-slate-800 dark:text-white"
+                title={state.file.file_no}
+              >
                 {state.file.file_no}
               </dd>
-              <dt className="font-bold text-slate-400">File Name</dt>
+              <dt className="font-bold text-slate-400">{t('table.fileName')}</dt>
               <dd
                 className="truncate font-semibold text-slate-700 dark:text-slate-200"
                 title={state.file.file_name}
               >
                 {state.file.file_name}
               </dd>
-              <dt className="font-bold text-slate-400">Current Priority</dt>
+              <dt className="font-bold text-slate-400">{t('priorityDialog.currentPriority')}</dt>
               <dd>
                 <PriorityChip priority={state.existing.priority} />
               </dd>
-              <dt className="font-bold text-slate-400">New Priority</dt>
+              <dt className="font-bold text-slate-400">{t('priorityDialog.newPriority')}</dt>
               <dd className="flex items-center gap-2">
                 <FiArrowUp
                   aria-hidden="true"
@@ -182,16 +186,16 @@ export default function RequestPriorityDialog({
                 disabled={processing}
                 fullWidth
               >
-                Keep Existing Request
+                {t('priorityDialog.keepExisting')}
               </Button>
               <Button
                 variant="warning"
                 onClick={onConfirmUpgrade}
                 loading={processing}
-                loadingText="Submitting..."
+                loadingText={t('priorityDialog.submitting')}
                 fullWidth
               >
-                Cancel Previous &amp; Submit New
+                {t('priorityDialog.cancelAndSubmit')}
               </Button>
             </>
           ) : (
@@ -202,10 +206,10 @@ export default function RequestPriorityDialog({
                 disabled={processing}
                 fullWidth
               >
-                Close
+                {t('common:buttons.close')}
               </Button>
               <Button variant="primary" onClick={viewMyRequests} fullWidth>
-                View My Requests
+                {t('priorityDialog.viewMyRequests')}
               </Button>
             </>
           )}

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 const ROWS = 8;
 
@@ -24,12 +25,13 @@ const COL_CONFIGS = [
 ] as const;
 
 export default function FilesTableSkeleton({ columns = 10 }: { columns?: number }) {
+  const { t } = useTranslation('files');
   const cols = COL_CONFIGS.slice(0, Math.min(columns, COL_CONFIGS.length));
 
   return (
     <div
       role="status"
-      aria-label="Loading file records"
+      aria-label={t('table.loadingRecords')}
       aria-busy={true}
       className="w-full overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xs dark:border-navy-700 dark:bg-navy-800"
     >
@@ -86,7 +88,7 @@ export default function FilesTableSkeleton({ columns = 10 }: { columns?: number 
         </div>
       </div>
 
-      <span className="sr-only">Loading file records, please wait…</span>
+      <span className="sr-only">{t('table.loadingRecordsWait')}</span>
     </div>
   );
 }

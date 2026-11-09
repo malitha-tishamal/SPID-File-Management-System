@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Trans, useTranslation } from 'react-i18next';
+import { localiseFieldErrors, localiseMessage } from 'i18n/uiText';
 import {
   FiUser,
   FiMail,
@@ -25,10 +27,19 @@ import { validateRegistration, getPasswordStrength } from 'validators/authValida
 import type { UserRole } from 'types/auth';
 import { useToast } from 'components/toast/ToastContext';
 
+const STRENGTH_KEY: Record<number, string> = {
+  0: 'notEntered',
+  1: 'weak',
+  2: 'fair',
+  3: 'good',
+  4: 'strong',
+};
+
 function RegisterPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
+  const { t } = useTranslation('auth');
 
   const roleParam = searchParams.get('role');
   const initialRole: UserRole = roleParam && /admin/i.test(roleParam) ? 'Administrator' : 'Staff';
@@ -78,16 +89,16 @@ function RegisterPageContent() {
           console.error('Invalid sections response:', json);
           showToast({
             type: 'error',
-            title: 'Load Failed',
-            message: 'Could not load section list. Please refresh the page.',
+            title: t('register.loadFailedTitle'),
+            message: t('register.loadFailedMessage'),
           });
         }
       } catch (error) {
         console.error('Error loading sections:', error);
         showToast({
           type: 'error',
-          title: 'Load Failed',
-          message: 'Could not load section list. Please refresh the page.',
+          title: t('register.loadFailedTitle'),
+          message: t('register.loadFailedMessage'),
         });
       } finally {
         setLoadingSections(false);
@@ -95,7 +106,7 @@ function RegisterPageContent() {
     };
 
     loadSections();
-  }, [showToast]);
+  }, [showToast, t]);
 
   // Real-time Phone Number Formatter & Cleaner (Enforces 9 digits after +94, stripping leading 0)
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -148,6 +159,8 @@ function RegisterPageContent() {
     return errs;
   }, [role, name, email, division, phoneDigits, password, confirmPassword, agreeProtocols]);
 
+  const localisedErrors = useMemo(() => localiseFieldErrors(errors), [errors]);
+
   const markTouched = (field: string) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
   };
@@ -171,10 +184,10 @@ function RegisterPageContent() {
     // Check if there are any errors
     const errorKeys = Object.keys(errors);
     if (errorKeys.length > 0) {
-      const firstError = errors[errorKeys[0]];
+      const firstError = localisedErrors[errorKeys[0]];
       showToast({
         type: 'error',
-        title: 'Validation Error',
+        title: t('register.validationTitle'),
         message: firstError,
         duration: 5000,
       });
@@ -205,8 +218,8 @@ function RegisterPageContent() {
         setIsLoading(false);
         showToast({
           type: 'error',
-          title: 'Registration Failed',
-          message: json.message || 'Failed to submit registration.',
+          title: t('register.registrationFailedTitle'),
+          message: localiseMessage(json.message || t('register.failedSubmit')),
           duration: 6000,
         });
         return;
@@ -217,9 +230,8 @@ function RegisterPageContent() {
       // Real-time toast notifying that account is pending approval
       showToast({
         type: 'warning',
-        title: 'Account Status: PENDING APPROVAL',
-        message:
-          'Registration submitted successfully! Your account is pending administrator approval before you can access the system.',
+        title: t('register.pendingToastTitle'),
+        message: t('register.pendingToastMessage'),
         duration: 8000,
       });
 
@@ -234,8 +246,8 @@ function RegisterPageContent() {
       setIsLoading(false);
       showToast({
         type: 'error',
-        title: 'Registration Failed',
-        message: 'Could not reach the registration service. Please try again.',
+        title: t('register.registrationFailedTitle'),
+        message: t('register.unreachable'),
         duration: 5000,
       });
     }
@@ -256,17 +268,15 @@ function RegisterPageContent() {
           <div className="mb-6 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white" data-testid="registration-title">
-                {role === 'Administrator' ? 'Admin Registration' : 'Staff Registration'}
+                {t(role === 'Administrator' ? 'register.adminTitle' : 'register.staffTitle')}
               </h2>
               <span className="flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-950/50 px-2.5 py-0.5 text-xs font-semibold text-sky-800 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800">
                 <HiOutlineShieldCheck className="h-3.5 w-3.5 text-sky-600" />
-                Authorized Only
+                {t('register.authorizedOnly')}
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {role === 'Administrator'
-                ? 'Create an official administrator account to oversee irrigation archives and operations.'
-                : 'Create an official account to manage irrigation archives and dossiers.'}
+              {t(role === 'Administrator' ? 'register.adminSubtitle' : 'register.staffSubtitle')}
             </p>
           </div>
 
@@ -279,20 +289,35 @@ function RegisterPageContent() {
                     ⏳
                   </span>
                   <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
-                    Registration Submitted — Status: PENDING
+                    {t('register.submittedTitle')}
                   </p>
                 </div>
 
                 <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                  Thank you, <span className="font-semibold">{registeredPendingInfo.name}</span>. Your account request as{' '}
-                  <span className="font-semibold">{registeredPendingInfo.role}</span> (Reference #{registeredPendingInfo.id}) has been recorded.
+                  <Trans
+                    t={t}
+                    i18nKey="register.thankYou"
+                    values={{
+                      name: registeredPendingInfo.name,
+                      role: registeredPendingInfo.role,
+                      id: registeredPendingInfo.id,
+                    }}
+                    components={{
+                      name: <span className="font-semibold" />,
+                      role: <span className="font-semibold" />,
+                    }}
+                  />
                 </p>
 
                 <div className="mt-3 rounded-xl bg-white/70 dark:bg-navy-900/60 p-3 text-[11px] text-slate-700 dark:text-slate-300 border border-amber-200/50">
-                  <p className="font-semibold text-slate-800 dark:text-white">Next Steps:</p>
+                  <p className="font-semibold text-slate-800 dark:text-white">{t('register.nextSteps')}</p>
                   <p className="mt-0.5 text-slate-600 dark:text-slate-300">
-                    Department administrative personnel will verify your official credentials. Once verified, you will be able to log in with{' '}
-                    <span className="font-medium underline">{registeredPendingInfo.email}</span>.
+                    <Trans
+                      t={t}
+                      i18nKey="register.verifyText"
+                      values={{ email: registeredPendingInfo.email }}
+                      components={{ email: <span className="font-medium underline" /> }}
+                    />
                   </p>
                 </div>
               </div>
@@ -301,7 +326,7 @@ function RegisterPageContent() {
                 href="/auth/sign-in"
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db]"
               >
-                ← Return to Sign In Portal
+                ← {t('register.returnToSignIn')}
               </Link>
             </div>
           ) : (
@@ -312,10 +337,10 @@ function RegisterPageContent() {
                 <label className="mb-1.5 flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-200">
                   <span className="flex items-center gap-1">
                     <FiShield className="text-[#4318FF]" />
-                    User Role <span className="text-red-500">*</span>
+                    {t('register.userRole')} <span className="text-red-500">*</span>
                   </span>
                   <span className="text-[10px] font-medium text-slate-400">
-                    Default: Staff
+                    {t('register.defaultStaff')}
                   </span>
                 </label>
 
@@ -323,7 +348,7 @@ function RegisterPageContent() {
                   <button
                     type="button"
                     data-testid="role-staff-btn"
-                    aria-label="Select Staff Role"
+                    aria-label={t('register.selectStaffRole')}
                     onClick={() => setRole('Staff')}
                     className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 cursor-pointer ${
                       role === 'Staff'
@@ -332,14 +357,14 @@ function RegisterPageContent() {
                     }`}
                   >
                     <FiUser className="h-3.5 w-3.5" />
-                    <span>Staff</span>
+                    <span>{t('register.staffRole')}</span>
                     {role === 'Staff' && <FiCheck className="h-3 w-3" />}
                   </button>
 
                   <button
                     type="button"
                     data-testid="role-admin-btn"
-                    aria-label="Select Administrator Role"
+                    aria-label={t('register.selectAdminRole')}
                     onClick={() => setRole('Administrator')}
                     className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs font-semibold border transition duration-150 cursor-pointer ${
                       role === 'Administrator'
@@ -348,7 +373,7 @@ function RegisterPageContent() {
                     }`}
                   >
                     <FiShield className="h-3.5 w-3.5" />
-                    <span>Administrator</span>
+                    <span>{t('register.adminRole')}</span>
                     {role === 'Administrator' && <FiCheck className="h-3 w-3" />}
                   </button>
                 </div>
@@ -360,7 +385,7 @@ function RegisterPageContent() {
                   htmlFor="reg-name"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Full Legal Name <span className="text-red-500">*</span>
+                  {t('register.fullLegalName')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiUser className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -372,7 +397,7 @@ function RegisterPageContent() {
                     onChange={(e) => setName(e.target.value)}
                     onBlur={() => markTouched('name')}
                     autoComplete="name"
-                    placeholder="Enter your full name"
+                    placeholder={t('register.fullNamePlaceholder')}
                     className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.name && errors.name
                         ? 'border-red-400 focus:border-red-500'
@@ -383,7 +408,7 @@ function RegisterPageContent() {
                 {touched.name && errors.name && (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.name}
+                    {localisedErrors.name}
                   </p>
                 )}
               </div>
@@ -394,7 +419,7 @@ function RegisterPageContent() {
                   htmlFor="reg-email"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Official / Work Email <span className="text-red-500">*</span>
+                  {t('register.officialEmail')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiMail className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -406,7 +431,7 @@ function RegisterPageContent() {
                     onChange={(e) => setEmail(e.target.value)}
                     onBlur={() => markTouched('email')}
                     autoComplete="email"
-                    placeholder="Enter your email address"
+                    placeholder={t('register.emailPlaceholder')}
                     className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.email && errors.email
                         ? 'border-red-400 focus:border-red-500'
@@ -417,11 +442,11 @@ function RegisterPageContent() {
                 {touched.email && errors.email ? (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.email}
+                    {localisedErrors.email}
                   </p>
                 ) : (
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Recommended: Use your designated @spid.gov.lk domain
+                    {t('register.emailHint')}
                   </p>
                 )}
               </div>
@@ -432,7 +457,7 @@ function RegisterPageContent() {
                   htmlFor="reg-division"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Section <span className="text-red-500">*</span>
+                  {t('register.section')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiBriefcase className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -450,7 +475,7 @@ function RegisterPageContent() {
                     }`}
                   >
                     <option value="" disabled>
-                      {loadingSections ? 'Loading sections...' : 'Select Section'}
+                      {loadingSections ? t('register.loadingSections') : t('register.selectSection')}
                     </option>
                     {!loadingSections && divisions.length > 0 ? (
                       divisions.map((div) => (
@@ -461,7 +486,7 @@ function RegisterPageContent() {
                     ) : (
                       !loadingSections && (
                         <option value="" disabled>
-                          No sections available
+                          {t('register.noSections')}
                         </option>
                       )
                     )}
@@ -473,7 +498,7 @@ function RegisterPageContent() {
                 {touched.division && errors.division && (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.division}
+                    {localisedErrors.division}
                   </p>
                 )}
               </div>
@@ -485,10 +510,10 @@ function RegisterPageContent() {
                     htmlFor="reg-phone"
                     className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                   >
-                    Mobile Phone Number <span className="text-red-500">*</span>
+                    {t('register.mobilePhone')} <span className="text-red-500">*</span>
                   </label>
                   <span className="text-[10px] text-slate-400">
-                    9 digits without leading 0
+                    {t('register.phoneHint')}
                   </span>
                 </div>
                 <div
@@ -523,7 +548,7 @@ function RegisterPageContent() {
                 {touched.phone && errors.phone && (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.phone}
+                    {localisedErrors.phone}
                   </p>
                 )}
               </div>
@@ -534,7 +559,7 @@ function RegisterPageContent() {
                   htmlFor="reg-password"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Password <span className="text-red-500">*</span>
+                  {t('register.password')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiLock className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -546,7 +571,7 @@ function RegisterPageContent() {
                     onChange={(e) => setPassword(e.target.value)}
                     onBlur={() => markTouched('password')}
                     autoComplete="new-password"
-                    placeholder="Create a password"
+                    placeholder={t('register.passwordPlaceholder')}
                     className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.password && errors.password
                         ? 'border-red-400 focus:border-red-500'
@@ -559,7 +584,7 @@ function RegisterPageContent() {
                     aria-pressed={showPassword}
                     aria-controls="reg-password"
                     className="absolute right-3 cursor-pointer rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
-                    aria-label="Toggle password visibility"
+                    aria-label={t('register.togglePassword')}
                   >
                     {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                   </button>
@@ -576,9 +601,9 @@ function RegisterPageContent() {
                     </div>
                     <div className="flex items-center justify-between text-[10px]">
                       <span className={`font-semibold ${passwordStrength.text}`}>
-                        {passwordStrength.label}
+                        {t(`passwordStrength.${STRENGTH_KEY[passwordStrength.score]}`)}
                       </span>
-                      <span className="text-slate-400">Archival Standard</span>
+                      <span className="text-slate-400">{t('register.archivalStandard')}</span>
                     </div>
                   </div>
                 )}
@@ -586,7 +611,7 @@ function RegisterPageContent() {
                 {touched.password && errors.password && (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.password}
+                    {localisedErrors.password}
                   </p>
                 )}
               </div>
@@ -597,7 +622,7 @@ function RegisterPageContent() {
                   htmlFor="reg-confirmPassword"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Confirm Password <span className="text-red-500">*</span>
+                  {t('register.confirmPassword')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <RiLockPasswordLine className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -609,7 +634,7 @@ function RegisterPageContent() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     onBlur={() => markTouched('confirmPassword')}
                     autoComplete="new-password"
-                    placeholder="Confirm your password"
+                    placeholder={t('register.confirmPasswordPlaceholder')}
                     className={`w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border transition duration-150 focus:outline-none ${
                       touched.confirmPassword && errors.confirmPassword
                         ? 'border-red-400 focus:border-red-500'
@@ -622,7 +647,7 @@ function RegisterPageContent() {
                     aria-pressed={showConfirmPassword}
                     aria-controls="reg-confirmPassword"
                     className="absolute right-3 cursor-pointer rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
-                    aria-label="Toggle confirm password visibility"
+                    aria-label={t('register.toggleConfirmPassword')}
                   >
                     {showConfirmPassword ? (
                       <FiEyeOff className="h-4 w-4" />
@@ -634,12 +659,12 @@ function RegisterPageContent() {
                 {touched.confirmPassword && errors.confirmPassword ? (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.confirmPassword}
+                    {localisedErrors.confirmPassword}
                   </p>
                 ) : (
                   <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
                     <FiInfo className="h-3 w-3" />
-                    <span>Must match password</span>
+                    <span>{t('register.mustMatch')}</span>
                   </div>
                 )}
               </div>
@@ -655,14 +680,14 @@ function RegisterPageContent() {
                     className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#4318FF] focus:ring-[#4318FF]"
                   />
                   <span className="text-xs text-slate-600 dark:text-slate-300 leading-tight">
-                    I agree to the Department Data Protection &amp; Archival Security Protocols{' '}
+                    {t('register.agree')}{' '}
                     <span className="text-red-500 font-bold">*</span>
                   </span>
                 </label>
                 {touched.agree && errors.agree && (
                   <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                     <FiAlertCircle className="h-3 w-3" />
-                    {errors.agree}
+                    {localisedErrors.agree}
                   </p>
                 )}
               </div>
@@ -675,9 +700,9 @@ function RegisterPageContent() {
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 cursor-pointer"
               >
                 {isLoading ? (
-                  <span>Creating Account...</span>
+                  <span>{t('register.creatingAccount')}</span>
                 ) : (
-                  <span>Create Account</span>
+                  <span>{t('register.createAccount')}</span>
                 )}
               </button>
             </form>
@@ -686,12 +711,12 @@ function RegisterPageContent() {
           {/* Already have account link */}
           <div className="mt-6 text-center">
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Already have an account?{' '}
+              {t('register.alreadyHaveAccount')}{' '}
               <Link
                 href="/auth/sign-in"
                 className="inline-flex items-center gap-1 font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
               >
-                <span>Sign In</span>
+                <span>{t('register.signIn')}</span>
                 <FiArrowRight className="h-3 w-3" />
               </Link>
             </p>
@@ -705,9 +730,16 @@ function RegisterPageContent() {
   );
 }
 
+function RegisterPageFallback() {
+  const { t } = useTranslation('auth');
+  return (
+    <div className="min-h-screen flex items-center justify-center">{t('register.loading')}</div>
+  );
+}
+
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+    <Suspense fallback={<RegisterPageFallback />}>
       <RegisterPageContent />
     </Suspense>
   );

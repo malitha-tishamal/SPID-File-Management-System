@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { FiX } from 'react-icons/fi';
 
 const FOCUSABLE_SELECTOR =
@@ -46,6 +47,7 @@ export default function FileModalShell({
   children: React.ReactNode;
 }) {
   const titleId = useId();
+  const { t } = useTranslation('files');
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // Rendered through a portal: a transformed ancestor (e.g. a table using
@@ -137,12 +139,13 @@ export default function FileModalShell({
               {headerMeta}
               <h2
                 id={titleId}
-                className="text-base font-bold leading-snug text-navy-800 dark:text-white sm:text-lg"
+                className="break-words text-base font-bold leading-snug text-navy-800 dark:text-white [overflow-wrap:anywhere] sm:text-lg"
+                title={typeof title === 'string' ? title : undefined}
               >
                 {title}
               </h2>
               {subtitle ? (
-                <div className="mt-0.5 text-xs font-medium leading-relaxed text-slate-400 dark:text-gray-400">
+                <div className="mt-0.5 break-words text-xs font-medium leading-relaxed text-slate-400 dark:text-gray-400 [overflow-wrap:anywhere]">
                   {subtitle}
                 </div>
               ) : null}
@@ -153,7 +156,7 @@ export default function FileModalShell({
             type="button"
             onClick={requestClose}
             disabled={closeDisabled}
-            aria-label="Close dialog"
+            aria-label={t('modals.closeDialog')}
             className="shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-navy-700 dark:hover:text-white dark:focus-visible:ring-offset-navy-800"
           >
             <FiX className="h-5 w-5" />

@@ -116,6 +116,76 @@ describe('Excel Template Generation (SPID_Bulk_Import_Sample.xlsx)', () => {
     expect(rows.length).toBeGreaterThan(1);
     expect(rows[1][0]).toBe('PDI/26/101');
   });
+
+  it('keeps the Admin template columns in their original order', () => {
+    const wb = XLSX.read(generateBulkImportTemplate(undefined, true), {
+      type: 'array',
+    });
+    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets['File Import Template'], {
+      header: 1,
+      defval: '',
+    });
+
+    expect(rows[0]).toEqual([
+      'File No *',
+      'File Name *',
+      'Section *',
+      'Start Date (YYYY-MM-DD) *',
+      'End Date (YYYY-MM-DD) *',
+      'Locker No',
+      'Shelf Name',
+      'Shelf Position',
+      'Total Pages',
+      'Minute Sheets Count',
+    ]);
+    // Admin sample rows still carry location data
+    expect(rows[1].slice(5, 8)).toEqual(['L-101', 'Shelf A', 'Front']);
+  });
+
+  it('omits Locker No, Shelf Name and Shelf Position from the Staff template', () => {
+    const wb = XLSX.read(generateBulkImportTemplate(undefined, false), {
+      type: 'array',
+    });
+    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets['File Import Template'], {
+      header: 1,
+      defval: '',
+    });
+
+    expect(rows[0]).toEqual([
+      'File No *',
+      'File Name *',
+      'Section *',
+      'Start Date (YYYY-MM-DD) *',
+      'End Date (YYYY-MM-DD) *',
+      'Total Pages',
+      'Minute Sheets Count',
+    ]);
+    expect(rows[0]).not.toContain('Locker No');
+    expect(rows[0]).not.toContain('Shelf Name');
+    expect(rows[0]).not.toContain('Shelf Position');
+
+    // Sample rows shift left by the three removed columns
+    expect(rows[1]).toEqual([
+      'PDI/26/101',
+      'Kalu Ganga River Basin Survey',
+      'Irrigation Planning, Design & Feasibility',
+      '2024-01-01',
+      '2026-12-31',
+      45,
+      8,
+    ]);
+
+    // Instructions sheet must not document the location fields either
+    const instructions: any[][] = XLSX.utils.sheet_to_json(wb.Sheets['Instructions'], {
+      header: 1,
+      defval: '',
+    });
+    const flat = instructions.map((r) => r.join(' | ')).join('\n');
+    expect(flat).not.toContain('Locker No');
+    expect(flat).not.toContain('Shelf Name');
+    expect(flat).not.toContain('Shelf Position');
+    expect(flat).toContain('Total Pages');
+  });
 });
 
 describe('File Parser & Import Validation', () => {
@@ -134,6 +204,34 @@ describe('File Parser & Import Validation', () => {
     expect(first.start_date).toBe('2024-01-01');
     expect(first.end_date).toBe('2026-12-31');
     expect(first.shelf_position).toBe('Front');
+  });
+
+  it('imports the Staff template without location columns as unset storage', async () => {
+    const sections = [
+      'Administration & Human Resources Division',
+      'Irrigation Planning, Design & Feasibility',
+      'Water Management, Operations & Hydrology',
+      'Engineering Central Registry & Archive Records',
+      'Finance, Accounts & Procurement',
+    ];
+
+    const buffer = generateBulkImportTemplate(sections, false);
+
+    const result = await parseAndValidateImportBuffer(buffer.buffer as ArrayBuffer, sections);
+
+    expect(result.missingRequiredHeaders).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+    expect(result.isValid).toBe(true);
+    expect(result.validRows).toHaveLength(3);
+
+    // No locker/shelf values are invented for Staff rows
+    expect(result.validRows[0].locker_no).toBeNull();
+    expect(result.validRows[0].shelf_name).toBeNull();
+    expect(result.validRows[0].shelf_position).toBeNull();
+    // Remaining columns still resolve to the right fields
+    expect(result.validRows[0].page_numbers).toBe(45);
+    expect(result.validRows[0].minute_sheets_count).toBe(8);
+    expect(result.validRows[2].file_no).toBe('PDI/26/103');
   });
 
   it('rejects files missing required headers', async () => {

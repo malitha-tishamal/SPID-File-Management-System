@@ -1,0 +1,36 @@
+{
+  "menu": {
+    "dashboard": "Dashboard",
+    "default": "Dashboard",
+    "manage-system-files": "Manage System Files",
+    "issued-files": "Issued Files",
+    "add-new-file": "Add New File",
+    "admin-management": "Admin Management",
+    "users": "User Management",
+    "section-management": "Section Management",
+    "staff-file-request": "Staff File Request",
+    "files": "View & Search Files",
+    "request-file": "Request a File",
+    "your-requests": "Your Requests",
+    "profile": "Profile",
+    "sign-in": "Sign In",
+    "security-logs": "Security Logs"
+  },
+  "brand": {
+    "spid": "SPID",
+    "fileManagement": "File Management",
+    "archiveTagline": "Secure Archival System",
+    "registry": "Central Registry & Dossiers"
+  },
+  "navbar": {
+    "brandText": "Dashboard",
+    "languageLabel": "Language",
+    "languageMenu": "Change display language",
+    "switchToEnglish": "Switch to English",
+    "switchToSinhala": "සිංහලට මාරු වන්න",
+    "openProfile": "Open Profile Management",
+    "sidebarLabel": "Sidebar navigation",
+    "staffSidebarLabel": "Staff sidebar navigation",
+    "adminSidebarLabel": "Admin sidebar navigation"
+  }
+}

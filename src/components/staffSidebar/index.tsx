@@ -2,9 +2,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import Image from 'next/image';
+import AppLogo from 'components/brand/AppLogo';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useTranslation } from 'react-i18next';
 import NavLink from 'components/link/NavLink';
 import DashIcon from 'components/icons/DashIcon';
 import { FiSettings, FiLogOut } from 'react-icons/fi';
@@ -27,6 +28,7 @@ export default function StaffSidebar(props: {
 }) {
   const { routes, open, setOpen } = props;
   const pathname = usePathname();
+  const { t } = useTranslation();
   const { profile, avatarUrl, clearProfile } = useProfile();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -50,7 +52,7 @@ export default function StaffSidebar(props: {
     window.location.href = '/auth/sign-in';
   };
 
-  const displayName = profile?.full_name || 'SPID Staff';
+  const displayName = profile?.full_name || t('common:misc.staffFallback');
   const displayRole = profile?.role || 'Staff';
 
   const getInitials = (name: string) => {
@@ -81,7 +83,7 @@ export default function StaffSidebar(props: {
 
       {/* ── Sidebar Container ── */}
       <aside
-        aria-label="Staff sidebar navigation"
+        aria-label={t('nav:navbar.staffSidebarLabel')}
         className={`fixed !z-50 flex min-h-full flex-col bg-white pb-0 shadow-2xl shadow-slate-300/40 transition-transform duration-300 ease-in-out dark:!bg-navy-800 dark:text-white dark:shadow-navy-950 md:!z-50 lg:!z-50 xl:!z-30 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -90,22 +92,18 @@ export default function StaffSidebar(props: {
         {/* ── SPID Logo & Brand with Toggle Button ── */}
         <div className="mx-5 mt-6 flex items-center justify-between gap-2">
           <Link href="/staff/default" className="flex items-center gap-3 min-w-0 group">
-            <div className="h-12 w-12 rounded-full bg-white p-1 shadow-md border border-slate-200/80 flex items-center justify-center shrink-0 dark:bg-navy-900 dark:border-navy-700 group-hover:scale-105 transition-transform">
-              <Image
-                width={80}
-                height={80}
-                priority
-                src="/img/spid/spid-logo.png"
-                alt="SPID Logo"
-                className="h-full w-full object-contain select-none"
-              />
-            </div>
+            <AppLogo
+              size="md"
+              priority
+              alt={t('shell:sidebar.logoAlt')}
+              className="shadow-md transition-transform group-hover:scale-105"
+            />
             <div className="flex flex-col leading-tight min-w-0">
               <span className="text-[13px] font-black uppercase text-navy-700 dark:text-white tracking-tight truncate">
                 SPID
               </span>
               <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider truncate">
-                File Management
+                {t('nav:brand.fileManagement')}
               </span>
             </div>
           </Link>
@@ -150,9 +148,9 @@ export default function StaffSidebar(props: {
                       {route.icon ? route.icon : <DashIcon />}
                     </span>
                     <p
-                      className={`text-sm font-bold leading-tight truncate ${isActive ? 'text-white' : 'text-slate-800 dark:text-gray-200'}`}
+                      className={`min-w-0 break-words text-sm font-bold leading-snug ${isActive ? 'text-white' : 'text-slate-800 dark:text-gray-200'}`}
                     >
-                      {route.name}
+                      {t(`nav:menu.${route.path}`, route.name)}
                     </p>
                   </div>
 
@@ -171,7 +169,7 @@ export default function StaffSidebar(props: {
           <Link
             href="/staff/profile"
             className="flex items-center justify-between gap-2.5 px-3 py-2.5 mx-3 mb-3 rounded-2xl bg-[#F4F7FE] dark:bg-navy-700/60 border border-slate-100 dark:border-navy-600 transition-all hover:bg-slate-100 dark:hover:bg-navy-700 cursor-pointer group shadow-sm"
-            title="Open Profile Management"
+            title={t('nav:navbar.openProfile')}
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-10 w-10 shrink-0 rounded-full bg-gradient-to-tr from-[#4318FF] to-[#3B82F6] overflow-hidden flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform border border-slate-200/50 dark:border-navy-600">
@@ -192,7 +190,10 @@ export default function StaffSidebar(props: {
                   {displayName}
                 </p>
                 <p className="text-[10px] font-extrabold text-[#4318FF] dark:text-brand-300 uppercase tracking-wider">
-                  {displayRole}
+                  {t(
+                    `common:roles.${String(displayRole).toLowerCase().startsWith('admin') ? 'ADMIN' : 'STAFF'}`,
+                    displayRole,
+                  )}
                 </p>
               </div>
             </div>
@@ -208,7 +209,7 @@ export default function StaffSidebar(props: {
               onClick={() => setShowLogoutConfirm(true)}
               className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#FF5B5B] to-[#FF4757] py-3 text-sm font-bold text-white shadow-md shadow-red-500/25 transition-all hover:opacity-95 active:scale-[0.99]"
             >
-              LOG OUT
+              {t('common:buttons.logout').toUpperCase()}
               <FiLogOut className="h-4 w-4 ml-1" />
             </button>
           </div>

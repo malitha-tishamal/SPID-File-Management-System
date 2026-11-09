@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useTranslation } from 'react-i18next';
 import { FiLock, FiEye, FiEyeOff, FiCheckCircle, FiAlertCircle } from 'react-icons/fi';
 import { RiRestartLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
@@ -14,6 +15,7 @@ import {
   PASSWORD_SPECIAL_CHARS,
 } from 'validators/authValidators';
 import { parseJwtPayload, isRecoverySession } from 'lib/session';
+import { localiseMessage } from 'i18n/uiText';
 
 type PageState = 'checking' | 'form' | 'invalid' | 'done';
 
@@ -25,17 +27,22 @@ interface RecoveryLinkSession {
 const RESET_SCREEN = '/auth/reset-password';
 const SESSION_POLL_ATTEMPTS = 24;
 const SESSION_POLL_INTERVAL_MS = 250;
-const EXPIRED_REASON =
-  'This password reset link is invalid or has expired. Please request a new one.';
-const COULD_NOT_VERIFY_REASON =
-  'We could not verify your reset link. Please request a new one.';
-const SIGNED_IN_REASON =
-  'You are already signed in. This page only accepts links sent by the password reset email — please use "Forgot Password?" to request a new link.';
-const CODE_UNUSABLE_REASON =
-  'This reset link could not be verified in this browser. It may have expired or been opened on a different device. Please request a new link and open it in the same browser.';
+const EXPIRED_REASON = 'resetPassword.reasons.expired';
+const COULD_NOT_VERIFY_REASON = 'resetPassword.reasons.couldNotVerify';
+const SIGNED_IN_REASON = 'resetPassword.reasons.signedIn';
+const CODE_UNUSABLE_REASON = 'resetPassword.reasons.codeUnusable';
+
+const STRENGTH_KEY: Record<number, string> = {
+  0: 'notEntered',
+  1: 'weak',
+  2: 'fair',
+  3: 'good',
+  4: 'strong',
+};
 
 export default function ResetPasswordPage() {
   const { showToast } = useToast();
+  const { t } = useTranslation('auth');
 
   const [state, setState] = useState<PageState>('checking');
   const [invalidReason, setInvalidReason] = useState(EXPIRED_REASON);
@@ -52,13 +59,13 @@ export default function ResetPasswordPage() {
 
   const requirements = useMemo(
     () => [
-      { label: 'At least 8 characters', met: password.length >= 8 },
+      { key: 'atLeast8', met: password.length >= 8 },
       {
-        label: 'Uppercase and lowercase letters',
+        key: 'upperLower',
         met: /[a-z]/.test(password) && /[A-Z]/.test(password),
       },
-      { label: 'At least one number', met: /\d/.test(password) },
-      { label: 'At least one special character', met: PASSWORD_SPECIAL_CHARS.test(password) },
+      { key: 'oneNumber', met: /\d/.test(password) },
+      { key: 'oneSpecial', met: PASSWORD_SPECIAL_CHARS.test(password) },
     ],
     [password]
   );
@@ -174,11 +181,15 @@ export default function ResetPasswordPage() {
 
     const passwordError = validateStrongPasswordPair(password, confirmPassword);
     if (passwordError) {
-      setErrorMsg(passwordError);
+      const message = localiseMessage(passwordError);
+      setErrorMsg(message);
       showToast({
         type: 'error',
-        title: password.length > 0 && passwordStrength.score < 4 ? 'Weak Password' : 'Validation Error',
-        message: passwordError,
+        title:
+          password.length > 0 && passwordStrength.score < 4
+            ? t('resetPassword.weakPasswordTitle')
+            : t('resetPassword.validationTitle'),
+        message,
       });
       return;
     }
@@ -198,11 +209,11 @@ export default function ResetPasswordPage() {
 
       if (!res.ok || !json.ok) {
         setIsLoading(false);
-        const msg = json.message || 'Failed to update the password.';
+        const msg = localiseMessage(json.message || t('resetPassword.updateFailed'));
         setErrorMsg(msg);
         showToast({
           type: 'error',
-          title: 'Password Not Updated',
+          title: t('resetPassword.notUpdatedTitle'),
           message: msg,
           duration: 6000,
         });
@@ -213,8 +224,8 @@ export default function ResetPasswordPage() {
       setState('done');
       showToast({
         type: 'success',
-        title: 'Password Updated',
-        message: 'Your password has been changed successfully. Redirecting to sign in...',
+        title: t('resetPassword.updatedTitle'),
+        message: t('resetPassword.updatedMessage'),
         duration: 5000,
       });
 
@@ -230,9 +241,9 @@ export default function ResetPasswordPage() {
       }, 1500);
     } catch {
       setIsLoading(false);
-      const msg = 'Could not reach the password reset service. Please try again.';
+      const msg = t('resetPassword.unreachable');
       setErrorMsg(msg);
-      showToast({ type: 'error', title: 'Password Not Updated', message: msg });
+      showToast({ type: 'error', title: t('resetPassword.notUpdatedTitle'), message: msg });
     }
   };
 
@@ -252,31 +263,31 @@ export default function ResetPasswordPage() {
           {/* Heading */}
           <div className="text-center mb-6">
             <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Set a New Password
+              {t('resetPassword.title')}
             </h2>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 px-2 sm:px-4 leading-relaxed">
               {state === 'form' && accountEmail
-                ? `Choose a strong new password for ${accountEmail}.`
-                : 'Choose a strong new password for your SPID account.'}
+                ? t('resetPassword.subtitleFor', { email: accountEmail })
+                : t('resetPassword.subtitle')}
             </p>
           </div>
 
           {state === 'checking' && (
             <p className="py-6 text-center text-xs text-slate-400">
-              Verifying your reset link...
+              {t('resetPassword.checking')}
             </p>
           )}
 
           {state === 'invalid' && (
             <div className="space-y-5 text-center">
               <div className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-800">
-                {invalidReason}
+                {t(invalidReason)}
               </div>
               <Link
                 href="/auth/forgot-password"
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] cursor-pointer"
               >
-                Request a New Reset Link
+                {t('resetPassword.requestNewLink')}
               </Link>
             </div>
           )}
@@ -287,11 +298,11 @@ export default function ResetPasswordPage() {
                 <div className="flex items-center gap-2">
                   <FiCheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                    Password Updated Successfully!
+                    {t('resetPassword.doneTitle')}
                   </p>
                 </div>
                 <p className="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed">
-                  Redirecting you to the sign-in portal...
+                  {t('resetPassword.redirecting')}
                 </p>
               </div>
             </div>
@@ -312,7 +323,7 @@ export default function ResetPasswordPage() {
                     htmlFor="reset-password"
                     className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                   >
-                    New Password <span className="text-red-500">*</span>
+                    {t('resetPassword.newPassword')} <span className="text-red-500">*</span>
                   </label>
                   <div className="relative flex items-center">
                     <FiLock className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -330,7 +341,7 @@ export default function ResetPasswordPage() {
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      aria-label="Toggle password visibility"
+                      aria-label={t('resetPassword.togglePassword')}
                     >
                       {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                     </button>
@@ -347,14 +358,14 @@ export default function ResetPasswordPage() {
                       </div>
                       <div className="flex items-center justify-between text-[10px]">
                         <span className={`font-semibold ${passwordStrength.text}`}>
-                          {passwordStrength.label}
+                          {t(`passwordStrength.${STRENGTH_KEY[passwordStrength.score]}`)}
                         </span>
-                        <span className="text-slate-400">Archival Standard</span>
+                        <span className="text-slate-400">{t('register.archivalStandard')}</span>
                       </div>
                       <ul className="grid grid-cols-1 gap-1 pt-0.5">
                         {requirements.map((requirement) => (
                           <li
-                            key={requirement.label}
+                            key={requirement.key}
                             className={`flex items-center gap-1.5 text-[10px] ${
                               requirement.met
                                 ? 'text-emerald-600 dark:text-emerald-400 font-medium'
@@ -366,7 +377,7 @@ export default function ResetPasswordPage() {
                             ) : (
                               <FiAlertCircle className="h-3 w-3 shrink-0" />
                             )}
-                            <span>{requirement.label}</span>
+                            <span>{t(`resetPassword.requirements.${requirement.key}`)}</span>
                           </li>
                         ))}
                       </ul>
@@ -380,7 +391,7 @@ export default function ResetPasswordPage() {
                     htmlFor="reset-confirm-password"
                     className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                   >
-                    Confirm New Password <span className="text-red-500">*</span>
+                    {t('resetPassword.confirmNewPassword')} <span className="text-red-500">*</span>
                   </label>
                   <div className="relative flex items-center">
                     <FiLock className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -398,7 +409,7 @@ export default function ResetPasswordPage() {
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      aria-label="Toggle confirm password visibility"
+                      aria-label={t('resetPassword.toggleConfirmPassword')}
                     >
                       {showConfirmPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                     </button>
@@ -406,7 +417,7 @@ export default function ResetPasswordPage() {
                   {confirmPassword && password !== confirmPassword && (
                     <p className="mt-1 text-[11px] text-red-500 flex items-center gap-1">
                       <FiAlertCircle className="h-3 w-3" />
-                      Passwords do not match
+                      {t('resetPassword.passwordsDoNotMatch')}
                     </p>
                   )}
                 </div>
@@ -417,7 +428,7 @@ export default function ResetPasswordPage() {
                   disabled={isLoading}
                   className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer"
                 >
-                  {isLoading ? <span>Updating Password...</span> : <span>Update Password</span>}
+                  {isLoading ? <span>{t('resetPassword.updating')}</span> : <span>{t('resetPassword.update')}</span>}
                 </button>
 
                 {/* Back to Sign In Link */}
@@ -426,7 +437,7 @@ export default function ResetPasswordPage() {
                     href="/auth/sign-in"
                     className="inline-flex items-center justify-center text-xs font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
                   >
-                    ← Back to Sign In
+                    ← {t('resetPassword.backToSignIn')}
                   </Link>
                 </div>
               </form>

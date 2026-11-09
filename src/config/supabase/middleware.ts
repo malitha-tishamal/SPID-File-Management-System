@@ -21,7 +21,8 @@ const SUPABASE_AUTH_COOKIE = /^sb-.*-auth-token(\.\d+)?$/;
  * (possibly refreshed) response plus the authenticated user, if any.
  *
  * The httpOnly session-metadata cookie carries the activity anchor (`t`).
- * A session whose anchor is 2 hours old is expired — even if Supabase still
+ * A session whose anchor is older than the configured inactivity window
+ * (one hour by default) is expired — even if Supabase still
  * considers the refresh token valid — so JS timer throttling or a restored
  * cookie jar can never bypass the inactivity policy.
  */
@@ -145,7 +146,7 @@ export async function updateSupabaseSession(request: NextRequest): Promise<{
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('id, full_name, email, role, section_id, account_status, sections(name)')
+        .select('*, sections(name)')
         .eq('id', targetId)
         .single();
       profileData = data;
@@ -159,12 +160,16 @@ export async function updateSupabaseSession(request: NextRequest): Promise<{
         });
         const { data: adminData } = await adminClient
           .from('profiles')
-          .select('id, full_name, email, role, section_id, account_status, sections(name)')
+          .select('*, sections(name)')
           .eq('id', targetId)
           .single();
         profileData = adminData;
       } catch {}
     }
+
+    // A soft-deleted account is never a valid session, even if a token or
+    // cookie survived the deletion.
+    if (profileData?.is_deleted === true) return null;
 
     // Recovery sessions are temporary and must not become an app session.
     if (profileData?.id && !isRecoveryPage) {

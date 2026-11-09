@@ -21,9 +21,46 @@ const TIME_OPTS: Intl.DateTimeFormatOptions = {
   timeZone: SRI_LANKA_TIME_ZONE,
 };
 
-// Cached static formatters avoid reconstructing Intl tables on each row render
-const dateFormatter = new Intl.DateTimeFormat('en-GB', DATE_OPTS);
-const timeFormatter = new Intl.DateTimeFormat('en-US', TIME_OPTS);
+/**
+ * The UI language decides the label locale of *displayed* dates only
+ * ('23 Oct 2026' / '23 නොවැ 2026'); the instant and the Asia/Colombo
+ * boundary never change. English keeps the original en-GB / en-US locales so
+ * existing output is byte-identical.
+ *
+ * This is a registry rather than an i18next import: the same module is used by
+ * controllers and repositories, and the translation runtime must not be pulled
+ * into the server bundle. LanguageProvider pushes the choice on switch.
+ */
+type DisplayLanguage = 'en' | 'si';
+
+const DISPLAY_LOCALE: Record<DisplayLanguage, { date: string; time: string }> = {
+  en: { date: 'en-GB', time: 'en-US' },
+  si: { date: 'si-LK', time: 'si-LK' },
+};
+
+let displayLanguage: DisplayLanguage = 'en';
+
+const cachedDisplayFormatters = new Map<DisplayLanguage, { date: Intl.DateTimeFormat; time: Intl.DateTimeFormat }>();
+
+function displayFormatters() {
+  const existing = cachedDisplayFormatters.get(displayLanguage);
+  if (existing) return existing;
+  const built = {
+    // Cached per language: Intl tables are expensive to rebuild per row render.
+    date: new Intl.DateTimeFormat(DISPLAY_LOCALE[displayLanguage].date, DATE_OPTS),
+    time: new Intl.DateTimeFormat(DISPLAY_LOCALE[displayLanguage].time, TIME_OPTS),
+  };
+  cachedDisplayFormatters.set(displayLanguage, built);
+  return built;
+}
+
+/** Called by the client LanguageProvider when the officer switches language. */
+export function setUiDisplayLanguage(language: DisplayLanguage): void {
+  displayLanguage = language;
+}
+
+// Machine-readable formats stay locale-fixed: they feed <input type="date">,
+// filenames, CSV columns and day-boundary queries, never a label.
 const compactDateFormatter = new Intl.DateTimeFormat('en-CA', {
   year: 'numeric',
   month: '2-digit',
@@ -40,13 +77,13 @@ function toDate(value: string | Date | null | undefined): Date | null {
 /** "23 Oct 2026" — falls back to '—' for missing/invalid values. */
 export function formatSriLankaDate(value: string | Date | null | undefined): string {
   const d = toDate(value);
-  return d ? dateFormatter.format(d) : '—';
+  return d ? displayFormatters().date.format(d) : '—';
 }
 
 /** "06:15 PM" — falls back to an empty string for missing/invalid values. */
 export function formatSriLankaTime(value: string | Date | null | undefined): string {
   const d = toDate(value);
-  return d ? timeFormatter.format(d) : '';
+  return d ? displayFormatters().time.format(d) : '';
 }
 
 /** "23 Oct 2026 • 06:15 PM" */
@@ -54,7 +91,7 @@ export function formatSriLankaDateTime(value: string | Date | null | undefined):
   const d = toDate(value);
   if (!d) return '—';
   const time = formatSriLankaTime(d);
-  return time ? `${dateFormatter.format(d)} • ${time}` : dateFormatter.format(d);
+  return time ? `${displayFormatters().date.format(d)} • ${time}` : displayFormatters().date.format(d);
 }
 
 /** "2026-10-23 06:15 PM" — compact variant for ledgers, dashboards and CSV. */

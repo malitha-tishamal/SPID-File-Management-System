@@ -1,6 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { localiseMessage } from 'i18n/uiText';
 import { FiCheckCircle, FiAlertCircle, FiAlertTriangle, FiInfo, FiX } from 'react-icons/fi';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -30,6 +32,7 @@ export function triggerGlobalToast(toast: Omit<ToastItem, 'id'>) {
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation('common');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const removeToast = useCallback((id: string) => {
@@ -64,7 +67,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {/* Floating Toast Container */}
       <aside
         aria-live="polite"
-        aria-label="Notifications"
+        aria-label={t('feedback.notificationsAria')}
         className="fixed top-4 right-4 left-4 sm:left-auto z-[9999] flex flex-col gap-2.5 pointer-events-none max-w-md w-full"
       >
         {toasts.map((toast) => {
@@ -103,11 +106,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <div className="mt-0.5">{typeStyles.icon}</div>
               <div className="flex-1 text-left">
                 <p className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
-                  {toast.title}
+                  {localiseMessage(toast.title)}
                 </p>
                 {toast.message && (
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {toast.message}
+                    {localiseMessage(toast.message)}
                   </p>
                 )}
               </div>
@@ -115,7 +118,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => removeToast(toast.id)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition"
-                aria-label="Dismiss toast"
+                aria-label={t('feedback.dismissToast')}
               >
                 <FiX className="h-4 w-4" />
               </button>

@@ -2,8 +2,11 @@
 
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { FiMapPin, FiX } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
+import { useLocalizedFields } from 'lib/useLocalizedFields';
+import { formatLocation, getLocationStatus } from 'lib/file-location';
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -15,27 +18,49 @@ export default function LocationDetailsButton({
   file: FileRecordRow;
   className: string;
 }) {
+  const { t } = useTranslation('files');
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
 
-  const locationSummary =
-    [
-      file.locker_no,
+  // Record-room and shelf wording is officer content; locker/shelf identifiers are not.
+  const [localizedRepository, localizedFileName, localizedShelf, localizedPosition] =
+    useLocalizedFields([
+      file.archive_repository,
+      file.file_name,
       file.shelf_name,
-      file.shelf_position ? `Position: ${file.shelf_position}` : null,
-      !file.locker_no && !file.shelf_name ? file.archive_repository : null,
-    ]
-      .filter(Boolean)
-      .join(' / ') || 'Central Record Room';
+      file.shelf_position,
+    ]);
+  const repository = localizedRepository || file.archive_repository;
+  const shelfName = localizedShelf || file.shelf_name;
+  const shelfPosition = localizedPosition || file.shelf_position;
+  // A record room on its own is NOT an assignment — only locker + shelf +
+  // position (plus the room) make a file fully located.
+  const locationStatus = getLocationStatus({
+    archive_repository: repository,
+    locker_no: file.locker_no,
+    shelf_name: shelfName,
+    shelf_position: shelfPosition,
+  });
+  const roomName = repository || null;
+
+  const locationSummary =
+    locationStatus.status === 'ASSIGNED'
+      ? formatLocation({
+          archive_repository: repository,
+          locker_no: file.locker_no,
+          shelf_name: shelfName,
+          shelf_position: shelfPosition,
+        })
+      : '';
 
   const locationDetails = [
-    ['Record Room', file.archive_repository || 'Central Record Room'],
-    ['Locker', file.locker_no || '—'],
-    ['Shelf', file.shelf_name || '—'],
-    ['File Position', file.shelf_position || '—'],
+    [t('detail.recordRoom'), roomName || t('detail.notAssigned')],
+    [t('detail.locker'), file.locker_no || t('detail.notAssigned')],
+    [t('detail.shelf'), shelfName || t('detail.notAssigned')],
+    [t('detail.filePosition'), shelfPosition || t('detail.notAssigned')],
   ];
 
   useEffect(() => {
@@ -89,14 +114,23 @@ export default function LocationDetailsButton({
         ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(true)}
-        className={`${className} cursor-pointer text-left hover:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] transition-colors`}
-        title={`Storage location: ${locationSummary}`}
+        className={`${className} cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] transition-colors`}
+        title={t('detail.triggerTitle', { summary: locationSummary })}
         aria-haspopup="dialog"
-        aria-label={`View detailed storage location for ${file.file_no}: ${locationSummary}`}
+        aria-label={t('detail.triggerAria', {
+          fileNo: file.file_no,
+          summary: locationSummary,
+        })}
       >
         <FiMapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#4318FF] dark:text-brand-300" />
         <span className="line-clamp-2 min-w-0 whitespace-normal break-words">
-          {locationSummary}
+          {locationSummary || (
+            <span className="font-semibold text-red-700 dark:text-red-300">
+              {locationStatus.status === 'PARTIAL'
+                ? t('detail.needToAssign')
+                : t('detail.needToAssign')}
+            </span>
+          )}
         </span>
       </button>
 
@@ -126,7 +160,7 @@ export default function LocationDetailsButton({
                       id={titleId}
                       className="text-lg font-bold leading-tight tracking-tight text-[#1B2559] dark:text-white"
                     >
-                      Storage location
+                      {t('detail.heading')}
                     </h2>
                     <p
                       className="mt-1 truncate text-xs font-bold tabular-nums text-[#4318FF] dark:text-brand-300"
@@ -136,9 +170,9 @@ export default function LocationDetailsButton({
                     </p>
                     <p
                       className="mt-0.5 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-400"
-                      title={file.file_name}
+                      title={localizedFileName || file.file_name}
                     >
-                      {file.file_name}
+                      {localizedFileName || file.file_name}
                     </p>
                   </div>
 
@@ -146,7 +180,7 @@ export default function LocationDetailsButton({
                     ref={closeRef}
                     type="button"
                     onClick={() => setIsOpen(false)}
-                    aria-label="Close dialog"
+                    aria-label={t('modals.closeDialog')}
                     className="-mr-1.5 -mt-1.5 shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 dark:hover:bg-navy-700 dark:hover:text-white dark:focus-visible:ring-offset-navy-800"
                   >
                     <FiX className="h-5 w-5" />

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiCheck, FiX } from 'react-icons/fi';
 
 export type GlassNotificationType = 'success' | 'failure';
@@ -24,6 +25,8 @@ export default function GlassNotification({
   autoCloseDuration = 0,
   actionLabel,
 }: GlassNotificationProps) {
+  const { t } = useTranslation('notifications');
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -50,10 +53,10 @@ export default function GlassNotification({
   if (!isOpen) return null;
 
   const isSuccess = type === 'success';
-  const defaultTitle = isSuccess ? 'File Added Successfully' : 'File Added Failed';
+  const defaultTitle = isSuccess ? t('glass.successTitle') : t('glass.failureTitle');
   const defaultMessage = isSuccess
-    ? 'The file has been successfully added to the system.'
-    : 'The file could not be added at this time. Please try again.';
+    ? t('glass.successMessage')
+    : t('glass.failureMessage');
 
   return (
     <div
@@ -87,7 +90,7 @@ export default function GlassNotification({
         <button
           onClick={onClose}
           type="button"
-          aria-label="Close notification"
+          aria-label={t('glass.closeAria')}
           className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100/80 dark:hover:bg-navy-700 dark:hover:text-white transition-colors"
         >
           <FiX className="h-4 w-4" />
@@ -139,7 +142,7 @@ export default function GlassNotification({
               type="button"
               className="inline-flex min-w-[120px] items-center justify-center rounded-xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] px-8 py-2.5 text-sm font-bold text-white shadow-md shadow-[#4318FF]/25 hover:opacity-95 active:scale-95 transition-all"
             >
-              {actionLabel || 'OK'}
+              {actionLabel || t('common:buttons.ok')}
             </button>
           ) : (
             <button
@@ -147,7 +150,7 @@ export default function GlassNotification({
               type="button"
               className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-red-500/25 hover:from-red-600 hover:to-rose-700 active:scale-95 transition-all"
             >
-              {actionLabel || 'Try Again'}
+              {actionLabel || t('glass.tryAgain')}
             </button>
           )}
         </div>

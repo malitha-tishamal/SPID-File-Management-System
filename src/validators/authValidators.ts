@@ -155,22 +155,8 @@ export function validateStrongPasswordPair(
 }
 
 /**
- * Progressive lockout schedule (server-enforced via migration 0011; mirrored here for tests):
- *   attempts 1-3 -> no lock
- *   attempt  4   -> level 1, 30 seconds
- *   attempt  5   -> level 2, 60 seconds
- *   attempt  6   -> level 3, 90 seconds
- *   attempt  7+  -> level 4, PERMANENT until an administrator clears the lockout
- * Returns null when the attempt should not trigger a lock.
+ * Progressive lockout schedule lives in ONE place: `lib/auth/lockout.ts`.
+ * Re-exported here because existing forms, tests and server code import it
+ * from the shared validators module.
  */
-export function computeLockoutForAttempt(
-  failedAttemptsAfterIncrement: number,
-  previousLevel: number
-): { level: number; durationSeconds: number; permanent?: boolean } | null {
-  const n = failedAttemptsAfterIncrement;
-  if (n <= 3) return null;
-  if (n === 4) return { level: 1, durationSeconds: 30 };
-  if (n === 5) return { level: 2, durationSeconds: 60 };
-  if (n === 6) return { level: 3, durationSeconds: 90 };
-  return { level: 4, durationSeconds: 0, permanent: true };
-}
+export { computeLockoutForAttempt, LOGIN_LOCKOUT } from 'lib/auth/lockout';

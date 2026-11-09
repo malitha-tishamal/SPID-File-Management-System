@@ -2,9 +2,21 @@ import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
 import { ProfileRepository } from 'models/ProfileRepository';
 import { AuditLogRepository } from 'models/AuditLogRepository';
-import { AuthorizationService, invalidateSessionProfileCache } from 'services/AuthorizationService';
+import {
+  AuthorizationService,
+  invalidateLockStateCache,
+  invalidateSessionProfileCache,
+} from 'services/AuthorizationService';
 import { LockoutService } from 'services/LockoutService';
+import { NotificationService } from 'services/NotificationService';
+import { UserDeletionService, type DeletionOptions } from 'services/UserDeletionService';
 import { isValidEmailFormat } from 'validators/authValidators';
+import {
+  validateRegisterUserInput,
+  type RegisterUserErrorCode,
+} from 'lib/validation/registerUser';
+import { checkRateLimit } from 'lib/rateLimit';
+import { SectionRepository, isActiveSection } from 'models/SectionRepository';
 import type { AccountStatus, UserRole, AdminUserRow } from 'types/auth';
 
 let cachedUsers: AdminUserRow[] | null = null;
@@ -23,6 +35,8 @@ type UserAction =
   | 'enable'
   | 'set_role'
   | 'clear_lockout'
+  | 'approve_unlock'
+  | 'restore'
   | 'update_profile';
 
 /**
@@ -69,16 +83,32 @@ export class AdminController {
     const target = await profiles.findById(targetUserId);
     if (!target) throw new ApiError(404, 'NOT_FOUND', 'User not found.');
 
+    // A deleted account is retired from every active workflow: the only
+    // permitted change is bringing it back through the restore action.
+    if (target.is_deleted && action !== 'restore') {
+      throw new ApiError(
+        409,
+        'ACCOUNT_ALREADY_DELETED',
+        'This account is deleted. Restore it before making any other change.'
+      );
+    }
+
     const protectedAdmin =
       target.email.toLowerCase() === 'officer@spid.gov.lk' && target.role === 'Administrator';
     // The primary administrator may still have their own name/section edited,
     // but never their role or status (handled inside update_profile).
-    if (protectedAdmin && action !== 'clear_lockout' && action !== 'update_profile') {
+    if (
+      protectedAdmin &&
+      action !== 'clear_lockout' &&
+      action !== 'approve_unlock' &&
+      action !== 'update_profile'
+    ) {
       throw new ApiError(403, 'FORBIDDEN', 'The primary administrator account is protected.');
     }
 
     invalidateUsersCache();
     invalidateSessionProfileCache(targetUserId);
+    invalidateLockStateCache(targetUserId);
 
     switch (action) {
       case 'approve': {
@@ -165,6 +195,52 @@ export class AdminController {
           details: { by: actor.email },
         });
         return jsonOk({ message: `Lockout cleared for ${target.full_name}.` });
+      }
+
+      case 'approve_unlock': {
+        // Only an Administrator reaches this switch (requireAdminProfile), so
+        // no lower role can unlock an account — including another admin.
+        const lockBefore = await LockoutService.check(targetUserId);
+
+        await LockoutService.adminClear(targetUserId);
+        if (target.account_status !== 'approved') {
+          await profiles.updateStatus(targetUserId, 'approved', actor.id);
+        }
+        // Drop any session/refresh token that survived the lock escalation.
+        await AuthorizationService.revokeAllSessions(targetUserId);
+        invalidateUsersCache();
+
+        await audit.log({
+          actorId: actor.id,
+          targetUserId,
+          action: 'account_unlocked',
+          details: {
+            email: target.email,
+            by: actor.email,
+            admin_id: actor.id,
+            unlocked_at: new Date().toISOString(),
+            was_permanent: LockoutService.isPermanent(lockBefore),
+            failed_attempts: lockBefore?.failed_attempts ?? 0,
+            locked_at: lockBefore?.locked_at ?? null,
+            last_failed_login_ip: lockBefore?.last_failed_login_ip ?? null,
+          },
+        });
+
+        try {
+          await new NotificationService(admin).notifyUser(targetUserId, {
+            title: 'Your account has been unlocked',
+            body: `An administrator unlocked your account. You can sign in again with your existing password.`,
+            type: 'success',
+            titleKey: 'content.accountUnlockedTitle',
+            bodyKey: 'content.accountUnlockedBody',
+            params: { name: target.full_name },
+            dedupeKey: `account-unlocked:${targetUserId}:${Date.now()}`,
+          });
+        } catch {}
+
+        return jsonOk({
+          message: `${target.full_name}'s account has been unlocked and can sign in again.`,
+        });
       }
 
       case 'update_profile': {
@@ -285,127 +361,176 @@ export class AdminController {
         });
       }
 
+      case 'restore': {
+        const result = await new UserDeletionService(admin).restore(actor, targetUserId);
+        invalidateUsersCache();
+        return jsonOk({ message: result.message, user: result.user });
+      }
+
       default:
         throw new ApiError(400, 'VALIDATION_ERROR', 'Unknown action.');
     }
   }
 
-  /** DELETE /api/admin/users/[id] — permanent account deletion. */
-  static async deleteUser(_req: Request, targetUserId: string) {
+  /**
+   * DELETE /api/admin/users/[id]
+   * body: { pendingAction?: 'reject' | 'reassign', reassignToUserId?, reason? }
+   *
+   * Soft delete only — the shared service never removes a file, request,
+   * checkout, notification, approval or audit row.
+   */
+  static async deleteUser(req: Request, targetUserId: string) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
 
+    const body = (await req.json().catch(() => null)) as
+      | (DeletionOptions & { pendingAction?: string })
+      | null;
+    const pendingAction =
+      body?.pendingAction === 'reject' || body?.pendingAction === 'reassign'
+        ? body.pendingAction
+        : undefined;
+
     const admin = getSupabaseAdminClient();
-    const profiles = new ProfileRepository(admin);
-    const audit = new AuditLogRepository(admin);
-
-    const target = await profiles.findById(targetUserId);
-    if (!target) throw new ApiError(404, 'NOT_FOUND', 'User not found.');
-
-    if (targetUserId === actor.id) {
-      throw new ApiError(
-        403,
-        'FORBIDDEN',
-        'You cannot delete your own account while signed in.'
-      );
-    }
-    const protectedAdmin =
-      target.email.toLowerCase() === 'officer@spid.gov.lk' && target.role === 'Administrator';
-    if (protectedAdmin) {
-      throw new ApiError(
-        403,
-        'FORBIDDEN',
-        'The primary administrator account is protected and cannot be deleted.'
-      );
-    }
-
-    await AuthorizationService.revokeAllSessions(targetUserId);
-
-    // Historical audit rows reference this user — write the log BEFORE the
-    // auth user disappears.
-    try {
-      await audit.log({
-        actorId: actor.id,
-        targetUserId,
-        action: 'account_deleted',
-        details: { email: target.email },
-      });
-    } catch {}
-
-    // Unlink any foreign key references from audit logs and profiles so FK constraints never block deletion
-    try {
-      await admin.from('audit_logs').update({ target_user_id: null }).eq('target_user_id', targetUserId);
-      await admin.from('audit_logs').update({ actor_id: null }).eq('actor_id', targetUserId);
-      await admin.from('profiles').update({ approved_by: null }).eq('approved_by', targetUserId);
-      await admin.from('login_security').delete().eq('user_id', targetUserId);
-    } catch (err) {
-      console.warn('Could not unlink foreign references before user deletion:', err);
-    }
-
-    // Delete from public.profiles
-    const { error: profileDeleteError } = await admin.from('profiles').delete().eq('id', targetUserId);
-    if (profileDeleteError) {
-      console.error('Failed to delete profile row:', profileDeleteError);
-    }
-
-    // Delete from auth.users (if exists in auth)
-    try {
-      const { error: authError } = await admin.auth.admin.deleteUser(targetUserId);
-      if (authError && !authError.message.toLowerCase().includes('not found')) {
-        console.warn('Auth user deletion warning:', authError);
-      }
-    } catch (err) {
-      console.warn('admin.auth.admin.deleteUser warning:', err);
-    }
+    const result = await new UserDeletionService(admin).softDelete(actor, targetUserId, {
+      pendingAction,
+      reassignToUserId:
+        typeof body?.reassignToUserId === 'string' ? body.reassignToUserId : undefined,
+      reason: typeof body?.reason === 'string' ? body.reason : undefined,
+    });
 
     invalidateUsersCache();
-
     return jsonOk({
-      message: `${target.full_name}'s account has been permanently deleted.`,
+      message: result.message,
+      kept: result.impact.counts,
+      pendingRequests: result.impact.pendingRequests.length,
     });
   }
 
-  /** POST /api/admin/users/create — directly provision and activate a new Admin or Staff user */
+  /** GET /api/admin/users/[id] — deletion preview for the confirmation dialog. */
+  static async getDeletionImpact(_req: Request, targetUserId: string) {
+    requireServerEnv();
+    await AuthorizationService.requireAdminProfile();
+
+    const impact = await new UserDeletionService(getSupabaseAdminClient()).getImpact(targetUserId);
+    return jsonOk({ impact });
+  }
+
+  /**
+   * GET /api/admin/users/availability?email=&phone=
+   * Debounced blur-time check for the registration modals. Admin-only.
+   */
+  static async checkAvailability(req: Request) {
+    requireServerEnv();
+    await AuthorizationService.requireAdminProfile();
+
+    const rl = checkRateLimit('user-availability', 60, 60_000);
+    if (rl.limited) {
+      throw new ApiError(429, 'RATE_LIMITED', 'Too many checks. Please wait a moment.', undefined, {
+        'Retry-After': String(rl.retryAfterSec),
+      });
+    }
+
+    const url = new URL(req.url);
+    const email = String(url.searchParams.get('email') ?? '').trim().toLowerCase();
+    const phone = String(url.searchParams.get('phone') ?? '').trim();
+
+    const admin = getSupabaseAdminClient();
+    const profiles = new ProfileRepository(admin);
+
+    const [emailTaken, phoneOwner] = await Promise.all([
+      email ? profiles.emailExistsIncludingDeleted(email) : Promise.resolve(false),
+      phone ? profiles.findActiveByMobilePhone(phone) : Promise.resolve(null),
+    ]);
+
+    return jsonOk({
+      email: email ? { available: !emailTaken } : null,
+      phone: phone ? { available: !phoneOwner } : null,
+    });
+  }
+
+  /**
+   * POST /api/admin/users/create[/admin|/staff]
+   * `pinnedRole` forces the created role: the staff endpoint always creates
+   * Staff (an explicit non-staff role is rejected) and the admin endpoint
+   * always creates Administrator. The legacy unpinned route still accepts an
+   * explicit valid role for backwards compatibility.
+   */
+  /** Legacy unpinned endpoint: role must be sent explicitly and valid. */
   static async createUser(req: Request) {
+    return this.createUserAs(req);
+  }
+
+  static async createUserAs(req: Request, pinnedRole?: UserRole) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
+
+    const rl = checkRateLimit(`user-create:${actor.id}`, 20, 10 * 60_000);
+    if (rl.limited) {
+      throw new ApiError(429, 'RATE_LIMITED', 'Too many account creations. Please try again later.', undefined, {
+        'Retry-After': String(rl.retryAfterSec),
+      });
+    }
 
     const body = await req.json().catch(() => null);
     if (!body) throw new ApiError(400, 'VALIDATION_ERROR', 'Request body is required.');
 
-    const fullName = String(body.full_name ?? body.fullName ?? '').trim();
-    const email = String(body.email ?? body.emailAddress ?? '').trim().toLowerCase();
-    const password = String(body.password ?? '');
-    const rawRole = body.role ?? body.requested_role ?? body.requestedRole;
-    if (rawRole && rawRole !== 'Administrator' && rawRole !== 'Staff') {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Invalid role selection.');
-    }
-    const role: UserRole = rawRole === 'Staff' ? 'Staff' : 'Administrator';
-    const rawSectionId = body.section_id ?? body.sectionId;
-    const sectionId =
-      rawSectionId !== undefined && rawSectionId !== '' && rawSectionId !== null
-        ? Number(rawSectionId)
-        : null;
-    const rawMobile = body.mobile_phone ?? body.mobilePhone;
-    const mobilePhone = rawMobile ? String(rawMobile).trim() : null;
+    const checked = validateRegisterUserInput(
+      {
+        fullName: body.full_name ?? body.fullName,
+        email: body.email ?? body.emailAddress,
+        password: body.password,
+        role: body.role ?? body.requested_role ?? body.requestedRole,
+        sectionId: body.section_id ?? body.sectionId,
+        mobilePhone: body.mobile_phone ?? body.mobilePhone,
+      },
+      { pinnedRole }
+    );
 
-    if (!fullName || fullName.length < 3) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Full name must be at least 3 characters.');
+    if (pinnedRole && checked.errors.role === 'roleInvalid') {
+      throw new ApiError(
+        403,
+        'ROLE_NOT_ALLOWED',
+        `This endpoint can only create ${pinnedRole} accounts.`
+      );
     }
-    if (!email || !isValidEmailFormat(email)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'A valid email address is required.');
+    if (!checked.ok || !checked.values.role) {
+      const errors = checked.errors as Record<string, string>;
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Please correct the highlighted fields.', {
+        errors,
+      });
     }
-    if (!password || password.length < 8) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Password must be at least 8 characters.');
-    }
+
+    const { fullName, email, password, sectionId, mobilePhone } = checked.values;
+    const role = checked.values.role as UserRole;
 
     const admin = getSupabaseAdminClient();
     const profiles = new ProfileRepository(admin);
     const audit = new AuditLogRepository(admin);
+    const sections = new SectionRepository(admin);
 
-    const existing = await profiles.findByEmail(email);
-    if (existing) {
-      throw new ApiError(409, 'USER_EXISTS', 'An account with this email address already exists.');
+    // Department must reference a real, active section — never trust the dropdown.
+    if (sectionId !== null) {
+      const section = await sections.findById(sectionId);
+      if (!section || !isActiveSection(section)) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'Please select a valid department.', {
+          errors: { sectionId: 'departmentInvalid' },
+        });
+      }
+    }
+
+    // Email uniqueness includes soft-deleted accounts (address stays reserved).
+    if (await profiles.emailExistsIncludingDeleted(email)) {
+      throw new ApiError(409, 'EMAIL_TAKEN', 'This email is already registered.', {
+        field: 'email',
+      });
+    }
+
+    // Phone uniqueness across active users, compared on normalised digits.
+    if (mobilePhone && (await profiles.findActiveByMobilePhone(mobilePhone))) {
+      throw new ApiError(409, 'PHONE_TAKEN', 'This mobile number is already registered.', {
+        field: 'mobilePhone',
+      });
     }
 
     // Provision user via Supabase Auth Admin API (auto-confirmed without sending verification email)

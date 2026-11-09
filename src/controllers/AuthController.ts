@@ -4,6 +4,8 @@ import {
   readSessionMeta,
   writeSessionMeta,
 } from 'lib/sessionCookie';
+import { SESSION_TOUCH_THROTTLE_MS } from 'lib/sessionPolicy';
+import { getRequestMeta } from 'lib/requestMeta';
 import { AuthService } from 'services/AuthService';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { isValidEmailFormat, validatePasswordPair, validateStrongPasswordPair } from 'validators/authValidators';
@@ -65,7 +67,7 @@ export class AuthController {
     }
     const remember = body.remember === true;
 
-    const profile = await AuthService.login(email, password);
+    const profile = await AuthService.login(email, password, getRequestMeta(req));
     const res = jsonOk({ profile, message: 'Login successful.' });
     // The inactivity deadline always starts at the moment of login.
     writeSessionMeta(res, {
@@ -111,7 +113,12 @@ export class AuthController {
 
     const existing = await readSessionMeta();
     const remember = existing?.remember === true;
-    const lastActivity = active ? Date.now() : (existing?.t ?? Date.now());
+    // Slide the deadline only on a genuine interaction, and at most once a
+    // minute so a chatty tab cannot rewrite the cookie on every request.
+    const now = Date.now();
+    const shouldSlide =
+      active && (!existing || now - existing.t >= SESSION_TOUCH_THROTTLE_MS);
+    const lastActivity = shouldSlide ? now : (existing?.t ?? now);
 
     const res = jsonOk({ profile });
     writeSessionMeta(res, {

@@ -39,15 +39,15 @@ function daysUntil(dateStr: string, now: Date): number {
 
 const TONE: Record<ReturnStatus, string> = {
   returned:
-    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+    'bg-emerald-100 text-emerald-900 dark:bg-emerald-800 dark:text-emerald-50',
   overdue:
-    'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300',
+    'bg-rose-100 text-rose-900 dark:bg-rose-900 dark:text-rose-50',
   due_today:
-    'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+    'bg-amber-100 text-amber-900 dark:bg-amber-800 dark:text-amber-50',
   due_soon:
-    'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+    'bg-orange-100 text-orange-900 dark:bg-orange-900 dark:text-orange-50',
   active:
-    'bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300',
+    'bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900 dark:text-brand-100',
 };
 
 /**

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiCalendar, FiFlag, FiSearch, FiX } from 'react-icons/fi';
 import type { StaffRequestPriorityFilter } from 'lib/staffRequests';
 
@@ -36,12 +37,13 @@ export default function RequestsToolbar({
   isFiltered,
   onClearFilters,
 }: RequestsToolbarProps) {
+  const { t } = useTranslation('requests');
   return (
     <div className="mb-4 rounded-2xl border border-slate-100 bg-white p-3 shadow-xs dark:border-navy-700 dark:bg-navy-800">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_150px_150px_minmax(150px,0.8fr)_auto] lg:items-end">
         <div>
           <label htmlFor="staff-requests-search" className={fieldLabel}>
-            Search
+            {t('common:buttons.search')}
           </label>
           <div className="relative">
             <FiSearch
@@ -53,7 +55,7 @@ export default function RequestsToolbar({
               type="search"
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search by file number, file name, or section..."
+              placeholder={t('toolbar.searchPlaceholder')}
               autoComplete="off"
               className={`${inputClass} pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden`}
             />
@@ -61,7 +63,7 @@ export default function RequestsToolbar({
               <button
                 type="button"
                 onClick={() => onSearchChange('')}
-                aria-label="Clear search"
+                aria-label={t('toolbar.clearSearch')}
                 className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white"
               >
                 <FiX className="h-3.5 w-3.5" />
@@ -72,7 +74,7 @@ export default function RequestsToolbar({
 
         <div>
           <label htmlFor="staff-requests-date-from" className={fieldLabel}>
-            Start date
+            {t('toolbar.startDate')}
           </label>
           <div className="relative">
             <FiCalendar
@@ -93,7 +95,7 @@ export default function RequestsToolbar({
 
         <div>
           <label htmlFor="staff-requests-date-to" className={fieldLabel}>
-            End date
+            {t('toolbar.endDate')}
           </label>
           <div className="relative">
             <FiCalendar
@@ -114,7 +116,7 @@ export default function RequestsToolbar({
 
         <div>
           <label htmlFor="staff-requests-priority" className={fieldLabel}>
-            Priority
+            {t('common:labels.priority')}
           </label>
           <div className="relative">
             <FiFlag
@@ -129,10 +131,10 @@ export default function RequestsToolbar({
               }
               className={`${inputClass} appearance-none pl-9 pr-8`}
             >
-              <option value="ALL">All Priorities</option>
-              <option value="HIGH">High</option>
-              <option value="NORMAL">Normal</option>
-              <option value="LOW">Low</option>
+              <option value="ALL">{t('common:priority.all')}</option>
+              <option value="HIGH">{t('common:priority.HIGH')}</option>
+              <option value="NORMAL">{t('common:priority.NORMAL')}</option>
+              <option value="LOW">{t('common:priority.LOW')}</option>
             </select>
             <span
               aria-hidden="true"
@@ -150,13 +152,13 @@ export default function RequestsToolbar({
           className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-navy-600 dark:bg-navy-900 dark:text-slate-300 dark:hover:bg-navy-700"
         >
           <FiX className="h-3.5 w-3.5" />
-          Clear filters
+          {t('common:buttons.clearFilters')}
         </button>
       </div>
 
       {dateError && (
         <p role="alert" className="mt-2 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-          {dateError}
+          {t('common:validation.dateRangeInvalid')}
         </p>
       )}
     </div>

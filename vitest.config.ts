@@ -10,6 +10,7 @@ export default defineConfig({
       controllers: fileURLToPath(new URL('./src/controllers', import.meta.url)),
       models: fileURLToPath(new URL('./src/models', import.meta.url)),
       lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+      i18n: fileURLToPath(new URL('./src/i18n', import.meta.url)),
       config: fileURLToPath(new URL('./src/config', import.meta.url)),
       components: fileURLToPath(new URL('./src/components', import.meta.url)),
       contexts: fileURLToPath(new URL('./src/contexts', import.meta.url)),
@@ -23,5 +24,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    setupFiles: ['./tests/setup.ts'],
   },
 });

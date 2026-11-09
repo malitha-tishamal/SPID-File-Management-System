@@ -4,6 +4,7 @@ import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
 import { NotificationService } from 'services/NotificationService';
 import { getReturnStatus, isReturnDateExtended } from 'lib/returnStatus';
+import { annotateDeletedAuthors } from 'lib/userAttribution';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -67,6 +68,45 @@ function throwIfIssuanceSchemaMissing(error: { code?: string; message?: string }
   }
 }
 
+/**
+ * Tell every staff member still waiting on this file that it is back in the
+ * repository. The dedupe key is tied to the returned issuance, so the same
+ * event never produces a second copy of the notice.
+ */
+async function notifyWaitingRequesters(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  fileId: number,
+  info: { file_no: string; file_name: string; returnedRequestId: number },
+): Promise<void> {
+  if (!Number.isSafeInteger(fileId) || fileId < 1) return;
+  try {
+    const { data, error } = await admin
+      .from('staff_file_requests')
+      .select('id, requester_id')
+      .eq('file_id', fileId)
+      .eq('status', 'PENDING');
+    if (error) {
+      console.warn('Could not read pending requests for the returned file:', error);
+      return;
+    }
+    const service = new NotificationService(admin);
+    for (const row of (data ?? []) as { id: number; requester_id: string }[]) {
+      await service.notifyUser(row.requester_id, {
+        title: 'A requested file is available',
+        body: `${info.file_no} — ${info.file_name} has been returned to the repository. The administrator can now approve your request.`,
+        titleKey: 'content.fileAvailableTitle',
+        bodyKey: 'content.fileAvailableBody',
+        params: { fileNo: info.file_no, fileName: info.file_name },
+        type: 'info',
+        link: `/staff/your-requests?request=${row.id}`,
+        dedupeKey: `file-request:${row.id}:available:${info.returnedRequestId}`,
+      });
+    }
+  } catch (err) {
+    console.warn('Could not send file-availability notices:', err);
+  }
+}
+
 /** Shape the Issued Files page renders; one helper keeps admin and staff views identical. */
 function decorateIssuedRow(row: Record<string, any>): Record<string, any> {
   const returnInfo = getReturnStatus(row.expected_return_date, row.returned_at);
@@ -105,7 +145,15 @@ export class FileIssuanceController {
       throw error;
     }
 
-    const all = (data ?? []).map(decorateIssuedRow);
+    const all = await annotateDeletedAuthors(
+      admin,
+      (data ?? []).map(decorateIssuedRow),
+      [
+        { idFields: ['requester_id'], flagField: 'requester_is_deleted' },
+        { idFields: ['reviewed_by'], flagField: 'reviewer_is_deleted' },
+        { idFields: ['returned_by'], flagField: 'return_recorded_by_is_deleted' },
+      ]
+    );
 
     // Apply view-specific sorting
     let sorted = all;
@@ -225,9 +273,20 @@ export class FileIssuanceController {
     await new NotificationService(admin).notifyUser(existing.requester_id, {
       title: 'File return recorded',
       body: `${existing.file_no} — ${existing.file_name} has been received back in the repository. Thank you.`,
+      titleKey: 'content.returnRecordedTitle',
+      bodyKey: 'content.returnRecordedBody',
+      params: { fileNo: existing.file_no, fileName: existing.file_name },
       type: 'success',
       link: `/staff/your-requests?request=${id}`,
       dedupeKey: `file-request:${id}:returned`,
+    });
+
+    // The folder is back on the shelf: anyone still waiting on it can now be
+    // approved, so their pending request becomes actionable.
+    await notifyWaitingRequesters(admin, Number(updated.file_id), {
+      file_no: existing.file_no,
+      file_name: existing.file_name,
+      returnedRequestId: id,
     });
 
     return jsonOk({
@@ -355,6 +414,14 @@ export class FileIssuanceController {
     await new NotificationService(admin).notifyUser(existing.requester_id, {
       title: 'Your return date was extended',
       body: `${existing.file_no} — ${existing.file_name} is now due on ${newDate} (previously ${current}).`,
+      titleKey: 'content.dateExtendedTitle',
+      bodyKey: 'content.dateExtendedBody',
+      params: {
+        fileNo: existing.file_no,
+        fileName: existing.file_name,
+        dueDate: newDate,
+        previousDate: current,
+      },
       type: 'info',
       link: `/staff/your-requests?request=${id}`,
       dedupeKey: `file-request:${id}:extended:${newDate}`,
@@ -471,6 +538,15 @@ export class FileIssuanceController {
     await new NotificationService(admin).notifyAdmins({
       title: 'Return-date extension requested',
       body: `${profile.full_name} asked to keep ${existing.file_no} until ${newDate} (currently due ${current}). Reason: ${reason}`,
+      titleKey: 'content.extensionRequestedTitle',
+      bodyKey: 'content.extensionRequestedBody',
+      params: {
+        staffName: profile.full_name,
+        fileNo: existing.file_no,
+        dueDate: newDate,
+        previousDate: current,
+        reason,
+      },
       type: 'warning',
       link: `/admin/staff-file-request?tab=extensions&extension=${data?.id}`,
       dedupeKey: `extension:${data?.id}:submitted`,
@@ -511,7 +587,7 @@ export class FileIssuanceController {
       throw error;
     }
 
-    const extensions = (data ?? []).map((row: Record<string, any>) => {
+    const extensionRows = (data ?? []).map((row: Record<string, any>) => {
       const parent = Array.isArray(row.staff_file_requests)
         ? row.staff_file_requests[0]
         : row.staff_file_requests;
@@ -524,6 +600,11 @@ export class FileIssuanceController {
         current_return_date: row.previous_return_date,
       };
     });
+
+    const extensions = await annotateDeletedAuthors(admin, extensionRows, [
+      { idFields: ['requested_by'], flagField: 'requester_is_deleted' },
+      { idFields: ['reviewed_by'], flagField: 'reviewer_is_deleted' },
+    ]);
 
     return jsonOk({ extensions, total: extensions.length });
   }
@@ -597,6 +678,13 @@ export class FileIssuanceController {
       await new NotificationService(admin).notifyUser(parent?.requester_id, {
         title: 'Your extension request was rejected',
         body: `${extension.file_no} stays due on ${extension.previous_return_date}. Reason: ${reviewNote || 'No reason recorded.'}`,
+        titleKey: 'content.extensionRejectedTitle',
+        bodyKey: 'content.extensionRejectedBody',
+        params: {
+          fileNo: extension.file_no,
+          dueDate: extension.previous_return_date,
+          reason: reviewNote || 'No reason recorded.',
+        },
         type: 'error',
         link: `/staff/your-requests?request=${extension.request_id}`,
         dedupeKey: `extension:${id}:rejected`,
@@ -682,6 +770,13 @@ export class FileIssuanceController {
     await new NotificationService(admin).notifyUser(parent?.requester_id, {
       title: 'Your extension request was approved',
       body: `${extension.file_no} is now due on ${targetDate} (previously ${extension.previous_return_date}).`,
+      titleKey: 'content.extensionApprovedTitle',
+      bodyKey: 'content.extensionApprovedBody',
+      params: {
+        fileNo: extension.file_no,
+        dueDate: targetDate,
+        previousDate: extension.previous_return_date,
+      },
       type: 'success',
       link: `/staff/your-requests?request=${extension.request_id}`,
       dedupeKey: `extension:${id}:approved`,

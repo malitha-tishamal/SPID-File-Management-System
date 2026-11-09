@@ -1,9 +1,13 @@
+import { useTranslation } from 'react-i18next';
+
 const Footer = () => {
+  const { t } = useTranslation();
+
   return (
     <div className="flex w-full flex-col items-center justify-between px-1 pb-8 pt-3 lg:px-8 xl:flex-row">
       <p className="mb-4 text-center text-sm font-medium text-gray-600 dark:text-gray-400 sm:!mb-0 md:text-sm">
         <span>
-          ©{new Date().getFullYear()} Southern Provincial Irrigation Department. All rights reserved. • Secure Archival Portal
+          {t('shell:footer.copyright', { year: new Date().getFullYear() })}
         </span>
       </p>
       <div>
@@ -13,7 +17,7 @@ const Footer = () => {
               href="mailto:info@spid.gov.lk"
               className="font-medium hover:text-[#4318FF] transition"
             >
-              SPID Helpdesk
+              {t('shell:footer.spidHelpdesk')}
             </a>
           </li>
           <li>
@@ -21,7 +25,7 @@ const Footer = () => {
               href="#!"
               className="font-medium hover:text-[#4318FF] transition"
             >
-              Archival Protocols
+              {t('shell:footer.archivalProtocols')}
             </a>
           </li>
           <li>
@@ -29,7 +33,7 @@ const Footer = () => {
               href="#!"
               className="font-medium hover:text-[#4318FF] transition"
             >
-              Security Policy
+              {t('shell:footer.securityPolicy')}
             </a>
           </li>
         </ul>

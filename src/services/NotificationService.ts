@@ -10,6 +10,13 @@ export interface DispatchInput {
   type?: NotificationType;
   link?: string | null;
   dedupeKey?: string | null;
+  titleKey?: string | null;
+  bodyKey?: string | null;
+  params?: Record<string, unknown> | null;
+  /** Semantic event kind + request reference (migration 0029 columns). */
+  kind?: string | null;
+  refType?: string | null;
+  refId?: number | null;
 }
 
 /**

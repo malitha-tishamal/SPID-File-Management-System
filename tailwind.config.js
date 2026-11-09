@@ -114,8 +114,10 @@ module.exports = {
         '99p': '99%',
       },
       fontFamily: {
-        poppins: ['var(--font-poppins)', 'Poppins', 'sans-serif'],
-        dm: ['var(--font-dm-sans)', 'DM Sans', 'sans-serif'],
+        // Noto Sans Sinhala is appended after the Latin faces so Sinhala renders
+        // correctly while Latin copy keeps the existing design-system type.
+        poppins: ['var(--font-poppins)', 'Poppins', 'var(--font-noto-sans-sinhala)', 'Nirmala UI', 'Iskoola Pota', 'sans-serif'],
+        dm: ['var(--font-dm-sans)', 'DM Sans', 'var(--font-noto-sans-sinhala)', 'Nirmala UI', 'Iskoola Pota', 'sans-serif'],
       },
       boxShadow: {
         '3xl': '14px 17px 40px 4px',

@@ -59,6 +59,11 @@ export class ProfileController {
     requireServerEnv();
     const profile = await AuthorizationService.requireApprovedProfile();
 
+    const declaredLength = Number(req.headers.get('content-length') || 0);
+    if (declaredLength > 3 * 1024 * 1024) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'The selected image exceeds the 2MB size limit.');
+    }
+
     const form = await req.formData().catch(() => null);
     const file = form?.get('file');
     if (!(file instanceof File)) {
@@ -83,8 +88,9 @@ export class ProfileController {
       profile: updatedProfile,
       publicUrl: permanentUrl,
       path: result.path,
+      scan: result.scan,
       updated_at: updatedProfile?.updated_at || new Date().toISOString(),
-      message: 'Profile image uploaded successfully.',
+      message: `Profile image uploaded successfully. ${result.scan.message}`,
     });
   }
 

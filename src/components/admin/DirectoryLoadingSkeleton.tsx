@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import StatCard from 'components/admin/StatCard';
 import { MdAdminPanelSettings } from 'react-icons/md';
 import { FiCheckCircle, FiUserCheck, FiUserX, FiShield, FiRefreshCw } from 'react-icons/fi';
@@ -10,27 +11,27 @@ export default function DirectoryLoadingSkeleton({
 }: {
   variant?: 'admin' | 'staff';
 }) {
+  const { t } = useTranslation('accounts');
   const isStaff = variant === 'staff';
 
   const statConfig = isStaff
     ? [
-        { icon: FiShield, tone: 'purple' as const, label: 'Total Registered' },
-        { icon: FiCheckCircle, tone: 'green' as const, label: 'Approved Staff' },
-        { icon: FiUserCheck, tone: 'blue' as const, label: 'Pending Activation' },
-        { icon: FiUserX, tone: 'red' as const, label: 'Disabled / Inactive' },
+        { icon: FiShield, tone: 'purple' as const, label: t('users.stats.totalRegistered') },
+        { icon: FiCheckCircle, tone: 'green' as const, label: t('users.stats.approvedStaff') },
+        { icon: FiUserCheck, tone: 'blue' as const, label: t('users.stats.pendingActivation') },
+        { icon: FiUserX, tone: 'red' as const, label: t('users.stats.disabledInactive') },
       ]
     : [
-        { icon: MdAdminPanelSettings, tone: 'purple' as const, label: 'Total Administrators' },
-        { icon: FiCheckCircle, tone: 'green' as const, label: 'Approved & Active' },
-        { icon: FiUserCheck, tone: 'blue' as const, label: 'Pending Approve' },
-        { icon: FiUserX, tone: 'red' as const, label: 'Disabled / Suspended' },
+        { icon: MdAdminPanelSettings, tone: 'purple' as const, label: t('users.stats.totalAdmins') },
+        { icon: FiCheckCircle, tone: 'green' as const, label: t('users.stats.approvedActive') },
+        { icon: FiUserCheck, tone: 'blue' as const, label: t('users.stats.pendingApprove') },
+        { icon: FiUserX, tone: 'red' as const, label: t('users.stats.disabledSuspended') },
       ];
 
   return (
     <>
       <p className="sr-only" role="status" aria-live="polite">
-        Loading the {isStaff ? 'user' : 'administrator'} management directory. This page waits up to
-        30 seconds before offering a retry.
+        {t(isStaff ? 'directory.skeletonSrStaff' : 'directory.skeletonSrAdmin', { seconds: 30 })}
       </p>
       <div
         className="mt-3 flex flex-col gap-5 animate-in fade-in duration-150"
@@ -46,7 +47,7 @@ export default function DirectoryLoadingSkeleton({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-navy-900 px-3 py-1.5 text-[10px] font-bold text-[#4318FF] dark:text-brand-300 border border-indigo-100 dark:border-navy-700 shadow-sm animate-pulse">
             <span className="h-2 w-2 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300" />
-            LOADING REGISTRY...
+            {t('directory.loadingRegistry')}
           </span>
           <div className="h-9 w-36 rounded-xl bg-slate-200 dark:bg-navy-700 animate-pulse" />
         </div>
@@ -89,11 +90,11 @@ export default function DirectoryLoadingSkeleton({
           <div className="flex items-center gap-2.5">
             <h2 className="flex items-center gap-2 text-sm font-bold text-navy-700 dark:text-white">
               <span className="h-2 w-2 rounded-full bg-[#4318FF]" />
-              {isStaff ? 'Staff & User Accounts' : 'Verified System Administrators'}
+              {t(isStaff ? 'page.staff.tableTitle' : 'page.admin.tableTitle')}
             </h2>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-navy-900/80 border border-indigo-100 dark:border-navy-600 px-2.5 py-0.5 text-[10px] font-bold text-[#4318FF] dark:text-brand-300 animate-pulse">
               <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300" />
-              Loading records...
+              {t('table.loadingRecords')}
             </span>
           </div>
           <div className="h-3 w-40 rounded bg-slate-100 dark:bg-navy-800 animate-pulse" />
@@ -111,25 +112,25 @@ export default function DirectoryLoadingSkeleton({
               <tr className="bg-[#f4f7fe] dark:bg-navy-800">
                 {isStaff && <th className="w-10 px-4 py-3" />}
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  {isStaff ? 'USER ID' : 'ADMIN ID'}
+                  {t(isStaff ? 'table.headers.userId' : 'table.headers.adminId')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  {isStaff ? 'USER PROFILE & NAME' : 'ADMINISTRATOR PROFILE'}
+                  {t(isStaff ? 'table.headers.userProfile' : 'table.headers.adminProfile')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  CONTACT &amp; CREDENTIALS
+                  {t('table.headers.contact')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  SECTION NAME
+                  {t('table.headers.sectionName')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  LAST LOGIN
+                  {t('table.headers.lastLogin')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  STATUS
+                  {t('table.headers.status')}
                 </th>
                 <th className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                  ACTIONS
+                  {t('table.headers.actions')}
                 </th>
               </tr>
             </thead>

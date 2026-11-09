@@ -8,9 +8,16 @@ import { AuditLogRepository } from 'models/AuditLogRepository';
 import { SectionRepository } from 'models/SectionRepository';
 import { LockoutService } from 'services/LockoutService';
 import { AuthorizationService } from 'services/AuthorizationService';
+import { NotificationService } from 'services/NotificationService';
 import { formatSriLankaMobile } from 'validators/authValidators';
 import { invalidateUsersCache } from 'controllers/AdminController';
-import type { ApiErrorCode, ProfileDTO, UserRole } from 'types/auth';
+import type {
+  ApiErrorCode,
+  LockoutState,
+  LoginRequestMeta,
+  ProfileDTO,
+  UserRole,
+} from 'types/auth';
 
 /**
  * Application service layer: registration, login, logout and
@@ -176,36 +183,216 @@ export class AuthService {
    * Pending/disabled/locked/rejected accounts get their session destroyed
    * immediately — no usable application session is left behind.
    */
-  static async login(email: string, password: string): Promise<ProfileDTO> {
+  /** 423 response shared by every password-verifying entry point. */
+  private static lockedError(state: LockoutState): ApiError {
+    if (LockoutService.isPermanent(state)) {
+      return new ApiError(
+        423,
+        'ACCOUNT_LOCKED_PERMANENT',
+        'This account is locked until an administrator unlocks it.',
+        {
+          permanent: true,
+          attempts: state.failed_attempts,
+          lockedAt: state.locked_at ?? null,
+        }
+      );
+    }
+
+    const retryAfterSec = Math.max(1, Math.ceil(Number(state.remaining_seconds) || 0));
+    return new ApiError(
+      423,
+      'ACCOUNT_LOCKED_TEMP',
+      `Too many failed sign-in attempts. Please try again in ${retryAfterSec} seconds.`,
+      { retryAfterSec, permanent: false, attempts: state.failed_attempts },
+      { 'Retry-After': String(retryAfterSec) }
+    );
+  }
+
+  /**
+   * Unknown-email requests run the same credential verification work as a real
+   * account, so response timing does not reveal whether the email exists.
+   * Uses a per-call random address so no account can ever be touched.
+   */
+  private static async runCredentialProbe(password: string): Promise<void> {
+    try {
+      const probe = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      });
+      const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+      await probe.auth.signInWithPassword({
+        email: `unknown-${random}@invalid.spid.local`,
+        password,
+      });
+    } catch {
+      // The outcome is intentionally discarded — only the timing matters.
+    }
+  }
+
+  /** Tell every administrator that an account crossed into permanent lockout. */
+  private static async notifyPermanentLock(
+    profile: ProfileDTO,
+    state: LockoutState,
+    meta?: LoginRequestMeta
+  ): Promise<void> {
+    const ip = meta?.ip ?? '—';
+    try {
+      await new NotificationService(getSupabaseAdminClient()).notifyAdmins({
+        title: `Account permanently locked: ${profile.email}`,
+        body: `${profile.full_name} (${profile.email}) was permanently locked after ${state.failed_attempts} failed sign-in attempts. Last IP: ${ip}. An administrator must unlock the account.`,
+        type: 'error',
+        link:
+          profile.role === 'Administrator'
+            ? '/admin/admin-management?locked=1'
+            : '/admin/users?locked=1',
+        titleKey: 'content.loginLockoutPermanentTitle',
+        bodyKey: 'content.loginLockoutPermanentBody',
+        params: {
+          name: profile.full_name,
+          email: profile.email,
+          attempts: state.failed_attempts,
+          ip,
+        },
+        dedupeKey: `login-lockout-permanent:${profile.id}:${
+          state.locked_at ?? state.locked_until ?? Date.now()
+        }`,
+      });
+    } catch (err) {
+      console.warn('[lockout] could not notify administrators:', err);
+    }
+  }
+
+  /**
+   * Verifies the current password for a signed-in user (change-password flow).
+   * Goes through the same lockout counter and audit trail as sign-in, so this
+   * endpoint can never be used to brute-force a password while locked.
+   */
+  static async verifyCurrentPassword(
+    profile: ProfileDTO,
+    currentPassword: string,
+    meta?: LoginRequestMeta
+  ): Promise<void> {
+    const lockState = await LockoutService.check(profile.id);
+    if (lockState?.locked) {
+      await LockoutService.logAttempt({
+        userId: profile.id,
+        email: profile.email,
+        ip: meta?.ip,
+        userAgent: meta?.userAgent,
+        success: false,
+        reason: LockoutService.reasonForState(lockState),
+      });
+      throw this.lockedError(lockState);
+    }
+
+    const admin = getSupabaseAdminClient();
+    const { error } = await admin.auth.signInWithPassword({
+      email: profile.email,
+      password: currentPassword,
+    });
+
+    if (error) {
+      const result = await LockoutService.recordFailedAttempt(profile.id, {
+        ip: meta?.ip,
+        userAgent: meta?.userAgent,
+      });
+      await LockoutService.logAttempt({
+        userId: profile.id,
+        email: profile.email,
+        ip: meta?.ip,
+        userAgent: meta?.userAgent,
+        success: false,
+        reason: 'INVALID_PASSWORD',
+      });
+      if (result?.locked) {
+        if (LockoutService.isPermanent(result)) {
+          await AuthorizationService.revokeAllSessions(profile.id).catch(() => {});
+          await this.notifyPermanentLock(profile, result, meta);
+        }
+        throw this.lockedError(result);
+      }
+      throw new ApiError(
+        400,
+        'AUTHENTICATION_DISCREPANCY',
+        'We could not verify and update your credentials. Please review the security requirements and re-enter your current password.'
+      );
+    }
+
+    await LockoutService.logAttempt({
+      userId: profile.id,
+      email: profile.email,
+      ip: meta?.ip,
+      userAgent: meta?.userAgent,
+      success: true,
+      reason: 'SUCCESS',
+    });
+    await LockoutService.resetOnSuccess(profile.id);
+  }
+
+  static async login(
+    email: string,
+    password: string,
+    meta: LoginRequestMeta = {}
+  ): Promise<ProfileDTO> {
     const admin = getSupabaseAdminClient();
     const profiles = new ProfileRepository(admin);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 1. Basic per-IP guard, before any account lookup. This is deliberately
+    //    independent of the email so it cannot reveal whether an account exists.
+    const ipState = await LockoutService.checkIpRateLimit(meta.ip ?? null);
+    if (ipState.limited) {
+      await LockoutService.logAttempt({
+        userId: null,
+        email: normalizedEmail,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        success: false,
+        reason: 'INVALID_PASSWORD',
+      });
+      const retryAfterSec = Math.max(1, ipState.retry_after_seconds || 60);
+      throw new ApiError(
+        429,
+        'RATE_LIMITED',
+        `Too many failed sign-in attempts from this network. Please try again in ${retryAfterSec} seconds.`,
+        { retryAfterSec },
+        { 'Retry-After': String(retryAfterSec) }
+      );
+    }
 
     const profile = await profiles.findByEmail(email);
     if (!profile) {
+      await this.runCredentialProbe(password);
+      await LockoutService.logAttempt({
+        userId: null,
+        email: normalizedEmail,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        success: false,
+        reason: 'INVALID_PASSWORD',
+      });
       // Generic message — never reveal whether the account exists.
       throw new ApiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
-    // 1. Failed-login lockout (checked before touching Auth).
+    // 2. Failed-login lockout (checked BEFORE verifying the password).
     const lockState = await LockoutService.check(profile.id);
     if (lockState?.locked) {
-      if (lockState.permanent) {
-        throw new ApiError(
-          429,
-          'LOGIN_LOCKED_OUT',
-          'Your account has been permanently locked due to repeated failed sign-in attempts. Please contact the system administrator to unlock it.',
-          { remaining_seconds: lockState.remaining_seconds, permanent: true }
-        );
-      }
-      throw new ApiError(
-        429,
-        'LOGIN_LOCKED_OUT',
-        `Your account is temporarily locked due to repeated failed sign-in attempts. Please try again in ${lockState.remaining_seconds} seconds or contact the administrator.`,
-        { remaining_seconds: lockState.remaining_seconds, permanent: false }
-      );
+      await LockoutService.logAttempt({
+        userId: profile.id,
+        email: profile.email,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        success: false,
+        reason: LockoutService.reasonForState(lockState),
+      });
+      throw this.lockedError(lockState);
     }
 
-    // 2. Administrative lock is distinct from failed-login lockout and is
+    // 3. Administrative lock is distinct from failed-login lockout and is
     //    checked first so it cannot be silently overridden.
     if (profile.account_status === 'locked') {
       throw new ApiError(
@@ -215,7 +402,7 @@ export class AuthService {
       );
     }
 
-    // 3. Single-active-session per browser: if this cookie jar already
+    // 4. Single-active-session per browser: if this cookie jar already
     //    carries a session for ANY account, revoke it server-side before
     //    issuing a new one — logging in as a different account (even the
     //    same role) always signs the previous account out.
@@ -232,7 +419,7 @@ export class AuthService {
       }
     }
 
-    // 4. Credential verification against Supabase Auth.
+    // 5. Credential verification against Supabase Auth.
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
@@ -241,6 +428,14 @@ export class AuthService {
     if (error) {
       const msg = (error.message || '').toLowerCase();
       if (msg.includes('not confirmed') || msg.includes('confirm')) {
+        await LockoutService.logAttempt({
+          userId: profile.id,
+          email: profile.email,
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+          success: false,
+          reason: 'INVALID_PASSWORD',
+        });
         throw new ApiError(
           403,
           'EMAIL_NOT_CONFIRMED',
@@ -255,27 +450,46 @@ export class AuthService {
         );
       }
       // Failed credentials -> atomic server-side lockout bookkeeping.
-      const result = await LockoutService.recordFailedAttempt(profile.id);
+      const result = await LockoutService.recordFailedAttempt(profile.id, {
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+      await LockoutService.logAttempt({
+        userId: profile.id,
+        email: profile.email,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        success: false,
+        reason: 'INVALID_PASSWORD',
+      });
+
       if (result?.locked) {
-        if (result.permanent) {
-          throw new ApiError(
-            429,
-            'LOGIN_LOCKED_OUT',
-            'Your account has been permanently locked due to repeated failed sign-in attempts. Please contact the system administrator to unlock it.',
-            { remaining_seconds: result.remaining_seconds, permanent: true }
-          );
+        if (LockoutService.isPermanent(result)) {
+          // A permanently locked account must not keep any usable session.
+          await AuthorizationService.revokeAllSessions(profile.id).catch(() => {});
+          try {
+            invalidateUsersCache();
+          } catch {}
+          await this.notifyPermanentLock(profile, result, meta);
         }
-        throw new ApiError(
-          429,
-          'LOGIN_LOCKED_OUT',
-          `Too many failed sign-in attempts. Login is locked for ${result.remaining_seconds} seconds.`,
-          { remaining_seconds: result.remaining_seconds, permanent: false }
-        );
+        throw this.lockedError(result);
       }
       throw new ApiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
-    // 5. Inactivity policy: an approved account whose last successful sign-in
+    // Credentials were correct: the attempt is a success and (because the
+    // account was not locked) the consecutive-failure counters reset.
+    await LockoutService.logAttempt({
+      userId: profile.id,
+      email: profile.email,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+      success: true,
+      reason: 'SUCCESS',
+    });
+    await LockoutService.resetOnSuccess(profile.id);
+
+    // 6. Inactivity policy: an approved account whose last successful sign-in
     //    is more than 2 months old is disabled automatically and must be
     //    re-approved by an administrator before it can sign in again.
     if (profile.account_status === 'approved' && profile.last_login_at) {
@@ -307,7 +521,7 @@ export class AuthService {
       }
     }
 
-    // 6. Auth passed — enforce approval status BEFORE granting a session.
+    // 7. Auth passed — enforce approval status BEFORE granting a session.
     if (profile.account_status !== 'approved') {
       await supabase.auth.signOut();
       const messages: Record<string, { code: ApiErrorCode; message: string }> = {
@@ -334,12 +548,9 @@ export class AuthService {
       throw new ApiError(403, denial.code, denial.message);
     }
 
-    // 7. Success — reset consecutive-failure counters and stamp last login.
-    //    Both writes are independent, so they share one round trip instead of two.
-    await Promise.all([
-      LockoutService.resetOnSuccess(profile.id),
-      new ProfileRepository(admin).touchLastLogin(profile.id),
-    ]);
+    // 8. Success — stamp the last login. The counters were already reset as
+    //    soon as the password was verified above.
+    await new ProfileRepository(admin).touchLastLogin(profile.id);
     try {
       invalidateUsersCache();
     } catch {}
@@ -356,6 +567,18 @@ export class AuthService {
    * account existence is never revealed. Reset never changes approval status.
    */
   static async requestPasswordReset(email: string): Promise<void> {
+    // A lock must survive a password reset: permanently locked accounts are
+    // only restored by an administrator, so no recovery mail is sent for them.
+    try {
+      const profile = await new ProfileRepository(getSupabaseAdminClient()).findByEmail(email);
+      if (profile) {
+        const lockState = await LockoutService.check(profile.id);
+        if (lockState?.locked) return;
+      }
+    } catch {
+      // Never turn an account lookup failure into an account-existence signal.
+    }
+
     // Deliberately non-PKCE: a PKCE recovery code can only be redeemed in the
     // browser that requested it (the verifier lives in that browser's cookies).
     // Implicit links work on any device, including when the user is already
@@ -429,6 +652,12 @@ export class AuthService {
       userId = session.user.id;
       email = session.user.email ?? null;
       cookieClient = supabase;
+    }
+
+    // A locked account cannot reset its way out of the lock.
+    const lockState = await LockoutService.check(userId);
+    if (lockState?.locked) {
+      throw this.lockedError(lockState);
     }
 
     if (email) {

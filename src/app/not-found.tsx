@@ -1,10 +1,15 @@
+'use client';
+
 import Link from 'next/link';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Global 404 Not Found page.
  * Required by Next.js 15.3+ for the /_not-found route.
  */
 export default function NotFound() {
+  const { t } = useTranslation('common');
+
   return (
     <div
       style={{
@@ -24,10 +29,10 @@ export default function NotFound() {
         404
       </h1>
       <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1rem' }}>
-        Page Not Found
+        {t('notFound.title')}
       </h2>
       <p style={{ marginBottom: '2rem', color: '#718096' }}>
-        The page you are looking for does not exist or has been moved.
+        {t('notFound.message')}
       </p>
       <Link
         href="/"
@@ -40,7 +45,7 @@ export default function NotFound() {
           fontWeight: 600,
         }}
       >
-        Go Home
+        {t('notFound.goHome')}
       </Link>
     </div>
   );

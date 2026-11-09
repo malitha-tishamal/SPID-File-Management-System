@@ -24,9 +24,14 @@ export interface IssuedFileRow {
   section_name: string;
   storage_location: string;
   requester_id: string;
-  requester_name: string;
+  /** Snapshot name captured at request time; display sites handle nulls. */
+  requester_name: string | null;
   requester_email: string | null;
   requester_section: string | null;
+  /** Soft-delete markers from migration 0027; undefined on older deployments. */
+  requester_is_deleted?: boolean;
+  reviewer_is_deleted?: boolean;
+  return_recorded_by_is_deleted?: boolean;
   request_date: string | null;
   duration_days: number | null;
   priority: string | null;
@@ -69,6 +74,9 @@ export interface FileExtensionRow {
   requested_by_name: string | null;
   reviewed_by: string | null;
   reviewed_by_name: string | null;
+  /** Soft-delete markers from migration 0027; undefined on older deployments. */
+  requester_is_deleted?: boolean;
+  reviewer_is_deleted?: boolean;
   reviewed_at: string | null;
   review_note: string | null;
   created_at: string | null;

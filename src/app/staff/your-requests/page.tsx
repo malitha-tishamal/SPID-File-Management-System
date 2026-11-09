@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { Trans, useTranslation } from 'react-i18next';
 import {
   FiAlertCircle,
   FiAlertTriangle,
@@ -14,11 +15,11 @@ import {
   FiXCircle,
 } from 'react-icons/fi';
 import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
+import { localiseReturnStatusLabel } from 'i18n/uiText';
 import { clearQueryParam, parseRecordId, readQueryParam } from 'lib/deep-link';
 import { getReturnStatus, isReturnDateExtended } from 'lib/returnStatus';
 import {
   buildStaffRequestsQuery,
-  getStaffRequestTabMeta,
   isStaffRequestTab,
   requestTabOf,
   sanitizeRequestSearch,
@@ -32,11 +33,17 @@ import type {
   StaffRequestTabCountMap,
 } from 'types/staffRequests';
 import { useToast } from 'components/toast/ToastContext';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
+import { useProfile } from 'contexts/ProfileContext';
 import RequestTabs from 'components/staff/requests/RequestTabs';
 import RequestsToolbar from 'components/staff/requests/RequestsToolbar';
 import RequestsTable from 'components/staff/requests/RequestsTable';
+import AttributedUser from 'components/ui/AttributedUser';
 
 const PAGE_LIMIT = 10;
+
+/** Realtime events arrive in bursts; one reload per burst keeps the list cheap. */
+const REALTIME_REFRESH_DEBOUNCE_MS = 1000;
 
 interface RequestsPayload {
   requests: StaffRequestRow[];
@@ -44,6 +51,10 @@ interface RequestsPayload {
   total: number;
   totalPages: number;
 }
+
+/** Soft-delete flag the server adds for reviewers (migration 0027); rows
+ *  without it render exactly as before. */
+type ReviewerDeletedFlag = { reviewer_is_deleted?: boolean };
 
 const EMPTY_COUNTS: StaffRequestTabCountMap = {
   ongoing: 0,
@@ -59,34 +70,37 @@ const EMPTY_PAYLOAD: RequestsPayload = {
   totalPages: 1,
 };
 
+/** Keys, not copy: both badges resolve their labels with `t()` in the render. */
 const priorityLabel: Record<StaffRequestPriority, string> = {
-  HIGH: 'High',
-  NORMAL: 'Normal',
-  LOW: 'Low',
+  HIGH: 'common:priority.HIGH',
+  NORMAL: 'common:priority.NORMAL',
+  LOW: 'common:priority.LOW',
 };
 
 const statusStyle: Record<string, { label: string; className: string }> = {
   PENDING: {
-    label: 'Pending',
+    label: 'common:status.pending',
     className: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
   },
   APPROVED: {
-    label: 'Approved',
+    label: 'common:status.approved',
     className:
       'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
   },
   REJECTED: {
-    label: 'Rejected',
+    label: 'common:status.rejected',
     className: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
   },
   CANCELLED: {
-    label: 'Cancelled',
+    label: 'common:status.cancelled',
     className: 'bg-slate-100 text-slate-600 dark:bg-navy-700 dark:text-slate-300',
   },
 };
 
 export default function StaffYourRequestsPage() {
+  const { t } = useTranslation('requests');
   const { showToast } = useToast();
+  const { profile } = useProfile();
 
   const [activeTab, setActiveTab] = useState<StaffRequestTab>('ongoing');
   const [searchInput, setSearchInput] = useState('');
@@ -120,7 +134,6 @@ export default function StaffYourRequestsPage() {
 
   const dateError = validateRequestDateRange(dateFrom, dateTo);
   const isFiltered = Boolean(search || dateFrom || dateTo || priority !== 'ALL');
-  const tabMeta = getStaffRequestTabMeta(activeTab);
 
   const queryKey = useMemo(
     () =>
@@ -209,7 +222,7 @@ export default function StaffYourRequestsPage() {
         const json = await response.json().catch(() => null);
         if (controller.signal.aborted) return;
         if (!response.ok || !json?.ok) {
-          throw new Error(json?.message || 'Unable to load your requests.');
+          throw new Error(json?.message || t('feedback.loadRequestsFailed'));
         }
         const payload: RequestsPayload = {
           requests: json.data?.requests ?? [],
@@ -222,7 +235,7 @@ export default function StaffYourRequestsPage() {
         applyPayload(payload);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : 'Unable to load your requests.');
+        setError(err instanceof Error ? err.message : t('feedback.loadRequestsFailed'));
         setView({ ...EMPTY_PAYLOAD, counts: countsRef.current });
         dataKeyRef.current = key;
       } finally {
@@ -250,6 +263,65 @@ export default function StaffYourRequestsPage() {
     setReloadToken((value) => value + 1);
   }, []);
 
+  /**
+   * Realtime for this staff member's own rows, so an approval, rejection,
+   * allocation or return shows up without a manual reload. The subscription is
+   * filtered to `requester_id` and uses the anon browser client — RLS and the
+   * owner-scoped API stay authoritative, and the event payload is only a cue to
+   * re-read, never a source of row data.
+   */
+  useEffect(() => {
+    const profileId = profile?.id;
+    if (!profileId) return;
+
+    let refreshTimer: number | undefined;
+    let channel: any = null;
+    let handshakeDone = false;
+
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(refreshAll, REALTIME_REFRESH_DEBOUNCE_MS);
+    };
+
+    try {
+      channel = getSupabaseBrowserClient()
+        .channel('staff-your-requests-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'staff_file_requests',
+            filter: `requester_id=eq.${profileId}`,
+          },
+          scheduleRefresh,
+        )
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            // The mount fetch already ran, so only a reconnect needs to catch up.
+            if (handshakeDone) refreshAll();
+            handshakeDone = true;
+          }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Realtime subscription issue for your requests:', status);
+          }
+        });
+    } catch (err) {
+      console.warn('Realtime is unavailable; the list still refreshes manually.', err);
+    }
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      if (channel) {
+        try {
+          getSupabaseBrowserClient().removeChannel(channel);
+        } catch (err) {
+          console.warn('Error removing realtime channel:', err);
+        }
+      }
+    };
+  }, [profile?.id, refreshAll]);
+
   // Notification deep link (?request=12): the endpoint returns that single
   // owner-scoped record regardless of the tab or page that is open first.
   useEffect(() => {
@@ -271,16 +343,11 @@ export default function StaffYourRequestsPage() {
         if (match) {
           setSelectedDetailRequest(match);
         } else {
-          setDeepLinkNotice(
-            'That notification points at a request that is no longer in your list — it may have been cancelled or removed. Your current requests are shown below.',
-          );
+          setDeepLinkNotice(t('feedback.deepLinkMissing'));
         }
       } catch {
-        setDeepLinkNotice(
-          'That notification points at a request we could not load right now. Your current requests are shown below.',
-        );
-      }
-    })();
+        setDeepLinkNotice(t('feedback.deepLinkUnavailable'));
+      }    })();
   }, []);
 
   const handleTabChange = useCallback((tab: StaffRequestTab) => {
@@ -307,19 +374,19 @@ export default function StaffYourRequestsPage() {
       });
       const json = await response.json().catch(() => null);
       if (!response.ok || !json?.ok) {
-        throw new Error(json?.message || 'Unable to cancel this request.');
+        throw new Error(json?.message || t('feedback.cancelFailed'));
       }
       cacheRef.current.clear();
       refreshAll();
       setCancelTarget(null);
       showToast({
         type: 'success',
-        title: 'Request cancelled',
-        message: json.data?.message ?? 'Your request was cancelled.',
+        title: t('feedback.cancelledTitle'),
+        message: json.data?.message ?? t('feedback.cancelledBody'),
       });
     } catch (err) {
       setCancelError(
-        err instanceof Error ? err.message : 'Unable to cancel this request.',
+        err instanceof Error ? err.message : t('feedback.cancelFailed'),
       );
     } finally {
       setCancellingId(null);
@@ -347,15 +414,15 @@ export default function StaffYourRequestsPage() {
     const reason = extensionReason.trim();
     const current = String(extensionTarget.expected_return_date || '').slice(0, 10);
     if (!extensionDate) {
-      setExtensionError('Choose the new return date you are requesting.');
+      setExtensionError(t('validation.chooseNewDate'));
       return;
     }
     if (current && extensionDate <= current) {
-      setExtensionError('The requested date must be later than your current return date.');
+      setExtensionError(t('validation.dateMustBeLater'));
       return;
     }
     if (!reason) {
-      setExtensionError('Enter a reason for keeping the file longer.');
+      setExtensionError(t('validation.reasonRequired'));
       return;
     }
 
@@ -373,7 +440,7 @@ export default function StaffYourRequestsPage() {
       });
       const json = await response.json().catch(() => null);
       if (!response.ok || !json?.ok) {
-        throw new Error(json?.message || 'Unable to send your extension request.');
+        throw new Error(json?.message || t('feedback.extensionFailed'));
       }
 
       setView((currentView) => ({
@@ -400,13 +467,13 @@ export default function StaffYourRequestsPage() {
       setExtensionReason('');
       showToast({
         type: 'success',
-        title: 'Extension requested',
-        message: json.data?.message ?? 'An administrator will review your request.',
+        title: t('feedback.extensionRequestedTitle'),
+        message: json.data?.message ?? t('feedback.extensionRequestedBody'),
       });
     } catch (err) {
       // Keep the typed reason so the staff member does not re-enter it.
       setExtensionError(
-        err instanceof Error ? err.message : 'Unable to send your extension request.',
+        err instanceof Error ? err.message : t('feedback.extensionFailed'),
       );
     } finally {
       setSubmittingExtension(false);
@@ -422,15 +489,14 @@ export default function StaffYourRequestsPage() {
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
           <p className="mb-2 text-[11px] text-slate-400">
-            Pages <span className="mx-1.5">/</span> Record Room{' '}
-            <span className="mx-1.5">/</span> Your Requests
+            {t('page.pages')} <span className="mx-1.5">/</span> {t('page.recordRoom')}{' '}
+            <span className="mx-1.5">/</span> {t('page.yourRequestsTitle')}
           </p>
           <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white">
-            Your Requests
+            {t('page.yourRequestsTitle')}
           </h1>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Track your file requests, monitor approval decisions, and manage your
-            request history.
+            {t('page.yourRequestsSubtitle')}
           </p>
         </div>
         <button
@@ -439,7 +505,8 @@ export default function StaffYourRequestsPage() {
           disabled={loading || refreshing}
           className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300"
         >
-          <FiRefreshCw className={loading || refreshing ? 'animate-spin' : ''} /> Refresh
+          <FiRefreshCw className={loading || refreshing ? 'animate-spin' : ''} />{' '}
+          {t('common:buttons.refresh')}
         </button>
       </div>
 
@@ -480,13 +547,16 @@ export default function StaffYourRequestsPage() {
 
       <p className="sr-only" role="status" aria-live="polite">
         {loading
-          ? 'Loading requests'
-          : `${view.total} request${view.total === 1 ? '' : 's'} in ${tabMeta.label}`}
+          ? t('table.loadingAria')
+          : t('table.summary', {
+              count: view.total,
+              tab: t(`tabs.${activeTab}`),
+            })}
       </p>
 
       {dateError ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Fix the date range above to load this tab.
+          {t('page.fixDateRange')}
         </div>
       ) : (
         <RequestsTable
@@ -556,14 +626,14 @@ export default function StaffYourRequestsPage() {
                     id="staff-cancel-title"
                     className="text-base font-extrabold text-slate-800 dark:text-white"
                   >
-                    Cancel this request?
+                    {t('cancel.title')}
                   </h2>
                 </div>
                 <button
                   type="button"
                   disabled={cancellingId !== null}
                   onClick={() => setCancelTarget(null)}
-                  aria-label="Close cancel confirmation"
+                  aria-label={t('cancel.closeAria')}
                   className="cursor-pointer rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-navy-700 dark:hover:text-white"
                 >
                   <FiX className="h-4 w-4" />
@@ -574,18 +644,20 @@ export default function StaffYourRequestsPage() {
                 id="staff-cancel-body"
                 className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400"
               >
-                This withdraws your pending request for{' '}
-                <strong className="font-bold text-slate-800 dark:text-white">
-                  {cancelTarget.file_no} — {cancelTarget.file_name}
-                </strong>
-                . It moves to the Cancelled tab and cannot be restored, but you can
-                submit a new request for this file afterwards.
+                <Trans
+                  ns="requests"
+                  i18nKey="cancel.body"
+                  values={{
+                    file: `${cancelTarget.file_no} — ${cancelTarget.file_name}`,
+                  }}
+                  components={{ b: <strong className="font-bold text-slate-800 dark:text-white" /> }}
+                />
               </p>
 
               <dl className="mt-4 grid grid-cols-2 gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5 text-[11px] dark:border-navy-700 dark:bg-navy-900/50">
                 <div>
                   <dt className="font-bold uppercase tracking-wider text-slate-400">
-                    Submitted
+                    {t('details.submitted')}
                   </dt>
                   <dd className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {formatSriLankaDate(cancelTarget.created_at)}
@@ -593,11 +665,12 @@ export default function StaffYourRequestsPage() {
                 </div>
                 <div>
                   <dt className="font-bold uppercase tracking-wider text-slate-400">
-                    Duration
+                    {t('table.duration')}
                   </dt>
                   <dd className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                    {cancelTarget.duration_days}{' '}
-                    {cancelTarget.duration_days === 1 ? 'day' : 'days'}
+                    {t('common:datetime.days', {
+                      count: cancelTarget.duration_days,
+                    })}
                   </dd>
                 </div>
               </dl>
@@ -619,7 +692,7 @@ export default function StaffYourRequestsPage() {
                   onClick={() => setCancelTarget(null)}
                   className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700"
                 >
-                  Keep request
+                  {t('cancel.keep')}
                 </button>
                 <button
                   type="button"
@@ -632,7 +705,7 @@ export default function StaffYourRequestsPage() {
                   ) : (
                     <FiX className="h-3.5 w-3.5" />
                   )}
-                  Yes, cancel request
+                  {t('cancel.confirm')}
                 </button>
               </div>
             </div>
@@ -664,7 +737,8 @@ export default function StaffYourRequestsPage() {
                     <div className="flex items-center gap-2">
                       <h2
                         id="staff-request-detail-title"
-                        className="text-lg font-black text-slate-800 dark:text-white"
+                        className="break-words text-lg font-black text-slate-800 dark:text-white [overflow-wrap:anywhere]"
+                        title={selectedDetailRequest.file_no}
                       >
                         {selectedDetailRequest.file_no}
                       </h2>
@@ -674,11 +748,15 @@ export default function StaffYourRequestsPage() {
                           statusStyle.CANCELLED.className
                         }`}
                       >
-                        {statusStyle[selectedDetailRequest.status]?.label ??
-                          selectedDetailRequest.status}
+                        {statusStyle[selectedDetailRequest.status]
+                          ? t(statusStyle[selectedDetailRequest.status].label)
+                          : selectedDetailRequest.status}
                       </span>
                     </div>
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <p
+                      className="break-words text-xs font-semibold text-slate-500 dark:text-slate-400 [overflow-wrap:anywhere]"
+                      title={selectedDetailRequest.file_name}
+                    >
                       {selectedDetailRequest.file_name}
                     </p>
                   </div>
@@ -686,7 +764,7 @@ export default function StaffYourRequestsPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedDetailRequest(null)}
-                  aria-label="Close details"
+                  aria-label={t('details.closeAria')}
                   className="cursor-pointer rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white"
                 >
                   <FiX className="h-5 w-5" />
@@ -697,7 +775,7 @@ export default function StaffYourRequestsPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                   <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                     <FiMapPin className="text-[#4318FF] dark:text-brand-300" />
-                    <span>Archive Location</span>
+                    <span>{t('details.archiveLocation')}</span>
                   </div>
                   <p className="mt-1.5 font-bold text-slate-800 dark:text-white">
                     {selectedDetailRequest.storage_location}
@@ -710,32 +788,37 @@ export default function StaffYourRequestsPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                   <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                     <FiCalendar className="text-[#4318FF] dark:text-brand-300" />
-                    <span>Request Scheduling</span>
+                    <span>{t('details.requestScheduling')}</span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-3">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Requested Access Date</p>
+                      <p className="text-[10px] font-bold text-slate-400">
+                        {t('details.requestedAccessDate')}
+                      </p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                         {formatSriLankaDate(`${String(selectedDetailRequest.request_date).slice(0, 10)}T00:00:00Z`)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Duration</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('table.duration')}</p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                        {selectedDetailRequest.duration_days}{' '}
-                        {selectedDetailRequest.duration_days === 1 ? 'day' : 'days'}
+                        {t('common:datetime.days', {
+                          count: selectedDetailRequest.duration_days,
+                        })}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Priority Level</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('details.priorityLevel')}</p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                        {priorityLabel[selectedDetailRequest.priority] ??
-                          selectedDetailRequest.priority}{' '}
-                        Priority
+                        {t('page.priorityChip', {
+                          priority: priorityLabel[selectedDetailRequest.priority]
+                            ? t(priorityLabel[selectedDetailRequest.priority])
+                            : selectedDetailRequest.priority,
+                        })}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Submitted</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('details.submitted')}</p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                         {formatSriLankaDateTime(selectedDetailRequest.created_at)}
                       </p>
@@ -747,11 +830,11 @@ export default function StaffYourRequestsPage() {
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                     <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                       <FiCalendar className="text-[#4318FF] dark:text-brand-300" />
-                      <span>Issue &amp; Return</span>
+                      <span>{t('details.issueAndReturn')}</span>
                     </div>
                     <div className="mt-2 grid gap-3 sm:grid-cols-3">
                       <div>
-                        <p className="text-[10px] font-bold text-slate-400">Issued On</p>
+                        <p className="text-[10px] font-bold text-slate-400">{t('details.issuedOn')}</p>
                         <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                           {selectedDetailRequest.reviewed_at
                             ? formatSriLankaDateTime(selectedDetailRequest.reviewed_at)
@@ -759,7 +842,7 @@ export default function StaffYourRequestsPage() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-bold text-slate-400">Expected Return</p>
+                        <p className="text-[10px] font-bold text-slate-400">{t('details.expectedReturn')}</p>
                         <p
                           className={`mt-0.5 font-bold ${
                             isReturnDateExtended(
@@ -781,24 +864,29 @@ export default function StaffYourRequestsPage() {
                           selectedDetailRequest.expected_return_date,
                         ) && (
                           <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                            Extended from{' '}
-                            {formatSriLankaDate(
-                              `${String(selectedDetailRequest.original_return_date).slice(0, 10)}T00:00:00Z`,
-                            )}
+                            {t('details.extendedFrom', {
+                              date: formatSriLankaDate(
+                                `${String(selectedDetailRequest.original_return_date).slice(0, 10)}T00:00:00Z`,
+                              ),
+                            })}
                           </p>
                         )}
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-slate-400">
-                          {selectedDetailRequest.returned_at ? 'Returned On' : 'Return Status'}
+                          {selectedDetailRequest.returned_at
+                            ? t('details.returnedOn')
+                            : t('table.returnStatus')}
                         </p>
                         <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                           {selectedDetailRequest.returned_at
                             ? formatSriLankaDateTime(selectedDetailRequest.returned_at)
-                            : getReturnStatus(
-                                selectedDetailRequest.expected_return_date,
-                                selectedDetailRequest.returned_at,
-                              ).label}
+                            : localiseReturnStatusLabel(
+                                getReturnStatus(
+                                  selectedDetailRequest.expected_return_date,
+                                  selectedDetailRequest.returned_at,
+                                ),
+                              )}
                         </p>
                       </div>
                     </div>
@@ -809,20 +897,27 @@ export default function StaffYourRequestsPage() {
                   <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-900 dark:bg-rose-950/40">
                     <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-rose-700 dark:text-rose-300">
                       <FiXCircle className="h-4 w-4" />
-                      <span>Administrator Rejection Reason</span>
+                      <span>{t('details.rejectionReason')}</span>
                     </div>
                     <div className="mt-2.5 rounded-xl border border-rose-200/60 bg-white p-3.5 dark:border-navy-700 dark:bg-navy-900/90">
                       <p className="text-xs font-bold leading-relaxed text-slate-800 dark:text-white">
-                        {selectedDetailRequest.admin_notes || 'No specific note provided.'}
+                        {selectedDetailRequest.admin_notes || t('details.noNote')}
                       </p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-rose-800 dark:text-rose-300">
                       <span>
-                        <strong>Reviewed By:</strong>{' '}
-                        {selectedDetailRequest.reviewer_name || 'Administrator'}
+                        <strong>{t('details.reviewedBy')}</strong>{' '}
+                        <AttributedUser
+                          name={selectedDetailRequest.reviewer_name}
+                          deleted={
+                            (selectedDetailRequest as ReviewerDeletedFlag)
+                              .reviewer_is_deleted
+                          }
+                          fallback={t('details.reviewerFallback')}
+                        />
                       </span>
                       <span>
-                        <strong>Reviewed At (SLST):</strong>{' '}
+                        <strong>{t('details.reviewedAt')}</strong>{' '}
                         {formatSriLankaDateTime(
                           selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at,
                         )}
@@ -835,23 +930,30 @@ export default function StaffYourRequestsPage() {
                       <FiCheckCircle className="h-4 w-4" />
                       <span>
                         {selectedTabForRow === 'closed'
-                          ? 'Completed — File Returned'
-                          : 'Approved for Checkout'}
+                          ? t('details.completedReturned')
+                          : t('details.approvedForCheckout')}
                       </span>
                     </div>
                     <div className="mt-2.5 rounded-xl border border-emerald-200/60 bg-white p-3.5 dark:border-navy-700 dark:bg-navy-900/90">
                       <p className="text-xs font-semibold leading-relaxed text-slate-800 dark:text-white">
                         {selectedDetailRequest.admin_notes ||
-                          'Approved for physical retrieval.'}
+                          t('details.approvedForRetrieval')}
                       </p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-emerald-800 dark:text-emerald-300">
                       <span>
-                        <strong>Approved By:</strong>{' '}
-                        {selectedDetailRequest.reviewer_name || 'Administrator'}
+                        <strong>{t('details.approvedBy')}</strong>{' '}
+                        <AttributedUser
+                          name={selectedDetailRequest.reviewer_name}
+                          deleted={
+                            (selectedDetailRequest as ReviewerDeletedFlag)
+                              .reviewer_is_deleted
+                          }
+                          fallback={t('details.reviewerFallback')}
+                        />
                       </span>
                       <span>
-                        <strong>Approved At (SLST):</strong>{' '}
+                        <strong>{t('details.approvedAt')}</strong>{' '}
                         {formatSriLankaDateTime(
                           selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at,
                         )}
@@ -865,17 +967,17 @@ export default function StaffYourRequestsPage() {
                       <span>
                         {selectedDetailRequest.cancellation_reason ===
                         'Replaced by higher-priority request'
-                          ? 'Replaced by a higher-priority request'
+                          ? t('details.replacedByHigherPriority')
                           : selectedDetailRequest.cancellation_reason ===
                             'Duplicate pending request consolidated'
-                          ? 'Duplicate request consolidated'
-                          : 'Cancelled by you'}
+                          ? t('details.duplicateConsolidated')
+                          : t('details.cancelledByYou')}
                       </span>
                     </div>
                     <div className="mt-2.5 rounded-xl border border-slate-200 bg-white p-3.5 dark:border-navy-700 dark:bg-navy-900/90">
                       <p className="text-xs font-semibold leading-relaxed text-slate-700 dark:text-slate-200">
                         {selectedDetailRequest.cancellation_reason ||
-                          'You cancelled this request before it was reviewed.'}
+                          t('details.cancelledBody')}
                       </p>
                     </div>
                   </div>
@@ -883,11 +985,10 @@ export default function StaffYourRequestsPage() {
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/30">
                     <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">
                       <FiCalendar className="h-4 w-4" />
-                      <span>Waiting for administrator review</span>
+                      <span>{t('details.awaitingReview')}</span>
                     </div>
                     <p className="mt-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
-                      You can still cancel this request from the table while it is
-                      pending.
+                      {t('details.awaitingReviewBody')}
                     </p>
                   </div>
                 )}
@@ -899,7 +1000,7 @@ export default function StaffYourRequestsPage() {
                   onClick={() => setSelectedDetailRequest(null)}
                   className="cursor-pointer rounded-xl border border-slate-200 bg-white px-5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-200"
                 >
-                  Close
+                  {t('common:buttons.close')}
                 </button>
               </div>
             </div>
@@ -934,7 +1035,7 @@ export default function StaffYourRequestsPage() {
                     id="staff-extension-title"
                     className="text-base font-extrabold text-slate-800 dark:text-white"
                   >
-                    Request Return-Date Extension
+                    {t('extension.title')}
                   </h2>
                 </div>
                 <button
@@ -944,7 +1045,7 @@ export default function StaffYourRequestsPage() {
                     setExtensionTarget(null);
                     setExtensionError('');
                   }}
-                  aria-label="Close extension request"
+                  aria-label={t('extension.closeAria')}
                   className="cursor-pointer rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white"
                 >
                   <FiX className="h-4 w-4" />
@@ -952,36 +1053,40 @@ export default function StaffYourRequestsPage() {
               </div>
 
               <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                Ask the Record Room administrator to keep{' '}
-                <strong className="font-bold text-slate-800 dark:text-white">
-                  {extensionTarget.file_no} — {extensionTarget.file_name}
-                </strong>{' '}
-                for longer. Your return date only changes once an administrator
-                approves this request.
+                <Trans
+                  ns="requests"
+                  i18nKey="extension.body"
+                  values={{
+                    file: `${extensionTarget.file_no} — ${extensionTarget.file_name}`,
+                  }}
+                  components={{ b: <strong className="font-bold text-slate-800 dark:text-white" /> }}
+                />
               </p>
 
               <div className="mt-4 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-[11px] dark:border-navy-700 dark:bg-navy-900/50 sm:grid-cols-2">
                 <div>
                   <p className="font-bold uppercase tracking-wider text-slate-400">
-                    Current return date
+                    {t('extension.currentReturnDate')}
                   </p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {extensionTarget.expected_return_date
                       ? formatSriLankaDate(
                           `${String(extensionTarget.expected_return_date).slice(0, 10)}T00:00:00Z`,
                         )
-                      : 'Not set'}
+                      : t('extension.notSet')}
                   </p>
                 </div>
                 <div>
                   <p className="font-bold uppercase tracking-wider text-slate-400">
-                    Current status
+                    {t('extension.currentStatus')}
                   </p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                    {getReturnStatus(
-                      extensionTarget.expected_return_date,
-                      extensionTarget.returned_at,
-                    ).label}
+                    {localiseReturnStatusLabel(
+                      getReturnStatus(
+                        extensionTarget.expected_return_date,
+                        extensionTarget.returned_at,
+                      ),
+                    )}
                   </p>
                 </div>
               </div>
@@ -990,7 +1095,7 @@ export default function StaffYourRequestsPage() {
                 htmlFor="extension-new-date"
                 className="mb-1.5 mt-4 block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300"
               >
-                Requested new return date <span className="text-rose-500">*</span>
+                {t('extension.newDateLabel')} <span className="text-rose-500">*</span>
               </label>
               <input
                 id="extension-new-date"
@@ -1009,7 +1114,7 @@ export default function StaffYourRequestsPage() {
                 htmlFor="extension-reason"
                 className="mb-1.5 mt-4 block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300"
               >
-                Reason for the extension <span className="text-rose-500">*</span>
+                {t('extension.reasonLabel')} <span className="text-rose-500">*</span>
               </label>
               <textarea
                 id="extension-reason"
@@ -1022,7 +1127,7 @@ export default function StaffYourRequestsPage() {
                 rows={4}
                 required
                 className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 outline-none transition focus:border-[#4318FF] focus:ring-4 focus:ring-[#4318FF]/10 dark:border-navy-600 dark:bg-navy-900 dark:text-white"
-                placeholder="E.g., The statements are still being verified by the section head."
+                placeholder={t('extension.reasonPlaceholder')}
               />
 
               {extensionError && (
@@ -1044,7 +1149,7 @@ export default function StaffYourRequestsPage() {
                   }}
                   className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:text-slate-300 dark:hover:bg-navy-700"
                 >
-                  Cancel
+                  {t('common:buttons.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -1052,7 +1157,7 @@ export default function StaffYourRequestsPage() {
                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-md shadow-[#4318FF]/20 hover:bg-[#3612d6] disabled:opacity-50"
                 >
                   {submittingExtension && <FiRefreshCw className="animate-spin" />}
-                  Submit Request
+                  {t('page.submitRequest')}
                 </button>
               </div>
             </form>

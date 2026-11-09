@@ -120,6 +120,44 @@ export function sanitizeRequestSearch(raw: string | null | undefined): string {
     .slice(0, 80);
 }
 
+export interface RequestSearchableRow {
+  id: number;
+  file_no?: string | null;
+  file_name?: string | null;
+  requester_name?: string | null;
+  requester_email?: string | null;
+}
+
+function includesTerm(
+  value: string | null | undefined,
+  needle: string,
+): boolean {
+  return String(value ?? '').toLowerCase().includes(needle);
+}
+
+/**
+ * Case-insensitive partial match over the fields an operator reads on a request
+ * row: file number, file title, requester name, requester email, and the request
+ * id. The id works with or without its '#' prefix, so '81', '#81' and 'de-12' all
+ * narrow the same way. An empty term matches everything.
+ */
+export function matchesRequestSearch(
+  row: RequestSearchableRow,
+  term: string,
+): boolean {
+  if (!term) return true;
+  const needle = term.toLowerCase();
+  const idDigits = needle.replace(/^#/, '');
+  return (
+    `#${row.id}`.includes(needle) ||
+    (idDigits.length > 0 && String(row.id).includes(idDigits)) ||
+    includesTerm(row.file_no, needle) ||
+    includesTerm(row.file_name, needle) ||
+    includesTerm(row.requester_name, needle) ||
+    includesTerm(row.requester_email, needle)
+  );
+}
+
 /** Trims a date input to a plain YYYY-MM-DD string, or '' when unusable. */
 export function normalizeRequestDate(value: string | null | undefined): string {
   const trimmed = String(value ?? '').trim().slice(0, 10);

@@ -24,6 +24,8 @@ import {
   FiFolder,
   FiSend,
 } from 'react-icons/fi';
+import { Trans, useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import ViewFileModal from 'components/admin/files/ViewFileModal';
 import { useToast } from 'components/toast/ToastContext';
 import { useProfile } from 'contexts/ProfileContext';
@@ -31,6 +33,7 @@ import { TABLE_BODY_CLASS } from 'lib/tableStyles';
 import { formatSriLankaDate, formatSriLankaTime } from 'lib/datetime';
 import type { FileRecordRow } from 'models/FileRepository';
 import { fetchClientSections } from 'lib/sectionsClient';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'SO';
@@ -62,33 +65,38 @@ function getSectionBadge(section?: string | null) {
   return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-navy-900 dark:text-slate-300 dark:border-navy-700';
 }
 
-function getCompactLocation(file: FileRecordRow) {
+function getCompactLocation(file: FileRecordRow, t: TFunction) {
+  const shelfName = localizeField(file.shelf_name);
+  const shelfPosition = localizeField(file.shelf_position);
+  const repository = localizeField(file.archive_repository);
+
   let primary = '';
-  if (file.locker_no && file.shelf_name) {
-    primary = `Locker ${file.locker_no} · Shelf ${file.shelf_name}`;
+  if (file.locker_no && shelfName) {
+    primary = t('staff.locationBoth', { locker: file.locker_no, shelf: shelfName });
   } else if (file.locker_no) {
-    primary = `Locker ${file.locker_no}`;
-  } else if (file.shelf_name) {
-    primary = `Shelf ${file.shelf_name}`;
+    primary = t('staff.locationLocker', { locker: file.locker_no });
+  } else if (shelfName) {
+    primary = t('staff.locationShelf', { shelf: shelfName });
   } else {
-    primary = file.archive_repository || 'Central Record Room';
+    primary = repository || t('detail.centralRecordRoom');
   }
 
   const secondaryParts = [];
-  if (file.shelf_position) {
-    secondaryParts.push(`Position: ${file.shelf_position}`);
+  if (shelfPosition) {
+    secondaryParts.push(t('detail.positionLabel', { value: shelfPosition }));
   }
-  if (file.archive_repository && (file.locker_no || file.shelf_name)) {
-    secondaryParts.push(file.archive_repository);
+  if (repository && (file.locker_no || shelfName)) {
+    secondaryParts.push(repository);
   }
 
   return {
     primary,
-    secondary: secondaryParts.join(' • ') || 'Main Repository',
+    secondary: secondaryParts.join(' • ') || t('staff.mainRepository'),
   };
 }
 
 export default function StaffFilesPage() {
+  const { t } = useTranslation('files');
   const { profile } = useProfile();
   const router = useRouter();
   const { showToast } = useToast();
@@ -111,6 +119,17 @@ export default function StaffFilesPage() {
 
   const [viewingFile, setViewingFile] = useState<FileRecordRow | null>(null);
   const [locationFile, setLocationFile] = useState<FileRecordRow | null>(null);
+
+  useLocalizedFields([
+    ...files.flatMap((file) => [
+      file.file_name,
+      file.section_name,
+      file.shelf_name,
+      file.shelf_position,
+      file.archive_repository,
+    ]),
+    ...sectionsList.map((section) => section.name),
+  ]);
 
   // Debounce search term
   useEffect(() => {
@@ -194,14 +213,14 @@ export default function StaffFilesPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-black tracking-tight text-[#1B2559] dark:text-white">
-              View &amp; Search Files
+              {t('staff.title')}
             </h1>
             <span className="inline-flex items-center rounded-full bg-indigo-50 dark:bg-brand-900/40 border border-indigo-100 dark:border-brand-800/60 px-2.5 py-0.5 text-xs font-bold text-[#4318FF] dark:text-brand-300">
-              {total} {total === 1 ? 'File' : 'Files'}
+              {t('staff.fileCount', { count: total })}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Explore registered archive documents, verify storage locations, and checkout files.
+            {t('staff.subtitle')}
           </p>
         </div>
 
@@ -212,14 +231,14 @@ export default function StaffFilesPage() {
             className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] px-3.5 py-2 text-xs font-bold text-white shadow-xs shadow-indigo-500/20 hover:from-[#3510db] hover:to-[#2563EB] transition cursor-pointer"
           >
             <FiSend className="h-3.5 w-3.5" />
-            <span>Request a File</span>
+            <span>{t('staff.requestFile')}</span>
           </Link>
           <Link
             href="/staff/add-new-file"
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-navy-700 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 transition cursor-pointer"
           >
             <FiPlusCircle className="h-3.5 w-3.5 text-[#4318FF]" />
-            <span>Add New File</span>
+            <span>{t('addFile.title')}</span>
           </Link>
           <button
             type="button"
@@ -227,10 +246,10 @@ export default function StaffFilesPage() {
             disabled={loading}
             aria-busy={loading}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-navy-700 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 transition cursor-pointer"
-            title="Refresh file list"
+            title={t('staff.refreshTitle')}
           >
             <FiRefreshCw className={`h-3.5 w-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Refresh</span>
+            <span className="hidden sm:inline">{t('common:buttons.refresh')}</span>
           </button>
         </div>
       </div>
@@ -250,8 +269,8 @@ export default function StaffFilesPage() {
                   setSearchTerm(event.target.value);
                   setPage(1);
                 }}
-                placeholder="Search file name, number..."
-                aria-label="Search files"
+                placeholder={t('staff.searchPlaceholder')}
+                aria-label={t('filters.searchAria')}
                 className="ml-2.5 w-full bg-transparent text-xs font-semibold outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
               />
               {searchTerm && (
@@ -259,7 +278,7 @@ export default function StaffFilesPage() {
                   type="button"
                   onClick={() => setSearchTerm('')}
                   className="rounded-full p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white transition cursor-pointer"
-                  title="Clear search text"
+                  title={t('staff.clearSearch')}
                 >
                   <FiX className="h-3.5 w-3.5" />
                 </button>
@@ -276,12 +295,12 @@ export default function StaffFilesPage() {
                   setPage(1);
                 }}
                 className="bg-transparent text-xs font-semibold outline-none cursor-pointer pr-2 truncate max-w-[170px]"
-                aria-label="Filter by section"
+                aria-label={t('filters.sectionAria')}
               >
-                <option value="all" className="dark:bg-navy-800">All Sections</option>
+                <option value="all" className="dark:bg-navy-800">{t('staff.allSections')}</option>
                 {sectionsList.map((sec) => (
                   <option key={sec.id || sec.name} value={sec.name} className="dark:bg-navy-800">
-                    {sec.name}
+                    {localizeField(sec.name)}
                   </option>
                 ))}
               </select>
@@ -290,10 +309,10 @@ export default function StaffFilesPage() {
             {/* Date Range - From */}
             <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-[11px] font-semibold text-slate-500 dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300">
               <FiCalendar className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-slate-400 font-medium">From:</span>
+              <span className="text-slate-400 font-medium">{t('staff.from')}</span>
               <input
                 type="date"
-                aria-label="From date"
+                aria-label={t('staff.fromAria')}
                 value={dateFrom}
                 max={dateTo || undefined}
                 onChange={(event) => {
@@ -307,10 +326,10 @@ export default function StaffFilesPage() {
             {/* Date Range - To */}
             <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-[11px] font-semibold text-slate-500 dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300">
               <FiCalendar className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-slate-400 font-medium">To:</span>
+              <span className="text-slate-400 font-medium">{t('staff.to')}</span>
               <input
                 type="date"
-                aria-label="To date"
+                aria-label={t('staff.toAria')}
                 value={dateTo}
                 min={dateFrom || undefined}
                 onChange={(event) => {
@@ -327,10 +346,10 @@ export default function StaffFilesPage() {
                 type="button"
                 onClick={handleResetFilters}
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 text-xs font-bold text-rose-600 hover:bg-rose-100 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 transition cursor-pointer"
-                title="Reset all filters"
+                title={t('staff.resetTitle')}
               >
                 <FiX className="h-3.5 w-3.5" />
-                <span>Reset</span>
+                <span>{t('staff.reset')}</span>
               </button>
             )}
           </div>
@@ -340,11 +359,16 @@ export default function StaffFilesPage() {
             {loading ? (
               <span className="inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
                 <FiRefreshCw className="h-3 w-3 animate-spin" />
-                Searching…
+                {t('staff.searching')}
               </span>
             ) : (
               <span>
-                Showing <strong>{files.length}</strong> of <strong>{total}</strong> files
+                <Trans
+                  ns="files"
+                  i18nKey="staff.showingCount"
+                  values={{ shown: files.length, total }}
+                  components={{ strong: <strong /> }}
+                />
               </span>
             )}
           </div>
@@ -354,10 +378,10 @@ export default function StaffFilesPage() {
         <div className="relative mt-4 w-full overflow-x-auto" aria-busy={loading}>
           {loading && files.length === 0 ? (
             /* Skeleton Loading State */
-            <div role="status" aria-label="Loading files" className="space-y-3 py-4">
+            <div role="status" aria-label={t('table.loadingFilesAria')} className="space-y-3 py-4">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
                 <FiRefreshCw className="h-3.5 w-3.5 animate-spin text-[#4318FF]" />
-                <span>Loading archive files...</span>
+                <span>{t('staff.loadingArchive')}</span>
               </div>
               {Array.from({ length: 6 }, (_, index) => (
                 <div
@@ -381,11 +405,11 @@ export default function StaffFilesPage() {
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-[#4318FF] dark:bg-navy-900 dark:text-brand-300 mb-3 shadow-xs">
                 <FiFileText className="h-8 w-8" />
               </div>
-              <p className="text-base font-bold text-slate-800 dark:text-white">No files found</p>
+              <p className="text-base font-bold text-slate-800 dark:text-white">{t('staff.noFilesTitle')}</p>
               <p className="mt-1 text-xs text-slate-400 max-w-sm">
                 {hasActiveFilters
-                  ? 'No archive records matched your search or filter options. Try adjusting the keywords or clear filters.'
-                  : 'There are no active files available in the archive at the moment.'}
+                  ? t('staff.noFilesFilteredHint')
+                  : t('staff.noFilesHint')}
               </p>
               {hasActiveFilters && (
                 <button
@@ -394,28 +418,28 @@ export default function StaffFilesPage() {
                   className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#3510db] transition cursor-pointer"
                 >
                   <FiX className="h-3.5 w-3.5" />
-                  <span>Clear All Filters</span>
+                  <span>{t('staff.clearAllFilters')}</span>
                 </button>
               )}
             </div>
           ) : (
             /* Data Table */
-            <table aria-label="Staff archive files" className="w-full text-left border-collapse table-auto min-w-[1040px] xl:min-w-0">
+            <table aria-label={t('table.staffAria')} className="w-full text-left border-collapse table-auto min-w-[1040px]">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-navy-700 bg-slate-50/70 dark:bg-navy-900/50 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-400">
-                  <th scope="col" className="py-3 px-3 w-12 text-center">NO</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[130px]">FILE NUMBER</th>
-                  <th scope="col" className="py-3 px-3 min-w-[220px]">FILE NAME</th>
-                  <th scope="col" className="py-3 px-3 min-w-[140px]">SECTION</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[180px]">START / END DATE</th>
-                  <th scope="col" className="py-3 px-3 min-w-[210px]">FILE LOCATION</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[140px]">LAST UPDATED</th>
-                  <th scope="col" className="py-3 px-3 text-center whitespace-nowrap min-w-[170px]">ACTION</th>
+                  <th scope="col" className="py-3 px-3 w-12 text-center">{t('table.colNo')}</th>
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[130px]">{t('table.colFileNumber')}</th>
+                  <th scope="col" className="py-3 px-3 min-w-[220px]">{t('table.colFileName')}</th>
+                  <th scope="col" className="py-3 px-3 min-w-[140px]">{t('table.colSection')}</th>
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[180px]">{t('table.colStartEndDate')}</th>
+                  <th scope="col" className="py-3 px-3 min-w-[210px]">{t('table.colFileLocation')}</th>
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[140px]">{t('table.colLastUpdated')}</th>
+                  <th scope="col" className="py-3 px-3 text-center whitespace-nowrap min-w-[170px]">{t('table.colAction')}</th>
                 </tr>
               </thead>
               <tbody className={TABLE_BODY_CLASS}>
                 {files.map((file, idx) => {
-                  const location = getCompactLocation(file);
+                  const location = getCompactLocation(file, t);
                   const rowNo = String((page - 1) * LIMIT + idx + 1).padStart(2, '0');
                   const updatedDate = file.updated_at || file.created_at;
                   const dateFormatted = updatedDate ? formatSriLankaDate(updatedDate) : '—';
@@ -434,14 +458,14 @@ export default function StaffFilesPage() {
                       </td>
 
                       {/* FILE NUMBER */}
-                      <td className="py-3 px-3 whitespace-nowrap">
+                      <td className="py-3 px-3 break-words [overflow-wrap:anywhere]">
                         <button
                           type="button"
                           onClick={() => setViewingFile(file)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50/80 hover:bg-indigo-100 dark:bg-brand-900/30 dark:hover:bg-brand-900/60 px-2.5 py-1 text-xs font-bold text-[#4318FF] dark:text-brand-300 border border-indigo-100/80 dark:border-brand-800/50 transition-all cursor-pointer font-mono tracking-tight"
-                          title="Click to view file details"
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-indigo-50/80 hover:bg-indigo-100 dark:bg-brand-900/30 dark:hover:bg-brand-900/60 px-2.5 py-1 text-left text-xs font-bold text-[#4318FF] dark:text-brand-300 border border-indigo-100/80 dark:border-brand-800/50 transition-all cursor-pointer font-mono tracking-tight break-words [overflow-wrap:anywhere]"
+                          title={file.file_no || t('staff.viewHint')}
                         >
-                          <span>{file.file_no}</span>
+                          <span className="min-w-0">{file.file_no}</span>
                         </button>
                       </td>
 
@@ -452,11 +476,11 @@ export default function StaffFilesPage() {
                           onClick={() => setViewingFile(file)}
                           title={file.file_name}
                         >
-                          {file.file_name}
+                          {localizeField(file.file_name)}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 dark:text-slate-400">
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted">
                           {file.page_numbers ? (
-                            <span>{file.page_numbers} pages</span>
+                            <span>{t('staff.pages', { count: file.page_numbers })}</span>
                           ) : null}
                         </div>
                       </td>
@@ -464,13 +488,15 @@ export default function StaffFilesPage() {
                       {/* SECTION */}
                       <td className="py-3 px-3">
                         <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border whitespace-nowrap shadow-2xs ${getSectionBadge(
+                          className={`inline-flex max-w-full items-center gap-1.5 whitespace-normal break-words rounded-full px-2.5 py-1 text-[11px] font-bold border leading-snug shadow-2xs ${getSectionBadge(
                             file.section_name,
                           )}`}
-                          title={file.section_name || 'General Record'}
+                          title={localizeField(file.section_name) || t('staff.generalRecord')}
                         >
-                          <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-                          <span className="truncate max-w-[140px]">{file.section_name || 'General Record'}</span>
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
+                          <span className="min-w-0">
+                            {localizeField(file.section_name) || t('staff.generalRecord')}
+                          </span>
                         </span>
                       </td>
 
@@ -484,8 +510,8 @@ export default function StaffFilesPage() {
                             <p className="font-bold text-slate-700 dark:text-slate-200 text-xs">
                               {file.start_date ? formatSriLankaDate(file.start_date) : '—'}
                             </p>
-                            <p className="text-[10px] text-slate-400 dark:text-slate-400 font-medium mt-0.5">
-                              to {file.end_date ? formatSriLankaDate(file.end_date) : '—'}
+                            <p className="text-[10px] text-muted font-medium mt-0.5">
+                              {t('staff.dateRangeTo', { date: file.end_date ? formatSriLankaDate(file.end_date) : '—' })}
                             </p>
                           </div>
                         </div>
@@ -496,8 +522,8 @@ export default function StaffFilesPage() {
                         <button
                           type="button"
                           onClick={() => setLocationFile(file)}
-                          className="group/loc inline-flex items-center gap-2 rounded-xl bg-slate-50 hover:bg-indigo-50/60 dark:bg-navy-900/60 dark:hover:bg-navy-900 border border-slate-200/80 hover:border-indigo-300/80 dark:border-navy-700 px-3 py-1.5 text-left transition-all cursor-pointer max-w-[230px]"
-                          title="Click to view full storage coordinates"
+                          className="group/loc inline-flex items-center gap-2 rounded-xl bg-slate-50 hover:bg-indigo-50/60 dark:bg-navy-900/60 dark:hover:bg-navy-900 border border-slate-200/80 hover:border-indigo-300/80 dark:border-navy-700 px-3 py-1.5 text-left transition-all cursor-pointer max-w-full min-w-0"
+                          title={t('staff.locationHint')}
                         >
                           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 group-hover/loc:bg-[#4318FF] group-hover/loc:text-white transition-all">
                             <FiMapPin className="h-3.5 w-3.5" />
@@ -524,7 +550,7 @@ export default function StaffFilesPage() {
                               {dateFormatted}
                             </p>
                             {timeFormatted ? (
-                              <p className="text-[10px] text-slate-400 dark:text-slate-400 font-medium mt-0.5">
+                              <p className="text-[10px] text-muted font-medium mt-0.5">
                                 {timeFormatted}
                               </p>
                             ) : null}
@@ -533,17 +559,17 @@ export default function StaffFilesPage() {
                       </td>
 
                       {/* ACTION: View & Request Buttons */}
-                      <td className="py-3 px-3 text-center whitespace-nowrap">
-                        <div className="inline-flex items-center justify-center gap-2">
+                      <td className="min-w-0 py-3 px-3 text-center align-top">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
                           {/* View Button */}
                           <button
                             type="button"
                             onClick={() => setViewingFile(file)}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-[#4318FF]/50 hover:text-[#4318FF] dark:border-navy-600 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition-all cursor-pointer active:scale-95"
-                            title="View complete file details"
+                            className="inline-flex min-w-fit items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-[#4318FF]/50 hover:text-[#4318FF] dark:border-navy-600 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs transition-all cursor-pointer active:scale-95"
+                            title={t('staff.viewTitle')}
                           >
                             <FiEye className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300" />
-                            <span>View</span>
+                            <span>{t('common:buttons.view')}</span>
                           </button>
 
                           {/* Request Button */}
@@ -556,15 +582,15 @@ export default function StaffFilesPage() {
                               router.push(`/staff/request-file?file_no=${encodeURIComponent(file.file_no)}`);
                             }}
                             aria-busy={requestingFileId === file.id}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] hover:from-[#3510db] hover:to-[#2563EB] px-3.5 py-1.5 text-xs font-bold text-white shadow-xs shadow-indigo-500/20 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
-                            title="Request access to checkout this file"
+                            className="inline-flex min-w-fit items-center gap-1.5 whitespace-nowrap rounded-xl bg-gradient-to-r from-[#4318FF] to-[#3B82F6] hover:from-[#3510db] hover:to-[#2563EB] px-3.5 py-1.5 text-xs font-bold text-white shadow-xs shadow-indigo-500/20 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+                            title={t('staff.requestAccessTitle')}
                           >
                             {requestingFileId === file.id ? (
                               <FiRefreshCw className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <FiSend className="h-3.5 w-3.5" />
                             )}
-                            <span>{requestingFileId === file.id ? 'Opening…' : 'Request'}</span>
+                            <span>{requestingFileId === file.id ? t('staff.opening') : t('staff.request')}</span>
                           </button>
                         </div>
                       </td>
@@ -580,9 +606,16 @@ export default function StaffFilesPage() {
         {totalPages > 1 && (
           <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-100 dark:border-navy-700 pt-4 mt-4 gap-3 text-xs text-slate-500">
             <div>
-              Showing <span className="font-bold text-slate-700 dark:text-white">{(page - 1) * LIMIT + 1}</span>–
-              <span className="font-bold text-slate-700 dark:text-white">{Math.min(page * LIMIT, total)}</span> of{' '}
-              <span className="font-bold text-slate-700 dark:text-white">{total}</span> files
+              <Trans
+                ns="files"
+                i18nKey="pagination.staffRange"
+                values={{
+                  from: (page - 1) * LIMIT + 1,
+                  to: Math.min(page * LIMIT, total),
+                  total,
+                }}
+                components={{ b: <span className="font-bold text-slate-700 dark:text-white" /> }}
+              />
             </div>
             <div className="flex items-center gap-1.5">
               <button
@@ -592,10 +625,10 @@ export default function StaffFilesPage() {
                 className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 px-2.5 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition cursor-pointer"
               >
                 <FiChevronLeft className="h-3.5 w-3.5" />
-                <span>Prev</span>
+                <span>{t('pagination.prev')}</span>
               </button>
               <div className="flex items-center px-2 font-bold text-slate-700 dark:text-slate-200">
-                Page {page} of {totalPages}
+                {t('common:table.pageOf', { page, totalPages })}
               </div>
               <button
                 type="button"
@@ -603,7 +636,7 @@ export default function StaffFilesPage() {
                 disabled={page >= totalPages}
                 className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 dark:border-navy-700 bg-white dark:bg-navy-800 px-2.5 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition cursor-pointer"
               >
-                <span>Next</span>
+                <span>{t('common:buttons.next')}</span>
                 <FiChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -638,7 +671,7 @@ export default function StaffFilesPage() {
                 </div>
                 <div>
                   <h2 id="file-location-title" className="text-base font-bold text-[#1B2559] dark:text-white">
-                    Archive Storage Location
+                    {t('staff.locationModalTitle')}
                   </h2>
                   <p className="text-xs font-semibold text-indigo-600 dark:text-brand-300 mt-0.5">
                     {locationFile.file_no}
@@ -648,7 +681,7 @@ export default function StaffFilesPage() {
               <button
                 type="button"
                 onClick={() => setLocationFile(null)}
-                aria-label="Close location details"
+                aria-label={t('staff.closeLocation')}
                 className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-navy-700 dark:hover:text-white transition cursor-pointer"
               >
                 <FiX className="h-4 w-4" />
@@ -657,19 +690,19 @@ export default function StaffFilesPage() {
 
             {/* File Name Banner */}
             <div className="mb-4 rounded-xl bg-slate-50 dark:bg-navy-900/60 border border-slate-100 dark:border-navy-700 p-3 text-xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">File Name</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t('staff.fileLabel')}</span>
               <span className="font-bold text-slate-800 dark:text-white mt-0.5 block">
-                {locationFile.file_name}
+                {localizeField(locationFile.file_name)}
               </span>
             </div>
 
             {/* Coordinate Grid */}
             <dl className="grid grid-cols-2 gap-2.5">
               {[
-                { label: 'Archive Repository', value: locationFile.archive_repository || 'Central Record Room', colSpan: 'col-span-2' },
-                { label: 'Locker Number', value: locationFile.locker_no || '—', colSpan: 'col-span-1' },
-                { label: 'Shelf Name / No', value: locationFile.shelf_name || '—', colSpan: 'col-span-1' },
-                { label: 'Shelf Position', value: locationFile.shelf_position || '—', colSpan: 'col-span-2' },
+                { label: t('staff.archiveRepository'), value: localizeField(locationFile.archive_repository) || t('detail.centralRecordRoom'), colSpan: 'col-span-2' },
+                { label: t('staff.lockerNumber'), value: locationFile.locker_no || '—', colSpan: 'col-span-1' },
+                { label: t('staff.shelfNameNo'), value: localizeField(locationFile.shelf_name) || '—', colSpan: 'col-span-1' },
+                { label: t('staff.shelfPosition'), value: localizeField(locationFile.shelf_position) || '—', colSpan: 'col-span-2' },
               ].map((item, idx) => (
                 <div
                   key={idx}
@@ -692,7 +725,7 @@ export default function StaffFilesPage() {
                 onClick={() => setLocationFile(null)}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-200 transition cursor-pointer"
               >
-                Close
+                {t('common:buttons.close')}
               </button>
               <button
                 type="button"
@@ -704,7 +737,7 @@ export default function StaffFilesPage() {
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#3510db] transition cursor-pointer"
               >
                 <FiSend className="h-3.5 w-3.5" />
-                <span>Request This File</span>
+                <span>{t('staff.requestThisFile')}</span>
               </button>
             </div>
           </section>

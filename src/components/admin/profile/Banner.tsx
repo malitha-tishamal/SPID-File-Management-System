@@ -2,8 +2,10 @@ import avatar from '/public/img/avatars/avatar11.png';
 import banner from '/public/img/profile/banner.png';
 import Card from 'components/card';
 import Image from 'next/image';
+import { useTranslation } from 'react-i18next';
 
 const Banner = () => {
+  const { t } = useTranslation('profile');
   return (
     <Card extra={'items-center w-full h-full p-[16px] bg-cover'}>
       {/* Background and profile */}
@@ -27,7 +29,7 @@ const Banner = () => {
         <h4 className="text-xl font-bold text-navy-700 dark:text-white">
           Adela Parkson
         </h4>
-        <h5 className="text-base font-normal text-gray-600">Product Manager</h5>
+        <h5 className="text-base font-normal text-gray-600">{t('banner.position')}</h5>
       </div>
 
       {/* Post followers */}
@@ -36,19 +38,19 @@ const Banner = () => {
           <h4 className="text-2xl font-bold text-navy-700 dark:text-white">
             17
           </h4>
-          <p className="text-sm font-normal text-gray-600">Posts</p>
+          <p className="text-sm font-normal text-gray-600">{t('banner.posts')}</p>
         </div>
         <div className="flex flex-col items-center justify-center">
           <h4 className="text-2xl font-bold text-navy-700 dark:text-white">
             9.7K
           </h4>
-          <p className="text-sm font-normal text-gray-600">Followers</p>
+          <p className="text-sm font-normal text-gray-600">{t('banner.followers')}</p>
         </div>
         <div className="flex flex-col items-center justify-center">
           <h4 className="text-2xl font-bold text-navy-700 dark:text-white">
             434
           </h4>
-          <p className="text-sm font-normal text-gray-600">Following</p>
+          <p className="text-sm font-normal text-gray-600">{t('banner.following')}</p>
         </div>
       </div>
     </Card>

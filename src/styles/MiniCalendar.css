@@ -3,7 +3,7 @@
 .react-calendar {
   border: 0px solid !important;
   background-color: transparent;
-  font-family: var(--font-dm-sans), 'DM Sans', sans-serif;
+  font-family: var(--font-dm-sans), 'DM Sans', var(--font-noto-sans-sinhala), 'Nirmala UI', 'Iskoola Pota', sans-serif;
 }
 .react-calendar__navigation__prev2-button {
   display: none;

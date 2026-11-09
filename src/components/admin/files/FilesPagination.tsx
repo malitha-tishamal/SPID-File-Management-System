@@ -1,9 +1,22 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 
 type PageItem = number | 'gap-left' | 'gap-right';
+
+const ITEM_LABEL_KEYS: Record<
+  string,
+  { rangeKey: string; emptyKey: string }
+> = {
+  file: { rangeKey: 'pagination.files', emptyKey: 'pagination.noFiles' },
+  request: { rangeKey: 'pagination.requests', emptyKey: 'pagination.noRequests' },
+  rejection: {
+    rangeKey: 'pagination.rejections',
+    emptyKey: 'pagination.noRejections',
+  },
+};
 
 function buildPageItems(current: number, total: number): PageItem[] {
   if (total <= 7) {
@@ -54,6 +67,8 @@ export default function FilesPagination({
   isFiltered?: boolean;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation('files');
+
   const pageItems = useMemo(
     () => buildPageItems(Math.min(Math.max(page, 1), Math.max(totalPages, 1)), Math.max(totalPages, 1)),
     [page, totalPages],
@@ -61,23 +76,26 @@ export default function FilesPagination({
 
   const startRecord = total === 0 ? 0 : (page - 1) * limit + 1;
   const endRecord = Math.min(page * limit, total);
-  const plural = total === 1 ? '' : 's';
+  const labelKeys = ITEM_LABEL_KEYS[itemLabel] ?? ITEM_LABEL_KEYS.file;
 
   return (
     <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-100 px-3 py-2.5 text-xs text-slate-500 dark:border-navy-700 dark:text-slate-400 sm:flex-row">
       <div aria-live="polite">
         {total === 0
-          ? `No ${itemLabel}s`
-          : `Showing ${startRecord}\u2013${endRecord} of ${total} ${itemLabel}${plural}${isFiltered ? ' (filtered)' : ''}`}
+          ? t(labelKeys.emptyKey)
+          : t(
+              `${labelKeys.rangeKey}${isFiltered ? 'Filtered' : ''}`,
+              { from: startRecord, to: endRecord, total, count: total },
+            )}
       </div>
 
       {totalPages > 1 && (
-        <nav aria-label="Pagination" className="flex items-center gap-1">
+        <nav aria-label={t('pagination.navAria')} className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => onPageChange(page - 1)}
             disabled={disabled || page <= 1}
-            aria-label="Previous page"
+            aria-label={t('pagination.previousPageAria')}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-navy-700 dark:bg-navy-800 dark:text-slate-300"
           >
             <FiChevronLeft className="h-3.5 w-3.5" />
@@ -110,7 +128,7 @@ export default function FilesPagination({
             type="button"
             onClick={() => onPageChange(page + 1)}
             disabled={disabled || page >= totalPages}
-            aria-label="Next page"
+            aria-label={t('pagination.nextPageAria')}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-navy-700 dark:bg-navy-800 dark:text-slate-300"
           >
             <FiChevronRight className="h-3.5 w-3.5" />

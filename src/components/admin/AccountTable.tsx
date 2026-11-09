@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FiCheckCircle,
   FiPhone,
@@ -12,20 +13,24 @@ import {
   FiChevronRight,
   FiClock,
   FiUserCheck,
+  FiRotateCcw,
 } from 'react-icons/fi';
 import { MdLockReset } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow } from 'types/auth';
 import type { AccountAction } from 'components/admin/useAccountActions';
 import { formatSriLankaDateTime } from 'lib/datetime';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
+import { attributedName, isReservedDeletedEmail } from 'utils/userDisplay';
+import AttributedUser from 'components/ui/AttributedUser';
 
 export const PRIMARY_ADMIN_EMAIL = 'officer@spid.gov.lk';
 
 const STATUS_CONFIG: Record<AccountStatus, { label: string; cls: string; dot: string }> = {
-  approved: { label: 'Approved',  cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-400 font-bold',  dot: 'bg-emerald-600' },
-  pending:  { label: 'Pending',   cls: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/50 dark:text-yellow-300 border border-yellow-400 font-bold',    dot: 'bg-yellow-600' },
-  rejected: { label: 'Rejected',  cls: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-400 font-bold',                 dot: 'bg-red-600' },
-  disabled: { label: 'Disabled',  cls: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300 border border-orange-400 font-bold',   dot: 'bg-orange-600' },
-  locked:   { label: 'Locked',    cls: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-400 font-bold',                 dot: 'bg-red-600' },
+  approved: { label: 'common:status.approved', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-400 font-bold',  dot: 'bg-emerald-600' },
+  pending:  { label: 'common:status.pending',  cls: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/50 dark:text-yellow-300 border border-yellow-400 font-bold',    dot: 'bg-yellow-600' },
+  rejected: { label: 'common:status.rejected', cls: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-400 font-bold',                 dot: 'bg-red-600' },
+  disabled: { label: 'status.disabled',        cls: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300 border border-orange-400 font-bold',   dot: 'bg-orange-600' },
+  locked:   { label: 'status.locked',          cls: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-400 font-bold',                 dot: 'bg-red-600' },
 };
 
 const PAGE_SIZE = 7;
@@ -62,6 +67,7 @@ function AccountTable({
   onAction: (acc: AdminUserRow, action: AccountAction) => void;
   onEdit: (acc: AdminUserRow) => void;
 }) {
+  const { t } = useTranslation('accounts');
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null);
@@ -93,6 +99,8 @@ function AccountTable({
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
   const paged = rows.slice(start, start + PAGE_SIZE);
+  // Section names are officer content; names, emails and phone numbers are not.
+  useLocalizedFields(paged.map((account) => account.section_name));
 
   const selectAllRef = useRef<HTMLInputElement>(null);
   const allPagedSelected = paged.length > 0 && selectedIds.length === paged.length;
@@ -122,15 +130,46 @@ function AccountTable({
 
   const renderActions = (acc: AdminUserRow) => {
     const isSelf = !!currentUserId && acc.id === currentUserId;
-    const isProtected = acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
+    const isProtected =
+      attributedName(acc.email).toLowerCase() === PRIMARY_ADMIN_EMAIL &&
+      acc.role === 'Administrator';
     const busy = loadingId === acc.id;
+
+    // A deleted account keeps every record it created, so the only action left
+    // here is bringing it back; it cannot be suspended or deleted again.
+    if (acc.is_deleted === true) {
+      return (
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          {busy ? (
+            <span
+              role="status"
+              className="flex items-center gap-1.5 text-[11px] text-gray-500 font-semibold"
+            >
+              <span
+                aria-hidden="true"
+                className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-[#4318FF] motion-reduce:animate-none"
+              />
+              {t('table.updating')}
+            </span>
+          ) : (
+            <button
+              onClick={() => onAction(acc, 'restore')}
+              className="flex items-center gap-1 rounded-full bg-[#4318FF] hover:bg-brand-500 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer"
+              title={t('table.restoreTitle')}
+            >
+              <FiRotateCcw className="h-3 w-3" /> {t('table.restore')}
+            </button>
+          )}
+        </div>
+      );
+    }
 
     // The signed-in administrator must never be able to suspend/delete/edit
     // their own row from the directory — show an identity label instead.
     if (isSelf) {
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 px-3 py-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-300 shadow-sm">
-          <FiUserCheck className="h-3 w-3" /> You
+          <FiUserCheck className="h-3 w-3" /> {t('table.you')}
         </span>
       );
     }
@@ -146,7 +185,7 @@ function AccountTable({
               aria-hidden="true"
               className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-[#4318FF] motion-reduce:animate-none"
             />
-            Updating...
+            {t('table.updating')}
           </span>
         ) : (
           <>
@@ -155,25 +194,25 @@ function AccountTable({
               <button
                 onClick={() => onAction(acc, 'approve')}
                 className="flex items-center gap-1 rounded-full bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer"
-                title="Approve registration"
+                title={t('table.approveTitle')}
               >
-                <FiUserCheck className="h-3 w-3" /> Approve
+                <FiUserCheck className="h-3 w-3" /> {t('common:buttons.approve')}
               </button>
             ) : acc.account_status === 'disabled' ? (
               <button
                 onClick={() => onAction(acc, 'enable')}
                 className="flex items-center gap-1 rounded-full bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer"
-                title="Activate account"
+                title={t('table.activateTitle')}
               >
-                <FiPower className="h-3 w-3" /> Activate
+                <FiPower className="h-3 w-3" /> {t('table.activate')}
               </button>
             ) : (
               <button
                 disabled
                 className="flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-[10px] font-bold opacity-80 cursor-default"
-                title="Account is already approved"
+                title={t('table.alreadyApprovedTitle')}
               >
-                <FiCheckCircle className="h-3 w-3" /> Approved
+                <FiCheckCircle className="h-3 w-3" /> {t('common:status.approved')}
               </button>
             )}
 
@@ -182,17 +221,17 @@ function AccountTable({
               <button
                 disabled
                 className="flex items-center gap-1 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300 border border-orange-300 dark:border-orange-700 px-2.5 py-1 text-[10px] font-bold opacity-80 cursor-default"
-                title="Account is already suspended"
+                title={t('table.alreadySuspendedTitle')}
               >
-                <FiSlash className="h-3 w-3" /> Disabled
+                <FiSlash className="h-3 w-3" /> {t('status.disabled')}
               </button>
             ) : (
               <button
                 onClick={() => onAction(acc, 'disable')}
                 className="flex items-center gap-1 rounded-full bg-orange-500 hover:bg-orange-600 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer"
-                title="Suspend account access"
+                title={t('table.suspendTitle')}
               >
-                <FiSlash className="h-3 w-3" /> Disable
+                <FiSlash className="h-3 w-3" /> {t('table.disable')}
               </button>
             )}
 
@@ -201,9 +240,9 @@ function AccountTable({
               <button
                 onClick={() => onAction(acc, 'clear_lockout')}
                 className="flex items-center gap-1 rounded-full bg-amber-500 hover:bg-amber-600 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm cursor-pointer"
-                title="Clear login lockout"
+                title={t('table.unlockTitle')}
               >
-                <MdLockReset className="h-3 w-3" /> Unlock
+                <MdLockReset className="h-3 w-3" /> {t('table.unlock')}
               </button>
             )}
 
@@ -212,18 +251,18 @@ function AccountTable({
               <button
                 onClick={() => onAction(acc, 'delete')}
                 className="flex items-center gap-1 rounded-full bg-red-600 hover:bg-red-700 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm transition-all cursor-pointer"
-                title="Permanently delete this account"
+                title={t('table.deleteTitle')}
               >
-                <FiTrash2 className="h-3 w-3" /> Delete
+                <FiTrash2 className="h-3 w-3" /> {t('common:buttons.delete')}
               </button>
             )}
 
             {/* 4. EDIT BUTTON (Pencil icon) */}
             <button
               onClick={() => onEdit(acc)}
-              aria-label={`Edit ${acc.full_name}`}
+              aria-label={t('table.editAria', { name: attributedName(acc.full_name) })}
               className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 dark:border-navy-500 text-slate-700 dark:text-slate-200 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-[#f4f7fe] dark:hover:bg-navy-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-1 cursor-pointer"
-              title="Edit profile & permissions"
+              title={t('table.editTitle')}
             >
               <FiEdit2 aria-hidden="true" className="h-3 w-3" />
             </button>
@@ -251,7 +290,7 @@ function AccountTable({
                 aria-hidden="true"
                 className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300 motion-reduce:animate-none"
               />
-              Loading records...
+              {t('table.loadingRecords')}
             </span>
           )}
         </div>
@@ -262,7 +301,7 @@ function AccountTable({
       {listLoading && (
         <div
           role="progressbar"
-          aria-label="Loading directory records"
+          aria-label={t('table.loadingAria')}
           aria-busy="true"
           className="relative h-1 w-full overflow-hidden bg-slate-100 dark:bg-navy-800"
         >
@@ -279,9 +318,15 @@ function AccountTable({
           aria-rowcount={listLoading ? undefined : rows.length}
         >
           <caption className="sr-only">
-            {title}
-            {caption ? ` — ${caption}` : ''}. Showing {rows.length}{' '}
-            {variant === 'admin' ? 'administrators' : 'staff members'}.
+            {t(caption ? 'table.srCaptionSubtitle' : 'table.srCaption', {
+              title,
+              caption,
+              count: rows.length,
+              entity: t(
+                variant === 'admin' ? 'table.entity' : 'table.entityStaff',
+                { count: rows.length }
+              ),
+            })}
           </caption>
           <thead>
             <tr className="bg-[#f4f7fe] dark:bg-navy-800">
@@ -293,31 +338,31 @@ function AccountTable({
                     checked={allPagedSelected}
                     onChange={toggleSelectAll}
                     className="h-4 w-4 rounded border-gray-300 text-[#4318FF] focus:ring-[#4318FF]"
-                    aria-label="Select all rows on this page"
+                    aria-label={t('table.selectAllAria')}
                   />
                 </th>
               )}
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                {variant === 'admin' ? 'ADMIN ID' : 'USER ID'}
+                {t(variant === 'admin' ? 'table.headers.adminId' : 'table.headers.userId')}
               </th>
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                {variant === 'admin' ? 'ADMINISTRATOR PROFILE' : 'USER PROFILE & NAME'}
+                {t(variant === 'admin' ? 'table.headers.adminProfile' : 'table.headers.userProfile')}
               </th>
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                CONTACT &amp; CREDENTIALS
+                {t('table.headers.contact')}
               </th>
 
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                SECTION NAME
+                {t('table.headers.sectionName')}
               </th>
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                {variant === 'admin' ? 'LAST LOGIN TIME' : 'LAST LOGIN'}
+                {t(variant === 'admin' ? 'table.headers.lastLoginTime' : 'table.headers.lastLogin')}
               </th>
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                {variant === 'admin' ? 'ACCOUNT STATUS' : 'STATUS'}
+                {t(variant === 'admin' ? 'table.headers.accountStatus' : 'table.headers.status')}
               </th>
               <th scope="col" className="px-4 py-3 text-left text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-gray-300">
-                {variant === 'admin' ? 'OPERATIONAL ACTIONS' : 'ACTIONS'}
+                {t(variant === 'admin' ? 'table.headers.adminActions' : 'table.headers.actions')}
               </th>
             </tr>
           </thead>
@@ -372,7 +417,9 @@ function AccountTable({
               paged.map((acc, i) => {
                 const statusCfg = STATUS_CONFIG[acc.account_status] || STATUS_CONFIG.approved;
                 const isProtected =
-                  acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
+                  attributedName(acc.email).toLowerCase() === PRIMARY_ADMIN_EMAIL &&
+                  acc.role === 'Administrator';
+                const isDeleted = acc.is_deleted === true;
                 const lastLogin = formatLastLogin(acc.last_login_at);
                 const isSelected = selectedIds.includes(acc.id);
 
@@ -391,7 +438,7 @@ function AccountTable({
                           checked={isSelected}
                           onChange={() => toggleSelectOne(acc.id)}
                           className="h-4 w-4 rounded border-gray-300 text-[#4318FF] focus:ring-[#4318FF]"
-                          aria-label={`Select ${acc.full_name}`}
+                          aria-label={t('table.selectRowAria', { name: attributedName(acc.full_name) })}
                         />
                       </td>
                     )}
@@ -416,16 +463,29 @@ function AccountTable({
                                 className="h-9 w-9 shrink-0 rounded-full object-cover border border-slate-200 dark:border-navy-600 shadow-sm"
                               />
                             ) : (
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-[#4318FF] to-brand-500 text-xs font-bold text-white shadow-sm">
-                                {acc.full_name.slice(0, 2).toUpperCase()}
+                              <div
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold shadow-sm ${
+                                  isDeleted
+                                    ? 'bg-slate-200 text-slate-500 dark:bg-navy-600 dark:text-gray-400'
+                                    : 'bg-gradient-to-b from-[#4318FF] to-brand-500 text-white'
+                                }`}
+                              >
+                                {attributedName(acc.full_name).slice(0, 2).toUpperCase() || '—'}
                               </div>
                             )}
                             <div className="min-w-0">
-                              <p className="truncate text-[13px] font-bold text-slate-950 dark:text-white">
-                                {acc.full_name}
+                              <p
+                                className="truncate text-[13px] font-bold text-slate-950 dark:text-white"
+                                title={attributedName(acc.full_name)}
+                              >
+                                <AttributedUser
+                                  name={acc.full_name}
+                                  deleted={isDeleted}
+                                  fallback={t('common:unknownUser')}
+                                />
                                 {isProtected && (
                                   <span className="ml-1.5 rounded bg-purple-100 px-1 py-0.5 text-[8px] font-bold text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                                    PROTECTED
+                                    {t('table.protected')}
                                   </span>
                                 )}
                               </p>
@@ -440,7 +500,19 @@ function AccountTable({
                     <td className="px-4 py-3">
                       <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-900 dark:text-gray-200">
                         <FiMail className="h-3 w-3 shrink-0 text-slate-500" />
-                        <span className="truncate max-w-[170px]">{acc.email}</span>
+                        {(() => {
+                          // A deleted account's live address is the reserved
+                          // placeholder; the directory shows the address it used.
+                          const shown =
+                            isReservedDeletedEmail(acc.email) && acc.original_email
+                              ? acc.original_email
+                              : acc.email;
+                          return (
+                            <span className="truncate max-w-[170px]" title={shown}>
+                              {shown || '—'}
+                            </span>
+                          );
+                        })()}
                       </p>
                       <p className="mt-0.5 flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-gray-300">
                         <FiPhone className="h-3 w-3 shrink-0 text-slate-500" />
@@ -449,8 +521,8 @@ function AccountTable({
                     </td>
 
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full bg-[#f0f5ff] text-[#1e293b] dark:bg-navy-800 dark:text-gray-200 border border-[#dbe6fe] dark:border-navy-600 px-3.5 py-1 text-xs font-bold shadow-sm">
-                        {acc.section_name || '—'}
+                      <span className="inline-flex max-w-full whitespace-normal break-words rounded-full bg-[#f0f5ff] text-[#1e293b] dark:bg-navy-800 dark:text-gray-200 border border-[#dbe6fe] dark:border-navy-600 px-3 py-1 text-xs font-bold leading-snug shadow-sm">
+                        {localizeField(acc.section_name) || '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -461,18 +533,25 @@ function AccountTable({
                         </p>
                       ) : (
                         <div>
-                          <p className="text-[11px] font-bold text-slate-700 dark:text-gray-400">Never logged in</p>
+                          <p className="text-[11px] font-bold text-slate-700 dark:text-gray-400">{t('table.neverLoggedIn')}</p>
                           {acc.account_status === 'pending' && (
-                            <p className="text-[10px] font-bold text-amber-600 dark:text-yellow-400">(Pending Activation)</p>
+                            <p className="text-[10px] font-bold text-amber-600 dark:text-yellow-400">{t('table.pendingActivation')}</p>
                           )}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${statusCfg.cls}`}>
-                        <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
-                        {statusCfg.label}
-                      </span>
+                      {isDeleted ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600 dark:border-navy-500 dark:bg-navy-800 dark:text-gray-400">
+                          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                          {t('table.deletedBadge')}
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${statusCfg.cls}`}>
+                          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
+                          {t(statusCfg.label)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">{renderActions(acc)}</td>
                   </tr>
@@ -486,16 +565,23 @@ function AccountTable({
       {/* Pagination footer */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-5 py-3 dark:border-navy-600">
         <p className="text-[11px] text-gray-400 dark:text-gray-500">
-          Showing {rows.length === 0 ? 0 : start + 1} to {Math.min(start + PAGE_SIZE, rows.length)} of{' '}
-          {rows.length} {variant === 'admin' ? 'administrators' : 'staff members'}
+          {t('table.showingRange', {
+            from: rows.length === 0 ? 0 : start + 1,
+            to: Math.min(start + PAGE_SIZE, rows.length),
+            total: rows.length,
+            entity: t(
+              variant === 'admin' ? 'table.entity' : 'table.entityStaff',
+              { count: rows.length }
+            ),
+          })}
         </p>
         <div className="flex items-center gap-1">
-          <nav aria-label="Directory pagination" className="flex items-center gap-1">
+          <nav aria-label={t('table.paginationAria')} className="flex items-center gap-1">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={safePage <= 1}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer"
-              aria-label="Previous page"
+              aria-label={t('table.previousPage')}
             >
               <FiChevronLeft aria-hidden="true" className="h-4 w-4" />
             </button>
@@ -508,7 +594,7 @@ function AccountTable({
                   )}
                   <button
                     onClick={() => setPage(p)}
-                    aria-label={`Go to page ${p}`}
+                    aria-label={t('table.goToPage', { page: p })}
                     aria-current={p === safePage ? 'page' : undefined}
                     className={`flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer ${
                       p === safePage
@@ -524,7 +610,7 @@ function AccountTable({
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={safePage >= totalPages}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-[#f4f7fe] disabled:opacity-40 dark:hover:bg-navy-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] cursor-pointer"
-              aria-label="Next page"
+              aria-label={t('table.nextPage')}
             >
               <FiChevronRight aria-hidden="true" className="h-4 w-4" />
             </button>

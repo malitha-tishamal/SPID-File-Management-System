@@ -1,5 +1,7 @@
 'use client';
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { localiseMessage } from 'i18n/uiText';
 import {
   FiCheck,
   FiAlertCircle,
@@ -90,6 +92,7 @@ export default function ActionFeedbackModal({
   feedback: FeedbackState | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation('accounts');
   useEffect(() => {
     if (!feedback) return;
     const onKey = (e: KeyboardEvent) => {
@@ -130,7 +133,7 @@ export default function ActionFeedbackModal({
         <button
           onClick={onClose}
           className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-navy-600 cursor-pointer"
-          aria-label="Close"
+          aria-label={t('common:buttons.close')}
         >
           <FiX className="h-4 w-4" />
         </button>
@@ -149,14 +152,16 @@ export default function ActionFeedbackModal({
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${cfg.badge}`}
             >
               <FiLock className="h-3 w-3" />
-              {feedback.badge}
+              {localiseMessage(feedback.badge)}
             </span>
           </div>
         )}
 
-        <h3 className="mt-5 text-lg font-extrabold text-slate-900 dark:text-white">{feedback.title}</h3>
+        <h3 className="mt-5 text-lg font-extrabold text-slate-900 dark:text-white">
+          {localiseMessage(feedback.title)}
+        </h3>
         <p className="mx-auto mt-2 max-w-xs text-sm font-medium leading-relaxed text-slate-600 dark:text-gray-300">
-          {feedback.description}
+          {localiseMessage(feedback.description)}
         </p>
       </div>
     </div>

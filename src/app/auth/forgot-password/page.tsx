@@ -2,15 +2,18 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useTranslation } from 'react-i18next';
 import { FiMail, FiSend } from 'react-icons/fi';
 import { RiRestartLine } from 'react-icons/ri';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
 import { useToast } from 'components/toast/ToastContext';
 import { isValidEmailFormat } from 'validators/authValidators';
+import { localiseMessage } from 'i18n/uiText';
 
 export default function ForgotPasswordPage() {
   const { showToast } = useToast();
+  const { t } = useTranslation('auth');
 
   // Inputs empty by default so placeholders appear like watermarks
   const [email, setEmail] = useState('');
@@ -26,16 +29,16 @@ export default function ForgotPasswordPage() {
     const cleanEmail = email.trim();
 
     if (!cleanEmail) {
-      const msg = 'Please provide your registered official email.';
+      const msg = t('forgotPassword.emailRequired');
       setErrorMsg(msg);
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      showToast({ type: 'error', title: t('forgotPassword.validationTitle'), message: msg });
       return;
     }
 
     if (!isValidEmailFormat(cleanEmail)) {
-      const msg = 'Please enter a valid email address (e.g. officer@spid.gov.lk).';
+      const msg = t('forgotPassword.emailInvalid');
       setErrorMsg(msg);
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      showToast({ type: 'error', title: t('forgotPassword.validationTitle'), message: msg });
       return;
     }
 
@@ -51,9 +54,9 @@ export default function ForgotPasswordPage() {
 
       if (!res.ok || !json.ok) {
         setIsLoading(false);
-        const msg = json.message || 'Could not send reset instructions. Please try again.';
+        const msg = localiseMessage(json.message || t('forgotPassword.sendFailed'));
         setErrorMsg(msg);
-        showToast({ type: 'error', title: 'Request Failed', message: msg });
+        showToast({ type: 'error', title: t('forgotPassword.requestFailedTitle'), message: msg });
         return;
       }
 
@@ -62,16 +65,15 @@ export default function ForgotPasswordPage() {
 
       showToast({
         type: 'success',
-        title: 'Request Received',
-        message:
-          'If an account exists for this email address, password reset instructions will be sent.',
+        title: t('forgotPassword.receivedTitle'),
+        message: t('forgotPassword.receivedMessage'),
         duration: 6000,
       });
     } catch {
       setIsLoading(false);
-      const msg = 'Could not reach the password reset service. Please try again.';
+      const msg = t('forgotPassword.unreachable');
       setErrorMsg(msg);
-      showToast({ type: 'error', title: 'Request Failed', message: msg });
+      showToast({ type: 'error', title: t('forgotPassword.requestFailedTitle'), message: msg });
     }
   };
 
@@ -91,10 +93,10 @@ export default function ForgotPasswordPage() {
           {/* Heading */}
           <div className="text-center mb-6">
             <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Forgot Your Password?
+              {t('forgotPassword.title')}
             </h2>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 px-2 sm:px-4 leading-relaxed">
-              Enter your registered official email to receive password reset instructions.
+              {t('forgotPassword.subtitle')}
             </p>
           </div>
 
@@ -112,10 +114,10 @@ export default function ForgotPasswordPage() {
             <div className="space-y-5 text-center">
               <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 text-left">
                 <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                  Password Reset Link Dispatched!
+                  {t('forgotPassword.dispatchedTitle')}
                 </p>
                 <p className="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed">
-                  If an account exists for this email address, password reset instructions will be sent. Please complete the reset within 15 minutes.
+                  {t('forgotPassword.dispatchedMessage')}
                 </p>
               </div>
 
@@ -123,7 +125,7 @@ export default function ForgotPasswordPage() {
                 href="/auth/sign-in"
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] cursor-pointer"
               >
-                ← Return to Sign In
+                ← {t('forgotPassword.returnToSignIn')}
               </Link>
             </div>
           ) : (
@@ -134,7 +136,7 @@ export default function ForgotPasswordPage() {
                   htmlFor="reset-email"
                   className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Official Email Address <span className="text-red-500">*</span>
+                  {t('forgotPassword.emailLabel')} <span className="text-red-500">*</span>
                 </label>
                 <div className="relative flex items-center">
                   <FiMail className="absolute left-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
@@ -145,7 +147,7 @@ export default function ForgotPasswordPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
-                    placeholder="Enter your registered email address"
+                    placeholder={t('forgotPassword.emailPlaceholder')}
                     className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none transition duration-150"
                   />
                 </div>
@@ -159,10 +161,10 @@ export default function ForgotPasswordPage() {
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] disabled:opacity-70 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
-                  <span>Sending...</span>
+                  <span>{t('forgotPassword.sending')}</span>
                 ) : (
                   <>
-                    <span>Send Reset Link</span>
+                    <span>{t('forgotPassword.sendLink')}</span>
                     <FiSend className="h-4 w-4" />
                   </>
                 )}
@@ -174,7 +176,7 @@ export default function ForgotPasswordPage() {
                   href="/auth/sign-in"
                   className="inline-flex items-center justify-center text-xs font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
                 >
-                  ← Back to Sign In
+                  ← {t('forgotPassword.backToSignIn')}
                 </Link>
               </div>
             </form>

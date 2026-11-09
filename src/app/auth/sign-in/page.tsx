@@ -3,52 +3,73 @@
 import React, { useEffect, useRef, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiShield } from 'react-icons/fi';
+import { useTranslation } from 'react-i18next';
+import { FiMail, FiLock, FiEye, FiEyeOff, FiArrowRight, FiShield, FiX } from 'react-icons/fi';
 import { HiOutlineIdentification } from 'react-icons/hi';
 import AuthBrandHeader from 'components/auth/AuthBrandHeader';
 import AuthBrandFooter from 'components/auth/AuthBrandFooter';
+import LanguageSwitcher from 'components/navbar/LanguageSwitcher';
 import { useToast } from 'components/toast/ToastContext';
 import { useProfile } from 'contexts/ProfileContext';
 import { markActivityNow } from 'lib/authSync';
+import { inactivityWindow } from 'lib/sessionPolicy';
 import { isValidEmailFormat } from 'validators/authValidators';
 import type { ApiErrorCode } from 'types/auth';
+import { localiseMessage } from 'i18n/uiText';
+import { formatLockoutCountdown } from 'lib/auth/lockout';
 
-const STATUS_BANNERS: Record<string, { type: 'error' | 'warning'; title: string; text: string }> = {
-  pending: {
-    type: 'warning',
-    title: 'PENDING APPROVAL:',
-    text: 'Your account is awaiting administrator approval. Please contact the system administrator.',
-  },
-  disabled: {
-    type: 'error',
-    title: 'ACCOUNT DISABLED:',
-    text: 'Your account has been disabled. Please contact the system administrator.',
-  },
-  locked: {
-    type: 'error',
-    title: 'ACCOUNT LOCKED:',
-    text: 'Your account is temporarily locked due to security restrictions. Please try again later or contact the administrator.',
-  },
+const LOCKOUT_STORAGE_KEY = 'spid_login_lockout';
+
+/** A per-email lock notice that survives a refresh and ends on its own. */
+type LockoutNotice = {
+  kind: 'temp' | 'permanent';
+  email: string;
+  expiresAt: number | null;
+};
+
+function readStoredLockout(): LockoutNotice | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(LOCKOUT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LockoutNotice> | null;
+    if (!parsed || typeof parsed.email !== 'string') return null;
+    if (parsed.kind === 'permanent') {
+      return { kind: 'permanent', email: parsed.email, expiresAt: null };
+    }
+    if (parsed.kind === 'temp' && typeof parsed.expiresAt === 'number') {
+      if (parsed.expiresAt <= Date.now()) {
+        window.sessionStorage.removeItem(LOCKOUT_STORAGE_KEY);
+        return null;
+      }
+      return { kind: 'temp', email: parsed.email, expiresAt: parsed.expiresAt };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const STATUS_BANNERS: Record<
+  string,
+  { type: 'error' | 'warning'; titleKey: string; textKey: string }
+> = {
+  pending: { type: 'warning', titleKey: 'banners.pendingTitle', textKey: 'banners.pendingText' },
+  disabled: { type: 'error', titleKey: 'banners.disabledTitle', textKey: 'banners.disabledText' },
+  locked: { type: 'error', titleKey: 'banners.lockedTitle', textKey: 'banners.lockedText' },
   inactivity: {
     type: 'warning',
-    title: 'SESSION EXPIRED:',
-    text: 'Your session has expired due to 2 hours of inactivity. Please log in again to continue.',
+    titleKey: 'banners.inactivityTitle',
+    textKey: 'banners.inactivityText',
   },
-  unknown: {
-    type: 'warning',
-    title: 'SESSION EXPIRED:',
-    text: 'Your session has expired. Please log in again to continue.',
-  },
-  rejected: {
-    type: 'error',
-    title: 'REGISTRATION DECLINED:',
-    text: 'Your account registration was declined. Please contact the system administrator.',
-  },
+  unknown: { type: 'warning', titleKey: 'banners.unknownTitle', textKey: 'banners.unknownText' },
+  rejected: { type: 'error', titleKey: 'banners.rejectedTitle', textKey: 'banners.rejectedText' },
 };
 
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useTranslation('auth');
   const callbackUrl = searchParams.get('callbackUrl') || '';
   const { showToast } = useToast();
   const { applyProfile } = useProfile();
@@ -59,9 +80,19 @@ function SignInContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const [lockout, setLockout] = useState<LockoutNotice | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
   const [errorBanner, setErrorBanner] = useState<{ type: 'error' | 'warning'; title: string; text: string } | null>(null);
   const errorBannerRef = useRef<HTMLDivElement>(null);
+
+  const storeLockout = (notice: LockoutNotice | null) => {
+    setLockout(notice);
+    if (typeof window === 'undefined') return;
+    try {
+      if (notice) window.sessionStorage.setItem(LOCKOUT_STORAGE_KEY, JSON.stringify(notice));
+      else window.sessionStorage.removeItem(LOCKOUT_STORAGE_KEY);
+    } catch {}
+  };
 
   // Move focus to the alert so keyboard and screen-reader users hear the
   // failure immediately instead of hunting for it further up the page.
@@ -92,8 +123,8 @@ function SignInContent() {
     if (searchParams.get('reset') === 'success') {
       showToast({
         type: 'success',
-        title: 'Password Updated',
-        message: 'Your password has been changed. Please sign in with your new password.',
+        title: t('signIn.toasts.passwordUpdatedTitle'),
+        message: t('signIn.toasts.passwordUpdatedMessage'),
         duration: 7000,
       });
     }
@@ -101,18 +132,67 @@ function SignInContent() {
     const status = searchParams.get('status');
     if (status && STATUS_BANNERS[status]) {
       const banner = STATUS_BANNERS[status];
-      setErrorBanner({ type: banner.type, title: banner.title, text: banner.text });
-      showToast({ type: banner.type, title: banner.title.replace(':', ''), message: banner.text, duration: 6000 });
+      const { count, unit } = inactivityWindow();
+      const vars = { duration: t(`session.duration.${unit}`, { count }) };
+      setErrorBanner({
+        type: banner.type,
+        title: t(banner.titleKey, vars),
+        text: t(banner.textKey, vars),
+      });
+
+      if (status === 'inactivity') {
+        // Persistent notice (never auto-dismissed). The query flag is removed
+        // immediately so a later visit does not resurrect an old explanation.
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('status');
+          window.history.replaceState({}, '', url.toString());
+        }
+      } else {
+        showToast({
+          type: banner.type,
+          title: t(banner.titleKey, vars).replace(':', ''),
+          message: t(banner.textKey, vars),
+          duration: 6000,
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Lockout countdown
+  // A lock survives refresh: the server already told us when it ends, so the
+  // client only counts down and never decides when the account may retry.
   useEffect(() => {
-    if (lockoutSeconds <= 0) return;
-    const t = setTimeout(() => setLockoutSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [lockoutSeconds]);
+    const restored = readStoredLockout();
+    if (!restored) return;
+    setLockout(restored);
+    setEmail((current) => current || restored.email);
+  }, []);
+
+  // One clock tick per second while a temporary lock is counting down.
+  useEffect(() => {
+    if (lockout?.kind !== 'temp') return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setClock(now);
+      if (lockout.expiresAt !== null && now >= lockout.expiresAt) {
+        window.clearInterval(timer);
+        setLockout(null);
+        try {
+          window.sessionStorage.removeItem(LOCKOUT_STORAGE_KEY);
+        } catch {}
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [lockout]);
+
+  const isLockedForInput = !!lockout && lockout.email === email.trim().toLowerCase();
+  const lockoutRemaining =
+    lockout?.kind === 'temp' && lockout.expiresAt
+      ? Math.max(0, Math.ceil((lockout.expiresAt - clock) / 1000))
+      : 0;
+  const lockoutActive = isLockedForInput && (lockout?.kind === 'permanent' || lockoutRemaining > 0);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,30 +201,32 @@ function SignInContent() {
 
     const inputEmail = email.trim();
     if (!inputEmail) {
-      const msg = 'Please enter your official email address.';
-      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      const msg = t('signIn.errors.emailRequired');
+      setErrorBanner({ type: 'error', title: t('banners.validationTitle'), text: msg });
+      showToast({ type: 'error', title: t('signIn.toasts.validationTitle'), message: msg });
       return;
     }
 
     if (!isValidEmailFormat(inputEmail)) {
-      const msg = 'Please enter a valid email address (e.g. officer@spid.gov.lk).';
-      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      const msg = t('signIn.errors.emailInvalid');
+      setErrorBanner({ type: 'error', title: t('banners.validationTitle'), text: msg });
+      showToast({ type: 'error', title: t('signIn.toasts.validationTitle'), message: msg });
       return;
     }
 
     if (!password) {
-      const msg = 'Please enter your password.';
-      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
-      showToast({ type: 'error', title: 'Validation Error', message: msg });
+      const msg = t('signIn.errors.passwordRequired');
+      setErrorBanner({ type: 'error', title: t('banners.validationTitle'), text: msg });
+      showToast({ type: 'error', title: t('signIn.toasts.validationTitle'), message: msg });
       return;
     }
 
-    if (lockoutSeconds > 0) {
-      const msg = `Login is temporarily locked. Please try again in ${lockoutSeconds}s.`;
-      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
-      showToast({ type: 'error', title: 'Login Locked', message: msg });
+    if (lockoutActive) {
+      const msg =
+        lockout?.kind === 'permanent'
+          ? t('lockedPermanent')
+          : t('lockedTemp', { time: formatLockoutCountdown(lockoutRemaining) });
+      showToast({ type: 'error', title: t('signIn.toasts.loginLockedTitle'), message: msg });
       return;
     }
 
@@ -161,20 +243,58 @@ function SignInContent() {
       if (!res.ok || !json.ok) {
         setIsLoading(false);
         const code = json.code as ApiErrorCode;
-        const msg: string = json.message || 'Invalid email or password.';
+        const lowerEmail = inputEmail.toLowerCase();
+        // The server owns the lock: `retryAfterSec` is authoritative, the
+        // countdown below only paints it.
+        const serverRetry = Math.max(
+          0,
+          Math.ceil(Number(json.retryAfterSec ?? json.remaining_seconds ?? 0) || 0)
+        );
+        const isPermanentLock =
+          code === 'ACCOUNT_LOCKED_PERMANENT' ||
+          (code === 'LOGIN_LOCKED_OUT' && json.permanent === true);
+        const isTempLock =
+          code === 'ACCOUNT_LOCKED_TEMP' ||
+          (code === 'LOGIN_LOCKED_OUT' && json.permanent !== true && serverRetry > 0);
 
-        if (code === 'LOGIN_LOCKED_OUT' && typeof json.remaining_seconds === 'number') {
-          // A permanent lock has no countdown — it only ends when an administrator clears it.
-          if (!json.permanent) {
-            setLockoutSeconds(json.remaining_seconds);
-          }
+        if (isPermanentLock) {
+          storeLockout({ kind: 'permanent', email: lowerEmail, expiresAt: null });
+          setClock(Date.now());
+        } else if (isTempLock) {
+          storeLockout({
+            kind: 'temp',
+            email: lowerEmail,
+            expiresAt: Date.now() + Math.max(1, serverRetry) * 1000,
+          });
+          setClock(Date.now());
         }
 
+        const isLock = isPermanentLock || isTempLock;
+        const msg: string = localiseMessage(
+          json.message || t('invalidCredentials'),
+          {
+            code,
+            vars: isTempLock ? { time: formatLockoutCountdown(Math.max(1, serverRetry)) } : undefined,
+          }
+        );
+
         const isWarning = code === 'ACCOUNT_PENDING' || code === 'EMAIL_NOT_CONFIRMED';
-        setErrorBanner({ type: isWarning ? 'warning' : 'error', title: isWarning ? 'NOTICE:' : 'ERROR:', text: msg });
+        // Lock codes get the dedicated alert above the form instead of a
+        // second, competing inline error.
+        if (!isLock) {
+          setErrorBanner({
+            type: isWarning ? 'warning' : 'error',
+            title: isWarning ? t('banners.noticeTitle') : t('banners.validationTitle'),
+            text: msg,
+          });
+        }
         showToast({
           type: isWarning ? 'warning' : 'error',
-          title: isWarning ? 'Account Notice' : code === 'LOGIN_LOCKED_OUT' ? 'Login Locked' : 'Sign In Failed',
+          title: isWarning
+            ? t('signIn.toasts.accountNoticeTitle')
+            : isLock
+            ? t('signIn.toasts.loginLockedTitle')
+            : t('signIn.toasts.signInFailedTitle'),
           message: msg,
           duration: 6000,
         });
@@ -197,6 +317,7 @@ function SignInContent() {
       // Populate shared state immediately so the sidebar/navbar show the
       // authenticated user's own avatar without waiting for a page reload.
       applyProfile(profile);
+      storeLockout(null);
 
       // Broadcast login event to other tabs so they can redirect if showing a different account
       try {
@@ -214,8 +335,11 @@ function SignInContent() {
 
       showToast({
         type: 'success',
-        title: 'Login successful.',
-        message: `Welcome, ${profile.full_name} (${profile.role}). Loading portal...`,
+        title: t('signIn.toasts.loginSuccessTitle'),
+        message: t('signIn.toasts.welcome', {
+          name: profile.full_name,
+          role: localiseMessage(profile.role),
+        }),
       });
 
       // Fast transition without full page cold reload
@@ -229,9 +353,9 @@ function SignInContent() {
       }, 300);
     } catch {
       setIsLoading(false);
-      const msg = 'Could not reach the authentication service. Please try again.';
-      setErrorBanner({ type: 'error', title: 'ERROR:', text: msg });
-      showToast({ type: 'error', title: 'Sign In Failed', message: msg });
+      const msg = t('signIn.errors.authUnreachable');
+      setErrorBanner({ type: 'error', title: t('banners.validationTitle'), text: msg });
+      showToast({ type: 'error', title: t('signIn.toasts.signInFailedTitle'), message: msg });
     }
   };
 
@@ -244,19 +368,48 @@ function SignInContent() {
       <div className="relative w-full max-w-[460px] rounded-3xl bg-white p-6 sm:p-10 shadow-xl shadow-slate-200/60 dark:bg-navy-800 dark:shadow-navy-950 border border-slate-100 dark:border-navy-700">
         <div className="relative z-10">
           {/* Card Header */}
-          <div className="mb-6">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
-                <HiOutlineIdentification className="h-5 w-5" />
-              </span>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Sign In
-              </h2>
+          <div className="mb-6 flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#4318FF] dark:bg-navy-700">
+                  <HiOutlineIdentification className="h-5 w-5" />
+                </span>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                  {t('signIn.title')}
+                </h2>
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {t('signIn.subtitle')}
+              </p>
             </div>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Enter your credentials to access the record room portal.
-            </p>
+            <LanguageSwitcher />
           </div>
+
+          {/* Lockout takes precedence over any older banner (e.g. inactivity) */}
+          {lockoutActive && lockout && (
+            <div
+              role="alert"
+              aria-atomic="true"
+              className={`mb-4 rounded-xl p-3 text-xs font-medium border ${
+                lockout.kind === 'permanent'
+                  ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+                  : 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800'
+              }`}
+            >
+              <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                <span className="font-bold">
+                  {lockout.kind === 'permanent'
+                    ? t('banners.lockedPermanentTitle')
+                    : t('banners.lockedTitle')}
+                </span>
+                <span className="min-w-0 flex-1 break-words">
+                  {lockout.kind === 'permanent'
+                    ? t('lockedPermanent')
+                    : t('lockedTemp', { time: formatLockoutCountdown(lockoutRemaining) })}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Inline alert banner if error occurs */}
           {errorBanner && (
@@ -264,17 +417,25 @@ function SignInContent() {
               ref={errorBannerRef}
               id="sign-in-error"
               tabIndex={-1}
-              role={errorBanner.type === 'warning' ? 'status' : 'alert'}
+              role="alert"
               aria-atomic="true"
               className={`mb-4 rounded-xl p-3 text-xs font-medium border outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 ${
                 errorBanner.type === 'warning'
-                  ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                  : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800'
+                  : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
               }`}
             >
               <div className="flex items-start gap-2">
                 <span className="font-bold">{errorBanner.title}</span>
-                <span>{errorBanner.text}</span>
+                <span className="min-w-0 flex-1 break-words">{errorBanner.text}</span>
+                <button
+                  type="button"
+                  onClick={() => setErrorBanner(null)}
+                  aria-label={t('banners.close')}
+                  className="ml-auto shrink-0 rounded-md p-0.5 opacity-70 transition hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]"
+                >
+                  <FiX className="h-4 w-4" />
+                </button>
               </div>
             </div>
           )}
@@ -287,7 +448,7 @@ function SignInContent() {
                   htmlFor="email"
                   className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Official Email Address
+                  {t('signIn.officialEmail')}
                 </label>
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                   GOV.LK
@@ -304,7 +465,7 @@ function SignInContent() {
                   autoCapitalize="none"
                   spellCheck={false}
                   aria-describedby={errorBanner ? 'sign-in-error' : undefined}
-                  placeholder="Enter your email address"
+                  placeholder={t('signIn.emailPlaceholder')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-4 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 transition duration-150"
@@ -319,10 +480,10 @@ function SignInContent() {
                   htmlFor="password"
                   className="text-xs font-semibold text-slate-700 dark:text-slate-200"
                 >
-                  Password
+                  {t('signIn.password')}
                 </label>
                 <span className="rounded-full bg-cyan-50 px-2.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border border-cyan-200/60 dark:border-cyan-800">
-                  Encrypted
+                  {t('signIn.encrypted')}
                 </span>
               </div>
               <div className="relative flex items-center">
@@ -333,7 +494,7 @@ function SignInContent() {
                   required
                   autoComplete="current-password"
                   aria-describedby={errorBanner ? 'sign-in-error' : undefined}
-                  placeholder="Enter your password"
+                  placeholder={t('signIn.passwordPlaceholder')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 py-3 pl-10 pr-10 text-sm text-slate-800 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 transition duration-150"
@@ -343,7 +504,7 @@ function SignInContent() {
                   onClick={() => setShowPassword(!showPassword)}
                   aria-pressed={showPassword}
                   className="absolute right-3 rounded-md p-1 text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:hover:text-slate-200"
-                  aria-label="Toggle password visibility"
+                  aria-label={t('signIn.togglePassword')}
                 >
                   {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
                 </button>
@@ -360,7 +521,7 @@ function SignInContent() {
                   className="h-4 w-4 rounded border-slate-300 text-[#4318FF] focus:ring-[#4318FF]"
                 />
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Remember this device
+                  {t('signIn.rememberDevice')}
                 </span>
               </label>
 
@@ -368,57 +529,63 @@ function SignInContent() {
                 href="/auth/forgot-password"
                 className="text-xs font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
               >
-                Forgot Password?
+                {t('signIn.forgotPassword')}
               </Link>
             </div>
 
             {/* Sign In Button */}
             <button
               type="submit"
-              disabled={isLoading || lockoutSeconds > 0}
+              disabled={isLoading || lockoutActive}
               aria-busy={isLoading}
               className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#4318FF] py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition duration-150 hover:bg-[#3411db] active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isLoading ? (
-                <span>Signing In...</span>
-              ) : lockoutSeconds > 0 ? (
-                <span>Locked — retry in {lockoutSeconds}s</span>
+                <span>{t('signIn.submitting')}</span>
+              ) : lockoutActive ? (
+                <span className="px-1 text-center">
+                  {lockout?.kind === 'permanent'
+                    ? t('signIn.lockedPermanentRetry')
+                    : t('signIn.lockedRetry', {
+                        time: formatLockoutCountdown(lockoutRemaining),
+                      })}
+                </span>
               ) : (
                 <>
-                  <span>Sign In</span>
+                  <span>{t('signIn.submit')}</span>
                   <FiArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
             <p role="status" aria-live="polite" className="sr-only">
-              {isLoading ? 'Signing in, please wait.' : ''}
+              {isLoading ? t('signIn.signingInAria') : ''}
             </p>
           </form>
 
           {/* Registration link & Security badge */}
           <div className="mt-6 flex flex-col items-center text-center">
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              New staff member?{' '}
+              {t('signIn.newStaff')}{' '}
               <Link
                 href="/auth/register?role=Staff"
                 className="font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
               >
-                Register here
+                {t('signIn.registerHere')}
               </Link>
             </p>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-              Need administrator access?{' '}
+              {t('signIn.needAdmin')}{' '}
               <Link
                 href="/auth/register?role=Administrator"
                 className="font-semibold text-[#4318FF] hover:underline dark:text-brand-400"
               >
-                Admin Registration
+                {t('signIn.adminRegistration')}
               </Link>
             </p>
 
             <div className="mt-4 flex items-center gap-1.5 rounded-full bg-slate-50 dark:bg-navy-900/60 px-3 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-navy-700">
               <FiShield className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>Official Government Record Portal • 256-Bit SSL Secured</span>
+              <span>{t('signIn.secured')}</span>
             </div>
           </div>
         </div>
@@ -431,8 +598,9 @@ function SignInContent() {
 }
 
 export default function SignInPage() {
+  const { t } = useTranslation('auth');
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">{t('signIn.loading')}</div>}>
       <SignInContent />
     </Suspense>
   );

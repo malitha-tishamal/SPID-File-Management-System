@@ -6,12 +6,20 @@ export class ApiError extends Error {
   status: number;
   code: ApiErrorCode;
   extra?: Record<string, unknown>;
+  headers?: Record<string, string>;
 
-  constructor(status: number, code: ApiErrorCode, message: string, extra?: Record<string, unknown>) {
+  constructor(
+    status: number,
+    code: ApiErrorCode,
+    message: string,
+    extra?: Record<string, unknown>,
+    headers?: Record<string, string>
+  ) {
     super(message);
     this.status = status;
     this.code = code;
     this.extra = extra;
+    this.headers = headers;
   }
 }
 
@@ -23,9 +31,10 @@ export function jsonError(
   status: number,
   code: ApiErrorCode,
   message: string,
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>,
+  headers?: Record<string, string>
 ): NextResponse {
-  return NextResponse.json({ ok: false, code, message, ...extra }, { status });
+  return NextResponse.json({ ok: false, code, message, ...extra }, { status, headers });
 }
 
 /**
@@ -40,7 +49,7 @@ export function withErrorHandling(
       return await handler(req, ctx);
     } catch (err: any) {
       if (err instanceof ApiError) {
-        return jsonError(err.status, err.code, err.message, err.extra);
+        return jsonError(err.status, err.code, err.message, err.extra, err.headers);
       }
       if (err instanceof Error && err.message.startsWith('Server configuration error')) {
         return jsonError(500, 'CONFIG_ERROR', err.message);

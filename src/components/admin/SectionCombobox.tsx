@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiChevronDown, FiSearch, FiPlus, FiCheck, FiX } from 'react-icons/fi';
 import { filterSectionsByQuery, type SectionOption } from 'utils/fileImport';
 
@@ -21,6 +22,7 @@ export default function SectionCombobox({
   error,
   disabled = false,
 }: SectionComboboxProps) {
+  const { t } = useTranslation('accounts');
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,7 +90,7 @@ export default function SectionCombobox({
             value ? 'text-slate-900 dark:text-white font-semibold' : 'text-slate-400'
           }`}
         >
-          {value || 'Ex: Admin, Development, Account'}
+          {value || t('modals.sectionCombobox.placeholder')}
         </span>
         <FiChevronDown
           className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
@@ -112,7 +114,7 @@ export default function SectionCombobox({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search sections..."
+                placeholder={t('modals.sectionCombobox.searchPlaceholder')}
                 className="w-full bg-transparent text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 outline-none"
               />
               {searchQuery && (
@@ -120,7 +122,7 @@ export default function SectionCombobox({
                   type="button"
                   onClick={() => setSearchQuery('')}
                   className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full"
-                  title="Clear search"
+                  title={t('modals.sectionCombobox.clearSearch')}
                 >
                   <FiX className="h-3 w-3" />
                 </button>
@@ -151,7 +153,7 @@ export default function SectionCombobox({
               })
             ) : (
               <div className="py-4 px-3 text-center text-xs text-slate-400 dark:text-slate-500">
-                No sections found matching &ldquo;<span className="font-semibold text-slate-600 dark:text-slate-300">{searchQuery.trim()}</span>&rdquo;
+                {t('modals.sectionCombobox.noMatch', { query: searchQuery.trim() })}
               </div>
             )}
           </div>
@@ -164,7 +166,7 @@ export default function SectionCombobox({
               className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold text-[#4318FF] dark:text-brand-300 hover:bg-[#F4F2FF] dark:hover:bg-brand-900/30 transition-all cursor-pointer border border-transparent hover:border-[#4318FF]/20"
             >
               <FiPlus className="h-3.5 w-3.5 stroke-[2.5]" />
-              <span>Add Section</span>
+              <span>{t('modals.sectionCombobox.addSection')}</span>
             </button>
           </div>
         </div>

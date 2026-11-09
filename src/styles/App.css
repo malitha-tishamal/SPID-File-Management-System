@@ -1,5 +1,5 @@
 body {
-  font-family: var(--font-dm-sans), 'DM Sans', sans-serif;
+  font-family: var(--font-dm-sans), 'DM Sans', var(--font-noto-sans-sinhala), 'Nirmala UI', 'Iskoola Pota', sans-serif;
 }
 
 option {

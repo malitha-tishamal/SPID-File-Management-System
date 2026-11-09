@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useEffect, useId, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiEdit2, FiSave, FiChevronDown, FiAlertCircle } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
 import { fetchClientSections } from 'lib/sectionsClient';
+import { FILE_FIELD_MAX_LENGTH, validateFileFieldLength } from 'lib/constants';
 import FileModalShell from './FileModalShell';
+import LimitedFileField from './LimitedFileField';
 import Button from 'components/ui/Button';
 
 interface SectionOption {
@@ -26,9 +29,11 @@ export default function EditFileModal({
 }: {
   file: FileRecordRow | null;
   loading?: boolean;
-  onSave: (payload: Partial<FileRecordRow>) => void;
+  /** Returning a message pins it to the File Name field instead of closing. */
+  onSave: (payload: Partial<FileRecordRow>) => Promise<string | null> | void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('files');
   const formId = useId();
   const [fileName, setFileName] = useState('');
   const [section, setSection] = useState('');
@@ -41,6 +46,7 @@ export default function EditFileModal({
   const [minuteSheets, setMinuteSheets] = useState('');
   const [sectionsList, setSectionsList] = useState<SectionOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
 
   useEffect(() => {
     if (file) {
@@ -54,6 +60,7 @@ export default function EditFileModal({
       setTotalPages(file.page_numbers ? String(file.page_numbers) : '0');
       setMinuteSheets(file.minute_sheets_count ? String(file.minute_sheets_count) : '0');
       setError(null);
+      setFieldError(null);
     }
   }, [file]);
 
@@ -81,21 +88,27 @@ export default function EditFileModal({
 
   if (!file) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFieldError(null);
     if (!fileName.trim()) {
-      setError('File name is required.');
+      setError(t('validation.fileNameRequired'));
+      return;
+    }
+    if (validateFileFieldLength('fileName', fileName)) {
+      setError(null);
+      setFieldError(t('validation.fileNameMax', { max: FILE_FIELD_MAX_LENGTH }));
       return;
     }
     if (!section.trim()) {
-      setError('Section is required.');
+      setError(t('validation.sectionRequired'));
       return;
     }
     if (startDate && endDate && endDate < startDate) {
-      setError('End date must be on or after start date.');
+      setError(t('validation.endBeforeStart'));
       return;
     }
-    onSave({
+    const serverFieldError = await onSave({
       file_name: fileName.trim(),
       section_name: section.trim(),
       start_date: startDate || file.start_date,
@@ -106,12 +119,17 @@ export default function EditFileModal({
       page_numbers: parseInt(totalPages, 10) || 0,
       minute_sheets_count: parseInt(minuteSheets, 10) || 0,
     });
+    if (serverFieldError) setFieldError(serverFieldError);
   };
 
   return (
     <FileModalShell
-      title="Edit File Record"
-      subtitle={<span className="font-mono">{file.file_no}</span>}
+      title={t('modals.editTitle')}
+      subtitle={
+        <span className="block break-words font-mono [overflow-wrap:anywhere]" title={file.file_no}>
+          {file.file_no}
+        </span>
+      }
       icon={<FiEdit2 className="h-5 w-5" />}
       iconTone="brand"
       onClose={onCancel}
@@ -127,7 +145,7 @@ export default function EditFileModal({
             disabled={loading}
             className="flex-1"
           >
-            Cancel
+            {t('common:buttons.cancel')}
           </Button>
           <button
             type="submit"
@@ -138,12 +156,12 @@ export default function EditFileModal({
             {loading ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                <span>Saving...</span>
+                <span>{t('modals.saving')}</span>
               </>
             ) : (
               <>
                 <FiSave className="h-4 w-4" />
-                <span>Save Changes</span>
+                <span>{t('common:buttons.saveChanges')}</span>
               </>
             )}
           </button>
@@ -164,25 +182,27 @@ export default function EditFileModal({
         {/* File Name */}
         <div>
           <label htmlFor="edit-file-name" className={LABEL_CLASS}>
-            File Name *
+            {t('modals.editFileNameLabel')}
           </label>
-          <input
+          <LimitedFileField
+            field="fileName"
             id="edit-file-name"
-            type="text"
             value={fileName}
             autoFocus
-            onChange={(e) => {
-              setFileName(e.target.value);
+            onChange={(value) => {
+              setFileName(value);
               if (error) setError(null);
+              if (fieldError) setFieldError(null);
             }}
-            className={FIELD_CLASS}
+            error={fieldError || undefined}
+            inputClassName={FIELD_CLASS}
           />
         </div>
 
         {/* Section */}
         <div>
           <label htmlFor="edit-section" className={LABEL_CLASS}>
-            Section *
+            {t('modals.editSectionLabel')}
           </label>
           <div className="relative">
             <select
@@ -193,7 +213,7 @@ export default function EditFileModal({
             >
               {sectionOptions.map((opt, i) => (
                 <option key={opt.id ?? i} value={opt.name}>
-                  {opt.status === 'disabled' ? `${opt.name} (Disabled)` : opt.name}
+                  {opt.status === 'disabled' ? t('modals.editDisabledSection', { name: opt.name }) : opt.name}
                 </option>
               ))}
             </select>
@@ -207,33 +227,33 @@ export default function EditFileModal({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <label htmlFor="edit-locker" className={LABEL_CLASS}>
-              Locker No
+              {t('modals.editLockerLabel')}
             </label>
             <input
               id="edit-locker"
               type="text"
               value={lockerNo}
               onChange={(e) => setLockerNo(e.target.value)}
-              placeholder="Ex: L-101"
+              placeholder={t('modals.lockerPlaceholder')}
               className={`${FIELD_CLASS} px-3`}
             />
           </div>
           <div>
             <label htmlFor="edit-shelf" className={LABEL_CLASS}>
-              Shelf Name
+              {t('modals.editShelfLabel')}
             </label>
             <input
               id="edit-shelf"
               type="text"
               value={shelfName}
               onChange={(e) => setShelfName(e.target.value)}
-              placeholder="Ex: Shelf 2"
+              placeholder={t('modals.editShelfPlaceholder')}
               className={`${FIELD_CLASS} px-3`}
             />
           </div>
           <div>
             <label htmlFor="edit-position" className={LABEL_CLASS}>
-              Position
+              {t('modals.editPositionLabel')}
             </label>
             <select
               id="edit-position"
@@ -241,9 +261,9 @@ export default function EditFileModal({
               onChange={(e) => setShelfPosition(e.target.value as 'Front' | 'Middle' | 'Back')}
               className={`${FIELD_CLASS} px-3`}
             >
-              <option value="Front">Front</option>
-              <option value="Middle">Middle</option>
-              <option value="Back">Back</option>
+              <option value="Front">{t('position.front')}</option>
+              <option value="Middle">{t('position.middle')}</option>
+              <option value="Back">{t('position.back')}</option>
             </select>
           </div>
         </div>
@@ -252,7 +272,7 @@ export default function EditFileModal({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="edit-start-date" className={LABEL_CLASS}>
-              Start Date
+              {t('detail.startDate')}
             </label>
             <input
               id="edit-start-date"
@@ -264,7 +284,7 @@ export default function EditFileModal({
           </div>
           <div>
             <label htmlFor="edit-end-date" className={LABEL_CLASS}>
-              End Date
+              {t('detail.endDate')}
             </label>
             <input
               id="edit-end-date"
@@ -279,7 +299,7 @@ export default function EditFileModal({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="edit-page-numbers" className={LABEL_CLASS}>
-              Page Numbers
+              {t('modals.editPageNumbersLabel')}
             </label>
             <input
               id="edit-page-numbers"
@@ -292,7 +312,7 @@ export default function EditFileModal({
           </div>
           <div>
             <label htmlFor="edit-minute-sheets" className={LABEL_CLASS}>
-              Minute Sheets Count
+              {t('modals.editMinuteSheetsLabel')}
             </label>
             <input
               id="edit-minute-sheets"

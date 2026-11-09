@@ -1,0 +1,46 @@
+{
+  "_comment": "Deterministic Sinhala for values the system itself seeds or composes. Checked before any machine provider, so these never depend on network access. Keep this file free of officer-typed content.",
+  "phrases": {
+    "Central Record Room": "මධ්‍යම ලේඛනාගාරය",
+    "Central Record Room (B-02)": "මධ්‍යම ලේඛනාගාරය (B-02)",
+    "Record Room": "ලේඛනාගාරය",
+    "Archive Room": "ලේඛනාගාර කාමරය",
+    "Archive Repository": "ලේඛනාගාරය",
+    "Administration & Human Resources Division": "පරිපාලන හා මානව සම්පත් අංශය",
+    "Irrigation Planning, Design & Feasibility": "වාරිමාර්ග සැලසුම්, නිර්මාණ හා ශක්‍යතා අධ්‍යයන අංශය",
+    "Water Management, Operations & Hydrology": "ජල කළමනාකරණ, මෙහෙයුම් හා ජල විද්‍යා අංශය",
+    "Engineering Central Registry & Archive Records": "ඉංජිනේරු මධ්‍යම ලේඛනාගාර හා ලේඛනාගාර වාර්තා අංශය",
+    "Land Acquisition & Field Surveys": "ඉඩම් අත්පත් කරගැනීම් හා ක්ෂේත්‍ර සමීක්ෂණ අංශය",
+    "Finance, Accounts & Procurement": "මූල්‍ය, ගිණුම් හා ප්‍රසම්පාදන අංශය",
+    "Galle Regional Engineering Office": "ගාල්ල කලාපීය ඉංජිනේරු කාර්යාලය",
+    "Matara Regional Engineering Office": "මාතර කලාපීය ඉංජිනේරු කාර්යාලය",
+    "Hambantota Regional Engineering Office": "හම්බන්තොට කලාපීය ඉංජිනේරු කාර්යාලය",
+    "General Record": "සාමාන්‍ය වාර්තාව",
+    "Establishment Section": "ස්ථාපන අංශය",
+    "Accounts Section": "ගිණුම් අංශය",
+    "Development Section": "සංවර්ධන අංශය",
+    "Shelf Development": "සංවර්ධන රාක්කය",
+    "Front": "ඉදිරිපස",
+    "Front position": "ඉදිරිපස ස්ථානය",
+    "Back": "පසුපස",
+    "Back position": "පසුපස ස්ථානය",
+    "No reason recorded.": "හේතුවක් සටහන් කර නැත.",
+    "High": "ඉහළ",
+    "Normal": "සාමාන්‍ය",
+    "Low": "අඩු"
+  },
+  "prefixes": {
+    "Locker": "ලොකරය",
+    "Shelf": "රාක්කය",
+    "Rack": "රාක්කය",
+    "Vault": "භාණ්ඩාගාරය",
+    "Wing": "පාර්ශ්වය",
+    "Room": "කාමරය",
+    "Box": "පෙට්ටිය",
+    "Position": "ස්ථානය"
+  },
+  "suffixes": {
+    "position": "ස්ථානය"
+  },
+  "separators": [" — ", " • ", " / ", ", "]
+}

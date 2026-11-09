@@ -37,3 +37,28 @@ export function parseRecordId(value: string | null): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
+
+/**
+ * Writes (or removes) one query parameter without touching the others, so a
+ * screen can keep its filters in the address bar and a shared link still opens
+ * with them applied. A null/empty value drops the parameter, which keeps
+ * default states out of the URL.
+ */
+export function setQueryParam(name: string, value: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get(name);
+    const next = value === null || value === '' ? null : value;
+    if (current === next) return;
+    if (next === null) url.searchParams.delete(name);
+    else url.searchParams.set(name, next);
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  } catch {
+    // An unreadable address should never break the screen itself.
+  }
+}

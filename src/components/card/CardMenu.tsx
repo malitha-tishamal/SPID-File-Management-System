@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import Dropdown from 'components/dropdown';
 import { AiOutlineUser } from 'react-icons/ai';
 import { BsThreeDots } from 'react-icons/bs';
@@ -9,6 +10,7 @@ import { BsThreeDotsVertical } from 'react-icons/bs';
 
 function CardMenu(props: { transparent?: boolean; vertical?: boolean }) {
   const { transparent, vertical } = props;
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   return (
     <Dropdown
@@ -40,25 +42,25 @@ function CardMenu(props: { transparent?: boolean; vertical?: boolean }) {
           <span>
             <AiOutlineUser />
           </span>
-          Panel 1
+          {t('shell:card.panel1')}
         </p>
         <p className="hover:text-black mt-2 flex cursor-pointer items-center gap-2 pt-1 text-gray-600 hover:font-medium">
           <span>
             <AiOutlineShop />
           </span>
-          Panel 2
+          {t('shell:card.panel2')}
         </p>
         <p className="hover:text-black mt-2 flex cursor-pointer items-center gap-2 pt-1 text-gray-600 hover:font-medium">
           <span>
             <TiLightbulb />
           </span>
-          Panel 3
+          {t('shell:card.panel3')}
         </p>
         <p className="hover:text-black mt-2 flex cursor-pointer items-center gap-2 pt-1 text-gray-600 hover:font-medium">
           <span>
             <FiSettings />
           </span>
-          Panel 4
+          {t('shell:card.panel4')}
         </p>
       </div>
     </Dropdown>

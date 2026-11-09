@@ -70,6 +70,10 @@ vi.mock('services/StorageService', () => ({
       return {
         path: `${userId}/123456-avatar.jpg`,
         publicUrl: `https://storage.spid.gov.lk/profile-images/${userId}/123456-avatar.jpg`,
+        scan: {
+          status: 'Clean',
+          message: 'File security scan completed successfully.',
+        },
       };
     }),
     deleteProfileImage: vi.fn(async (_userId: string) => {}),

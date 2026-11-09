@@ -8,7 +8,8 @@ import {
 } from 'lib/sessionPolicy';
 
 describe('session policy', () => {
-  it('treats exactly 2 hours of inactivity as expired', () => {
+  it('treats exactly one hour of inactivity as expired', () => {
+    expect(INACTIVITY_TIMEOUT_MS).toBe(60 * 60 * 1000);
     const t = 1_700_000_000_000;
     expect(isSessionExpired({ t }, t + INACTIVITY_TIMEOUT_MS - 1)).toBe(false);
     expect(isSessionExpired({ t }, t + INACTIVITY_TIMEOUT_MS)).toBe(true);

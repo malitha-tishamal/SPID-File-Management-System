@@ -169,7 +169,7 @@ describe('Account directory loading states', () => {
     expect(screen.getByLabelText('Filter by department')).toBeTruthy();
     expect(screen.getByLabelText('Filter by account status')).toBeTruthy();
     expect(screen.getByRole('table', { name: /Staff & User Accounts/i })).toBeTruthy();
-    expect(screen.getByText(/Directory loaded with 1 accounts/i)).toBeTruthy();
+    expect(screen.getByText(/Directory loaded with 1 account/i)).toBeTruthy();
 
     const refresh = screen.getByRole('button', { name: 'Refresh directory' });
     expect(refresh.getAttribute('aria-busy')).toBe('false');

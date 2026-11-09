@@ -1,6 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiCheck, FiX, FiEye, FiClock, FiAlertCircle, FiRefreshCw } from 'react-icons/fi';
 import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_ROW_CLASS } from 'lib/tableStyles';
 import type { FileRecordRow } from 'models/FileRepository';
@@ -9,6 +10,9 @@ import FilesPagination from './FilesPagination';
 import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
 import LocationDetailsButton from './LocationDetailsButton';
 import TableLoadingSpinner from './TableLoadingSpinner';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
+import AttributedUser from 'components/ui/AttributedUser';
+import { attributedNameText } from 'utils/userDisplay';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'SO';
@@ -80,6 +84,10 @@ export default function FileRequestsTable({
   onView: (file: FileRecordRow) => void;
   onRetry?: () => void;
 }) {
+  const { t } = useTranslation('files');
+  const deletedLabel = t('common:deletedUser');
+  useLocalizedFields(files.flatMap((file) => [file.file_name, file.section_name]));
+
   if (error && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-rose-100 bg-white px-4 py-16 text-center dark:border-rose-900/40 dark:bg-navy-800">
@@ -87,7 +95,7 @@ export default function FileRequestsTable({
           <FiAlertCircle className="h-7 w-7" />
         </div>
         <div>
-          <h4 className="text-sm font-bold text-slate-800 dark:text-white">Failed to Load File Requests</h4>
+          <h4 className="text-sm font-bold text-slate-800 dark:text-white">{t('empty.errorRequests')}</h4>
           <p className="mt-1 max-w-sm text-xs text-slate-400">{error}</p>
         </div>
         {onRetry && (
@@ -97,7 +105,7 @@ export default function FileRequestsTable({
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#3311CC] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/50 cursor-pointer"
           >
             <FiRefreshCw className="h-3.5 w-3.5" />
-            Retry
+            {t('page.retry')}
           </button>
         )}
       </div>
@@ -110,9 +118,9 @@ export default function FileRequestsTable({
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 mb-3">
           <FiCheck className="h-7 w-7" />
         </div>
-        <h4 className="text-sm font-bold text-slate-800 dark:text-white">All Clear! No Pending Submissions</h4>
+        <h4 className="text-sm font-bold text-slate-800 dark:text-white">{t('empty.noPendingTitle')}</h4>
         <p className="mt-1 text-xs text-slate-400 max-w-sm">
-          There are currently no staff file requests awaiting administrative approval. New staff submissions will appear here.
+          {t('empty.noPendingHint')}
         </p>
       </div>
     );
@@ -127,38 +135,38 @@ export default function FileRequestsTable({
         <div className="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-navy-900/35 backdrop-blur-[1px]" />
       )}
       <div className="w-full overflow-x-auto">
-        <table aria-label="Pending file requests" className="w-full min-w-[860px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+        <table aria-label={t('table.requestsAria')} className="w-full min-w-[860px] text-left border-collapse table-auto">
           <colgroup>
             <col className="w-[3%]" />
             <col className="w-[9%]" />
             <col className="w-[17%]" />
             <col className="w-[10%]" />
-            <col className="w-[13%]" />
+            <col className="w-[11%]" />
             <col className="w-[12%]" />
             <col className="w-[6%]" />
             <col className="w-[9%]" />
-            <col className="w-[11%]" />
             <col className="w-[10%]" />
+            <col className="w-[13%]" />
           </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW_CLASS}>
-              <th scope="col" className="py-2.5 px-1.5 text-center">NO</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE NUMBER</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE NAME</th>
-              <th scope="col" className="py-2.5 px-1.5">SECTION</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE LOCATION</th>
-              <th scope="col" className="py-2.5 px-1.5">SUBMITTED BY</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">ROLE</th>
-              <th scope="col" className="py-2.5 px-1.5">SUBMITTED DATE &amp; TIME</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">REQUEST STATUS</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">ADMIN ACTIONS</th>
+              <th scope="col" className="py-2 px-2.5 text-center">{t('table.colNo')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colFileNumber')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colFileName')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colSection')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colFileLocation')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colSubmittedBy')}</th>
+              <th scope="col" className="py-2 px-2.5 text-center">{t('table.colRole')}</th>
+              <th scope="col" className="py-2 px-2.5">{t('table.colSubmittedDateTime')}</th>
+              <th scope="col" className="py-2 px-2.5 text-center">{t('table.colRequestStatus')}</th>
+              <th scope="col" className="py-2 px-2.5 text-center">{t('table.colAdminActions')}</th>
             </tr>
           </thead>
           <tbody className={TABLE_BODY_CLASS}>
             {loading ? (
               <tr>
                 <td colSpan={10} className="p-0">
-                  <TableLoadingSpinner label="Loading file requests..." />
+                  <TableLoadingSpinner label={t('table.loadingRequests')} />
                 </td>
               </tr>
             ) : files.map((file, idx) => {
@@ -176,112 +184,137 @@ export default function FileRequestsTable({
                   className={TABLE_ROW_CLASS}
                 >
                   {/* NO */}
-                  <td className="py-2.5 px-1.5 align-top text-center font-bold text-slate-400 text-xs">
+                  <td className="py-2 px-2.5 align-top text-center font-bold text-muted text-xs">
                     {rowNo}
                   </td>
 
                   {/* FILE NUMBER */}
-                  <td className="py-2.5 px-1.5 align-top break-words">
-                    <span className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight">
+                  <td className="py-2 px-2.5 align-top break-words">
+                    <span
+                      className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight [overflow-wrap:anywhere]"
+                      title={file.file_no}
+                    >
                       {file.file_no}
                     </span>
                   </td>
 
                   {/* FILE NAME */}
-                  <td className="py-2.5 px-1.5 align-top break-words">
+                  <td className="py-2 px-2.5 align-top break-words">
                     <div
-                      className="break-words font-bold text-slate-800 dark:text-white leading-snug text-xs"
-                      title={file.file_name}
+                      className="w-[240px] line-clamp-2 break-words font-bold text-slate-800 dark:text-white leading-snug text-xs [overflow-wrap:anywhere]"
+                      title={localizeField(file.file_name)}
                     >
-                      {file.file_name}
+                      {localizeField(file.file_name)}
                     </div>
-                    <div className="text-[10px] font-medium text-slate-400 flex flex-wrap items-center gap-1 mt-0.5 break-words leading-tight">
-                      <span>Recordroom Ingest</span>
+                    <div className="text-[10px] font-medium text-muted flex flex-wrap items-center gap-1 mt-0.5 break-words leading-tight">
+                      <span>{t('table.ingestTag')}</span>
                       <span>•</span>
-                      <span>Horizon RMS</span>
+                      <span>{t('table.sourceTag')}</span>
                     </div>
                   </td>
 
                   {/* SECTION */}
-                  <td className="py-2.5 px-1.5 align-top break-words">
+                  <td className="py-2 px-2.5 align-top break-words">
                     <span
                       className={`inline-flex items-start rounded-2xl px-2 py-1 text-[10px] font-bold border leading-snug break-words ${getSectionBadge(
                         file.section_name
                       )}`}
                     >
-                      {file.section_name}
+                      {localizeField(file.section_name)}
                     </span>
                   </td>
 
                   {/* FILE LOCATION (Highlighted pill, wraps long location onto next line) */}
-                  <td className="py-2.5 px-2">
-                    <LocationDetailsButton
-                      file={file}
-                      className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] xl:max-w-[200px] leading-tight"
-                    />
+                  <td className="py-2 px-2.5 align-top">
+                    {file.locker_no || file.shelf_name || file.shelf_position ? (
+                      <LocationDetailsButton
+                        file={file}
+                        className="inline-flex max-w-full min-w-0 items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 leading-snug cursor-pointer hover:border-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] transition-colors"
+                      />
+                    ) : (
+                      <span className="inline-flex max-w-full items-center whitespace-normal break-words rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[10px] font-semibold leading-snug text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+                        {t('table.notAssigned')}
+                      </span>
+                    )}
                   </td>
 
                   {/* SUBMITTED BY */}
-                  <td className="py-2.5 px-1.5 align-top break-words">
+                  <td className="py-2 px-2.5 align-top break-words">
                     <div
                       className="flex items-start gap-1.5"
-                      title={file.registrar_name || 'Staff Member'}
+                      title={attributedNameText(file.registrar_name, {
+                        deleted: file.registrar_is_deleted,
+                        label: deletedLabel,
+                        fallback: t('common:roles.STAFF'),
+                      })}
                     >
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700 dark:bg-navy-700 dark:text-slate-200 text-[9px] font-bold">
-                        {getInitials(file.registrar_name)}
+                      <div
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                          file.registrar_is_deleted
+                            ? 'bg-slate-100 text-slate-400 dark:bg-navy-700 dark:text-slate-500'
+                            : 'bg-slate-100 text-slate-700 dark:bg-navy-700 dark:text-slate-200'
+                        }`}
+                      >
+                        {file.registrar_is_deleted && !file.registrar_name
+                          ? '—'
+                          : getInitials(file.registrar_name)}
                       </div>
                       <span className="min-w-0 break-words font-bold text-slate-800 dark:text-white text-[11px] leading-tight">
-                        {file.registrar_name || 'Staff Member'}
+                        <AttributedUser
+                          name={file.registrar_name}
+                          deleted={file.registrar_is_deleted}
+                          fallback={t('common:roles.STAFF')}
+                        />
                       </span>
                     </div>
                   </td>
 
                   {/* ROLE */}
-                  <td className="py-2.5 px-1.5 text-center align-top whitespace-nowrap">
+                  <td className="min-w-0 py-2 px-1 text-center align-top">
                     {isAdmin ? (
-                      <span className="inline-block rounded-full border border-[#FED7D7] bg-[#FEECEB] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#FF4757] dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400">
-                        Admin
+                      <span className="inline-flex max-w-full whitespace-normal break-words rounded-full border border-[#FED7D7] bg-[#FEECEB] px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wider text-[#B42318] dark:border-rose-800 dark:bg-rose-900 dark:text-rose-50">
+                        {t('table.roleAdmin')}
                       </span>
                     ) : (
-                      <span className="inline-block rounded-full border border-[#C6F6D5] bg-[#E6F9F0] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#05CD99] dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400">
-                        Staff
+                      <span className="inline-flex max-w-full whitespace-normal break-words rounded-full border border-[#C6F6D5] bg-[#E6F9F0] px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wider text-[#027A48] dark:border-emerald-800 dark:bg-emerald-900 dark:text-emerald-50">
+                        {t('table.roleStaff')}
                       </span>
                     )}
                   </td>
 
                   {/* SUBMITTED DATE & TIME (Stacked cleanly) */}
-                  <td className="py-2.5 px-1.5 align-top">
+                  <td className="min-w-0 py-2 px-1 align-top">
                     <div className="whitespace-nowrap font-semibold text-slate-700 dark:text-slate-200 text-[11px] leading-tight">
                       {dt.date}
                     </div>
                     {dt.time && (
-                      <div className="whitespace-nowrap text-[10px] text-slate-400 leading-tight mt-0.5">
+                      <div className="whitespace-nowrap text-[10px] text-muted leading-tight mt-0.5">
                         {dt.time}
                       </div>
                     )}
                   </td>
 
                   {/* REQUEST STATUS */}
-                  <td className="py-2.5 px-1.5 align-top text-center">
+                  <td className="min-w-0 py-2 px-1 align-top text-center">
                     {isAdmin ? (
-                      <div className="flex flex-col items-center justify-center gap-0.5">
-                        <span className="inline-flex flex-wrap items-center justify-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 px-2 py-0.5 text-[10px] font-bold leading-tight">
-                          <span className="break-words">System Verified</span>
+                      <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+                        <span className="inline-flex max-w-full items-center justify-center gap-1 whitespace-normal break-words rounded-full bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900 dark:text-blue-50 dark:border-blue-800 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                          <span className="min-w-0">{t('table.statusSystemVerified')}</span>
                         </span>
-                        <span className="break-words text-[9px] font-semibold leading-tight text-slate-500 dark:text-slate-400">
-                          Admin Added
+                        <span className="max-w-full whitespace-normal break-words text-[9px] font-semibold leading-snug text-muted">
+                          {t('table.statusAdminAddedShort')}
                         </span>
                       </div>
                     ) : (
-                      <span className="inline-flex flex-wrap items-center justify-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2 py-0.5 text-[10px] font-bold leading-tight">
-                        <FiClock className="h-3 w-3 stroke-[2.5]" />
-                        <span className="break-words">Pending Review</span>
+                      <span className="inline-flex max-w-full items-center justify-center gap-1 whitespace-normal break-words rounded-full bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] dark:bg-amber-900 dark:text-amber-50 dark:border-amber-700 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                        <FiClock className="h-3 w-3 shrink-0 stroke-[2.5]" />
+                        <span className="min-w-0">{t('table.statusPendingReview')}</span>
                       </span>
                     )}
                   </td>
 
                   {/* ADMIN ACTIONS */}
-                  <td className="py-2.5 px-1.5 align-top text-center">
+                  <td className="min-w-0 py-2 px-1 align-top text-center">
                     <div className="flex flex-wrap items-center justify-center gap-1">
                       {/* Approve & Reject: ONLY for staff submissions */}
                       {!isAdmin && (
@@ -290,22 +323,22 @@ export default function FileRequestsTable({
                           <button
                             type="button"
                             onClick={() => onApprove(file)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2 py-1 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                            title="Approve request"
+                            className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2.5 py-1.5 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title={t('table.actionApproveRequest')}
                           >
                             <FiCheck className="h-3 w-3 stroke-[3]" />
-                            <span>Approve</span>
+                            <span>{t('common:buttons.approve')}</span>
                           </button>
 
                           {/* Reject Button */}
                           <button
                             type="button"
                             onClick={() => onReject(file)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 dark:bg-navy-900 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2 py-1 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                            title="Reject request"
+                            className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 dark:bg-navy-900 dark:text-rose-300 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2.5 py-1.5 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title={t('table.actionRejectRequest')}
                           >
                             <FiX className="h-3 w-3 stroke-[3]" />
-                            <span>Reject</span>
+                            <span>{t('common:buttons.reject')}</span>
                           </button>
                         </>
                       )}
@@ -314,8 +347,8 @@ export default function FileRequestsTable({
                       <button
                         type="button"
                         onClick={() => onView(file)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
-                        title="View details"
+                        className="p-1 rounded-lg text-slate-500 hover:text-[#4318FF] hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title={t('table.actionViewDetails')}
                       >
                         <FiEye className="h-3.5 w-3.5" />
                       </button>

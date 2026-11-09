@@ -7,9 +7,10 @@ const PROFILE_SELECT_BASE = `
   account_status, approved_at, created_at, updated_at, sections(name)
 `;
 
-// last_login_at (0005) and avatar_url (0011) are optional in older deployments,
-// so callers retry with the base projection when the full one is unavailable.
-const PROFILE_SELECT_FULL = `${PROFILE_SELECT_BASE}, last_login_at, avatar_url`;
+// last_login_at (0005), avatar_url (0011) and the soft-delete fields (0027)
+// are optional in older deployments, so callers retry with the base
+// projection when the full one is unavailable.
+const PROFILE_SELECT_FULL = `${PROFILE_SELECT_BASE}, last_login_at, avatar_url, is_deleted, deleted_at, deleted_by, deletion_reason, original_email`;
 
 type RawProfile = {
   id: string;
@@ -26,6 +27,11 @@ type RawProfile = {
   updated_at?: string | null;
   last_login_at?: string | null;
   avatar_url?: string | null;
+  is_deleted?: boolean | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deletion_reason?: string | null;
+  original_email?: string | null;
   sections: { name: string } | { name: string }[] | null;
 };
 
@@ -48,6 +54,11 @@ function mapProfile(raw: RawProfile): ProfileDTO {
     updated_at: raw.updated_at ?? null,
     avatar_url: raw.avatar_url ?? null,
     last_login_at: raw.last_login_at ?? null,
+    is_deleted: raw.is_deleted === true,
+    deleted_at: raw.deleted_at ?? null,
+    deleted_by: raw.deleted_by ?? null,
+    deletion_reason: raw.deletion_reason ?? null,
+    original_email: raw.original_email ?? null,
   };
 }
 
@@ -77,10 +88,10 @@ export async function getCachedAuthUsers(): Promise<Array<{ id: string; last_sig
 
 
 const PROFILE_PROJECTIONS = [
-  { select: PROFILE_SELECT_FULL, hasAvatarColumn: true },
-  { select: `${PROFILE_SELECT_BASE}, avatar_url`, hasAvatarColumn: true },
-  { select: `${PROFILE_SELECT_BASE}, last_login_at`, hasAvatarColumn: false },
-  { select: PROFILE_SELECT_BASE, hasAvatarColumn: false },
+  { select: PROFILE_SELECT_FULL, hasAvatarColumn: true, hasSoftDelete: true },
+  { select: `${PROFILE_SELECT_BASE}, avatar_url`, hasAvatarColumn: true, hasSoftDelete: false },
+  { select: `${PROFILE_SELECT_BASE}, last_login_at`, hasAvatarColumn: false, hasSoftDelete: false },
+  { select: PROFILE_SELECT_BASE, hasAvatarColumn: false, hasSoftDelete: false },
 ] as const;
 
 type RawProfileResult = {
@@ -97,10 +108,14 @@ export class ProfileRepository {
 
   private async selectRawProfile(
     column: 'id' | 'email',
-    value: string
+    value: string,
+    options?: { activeOnly?: boolean }
   ): Promise<RawProfileResult | null> {
     for (const projection of PROFILE_PROJECTIONS) {
-      const query = this.client.from('profiles').select(projection.select);
+      let query = this.client.from('profiles').select(projection.select);
+      if (options?.activeOnly && projection.hasSoftDelete) {
+        query = query.eq('is_deleted', false);
+      }
       const { data, error } =
         column === 'id'
           ? await query.eq('id', value).single()
@@ -157,16 +172,61 @@ export class ProfileRepository {
     return profile;
   }
 
+  /** Returns the profile even when soft-deleted (admin history / restore). */
   async findById(id: string): Promise<ProfileDTO | null> {
     const result = await this.selectRawProfile('id', id);
     if (!result) return null;
     return this.hydrateProfile(mapProfile(result.raw), result.hasAvatarColumn);
   }
 
+  /** Active (not soft-deleted) profile only — used by sign-in and session gates. */
+  async findActiveById(id: string): Promise<ProfileDTO | null> {
+    const profile = await this.findById(id);
+    return profile && profile.is_deleted !== true ? profile : null;
+  }
+
+  /** Sign-in lookup: deleted accounts are invisible even before their email is anonymised. */
   async findByEmail(email: string): Promise<ProfileDTO | null> {
-    const result = await this.selectRawProfile('email', email);
+    const result = await this.selectRawProfile('email', email, { activeOnly: true });
     if (!result) return null;
-    return this.hydrateProfile(mapProfile(result.raw), result.hasAvatarColumn);
+    const profile = await this.hydrateProfile(mapProfile(result.raw), result.hasAvatarColumn);
+    return profile.is_deleted === true ? null : profile;
+  }
+
+  /**
+   * Which of these user ids are soft-deleted. Used to mark historical rows.
+   * Returns an empty set when migration 0027 is not applied yet, so pages keep
+   * rendering before the SQL is run.
+   */
+  async findDeletedIds(userIds: Array<string | null | undefined>): Promise<Set<string>> {
+    const ids = Array.from(new Set(userIds.filter((id): id is string => Boolean(id))));
+    if (ids.length === 0) return new Set();
+    try {
+      const { data, error } = await getSupabaseAdminClient()
+        .from('profiles')
+        .select('id, is_deleted')
+        .in('id', ids);
+      if (error) return new Set();
+      return new Set(
+        (data ?? [])
+          .filter((row: { is_deleted?: boolean | null }) => row.is_deleted === true)
+          .map((row: { id: string }) => row.id)
+      );
+    } catch {
+      return new Set();
+    }
+  }
+
+  /** Active, approved administrators. `null` when the schema predates 0027. */
+  async countActiveAdmins(): Promise<number | null> {
+    const { count, error } = await getSupabaseAdminClient()
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'Administrator')
+      .eq('account_status', 'approved')
+      .eq('is_deleted', false);
+    if (error) return null;
+    return count ?? null;
   }
 
   /** Admin registry listing including lockout state and authoritative last login time (service-role only). */
@@ -184,10 +244,18 @@ export class ProfileRepository {
         .order('created_at', { ascending: false }),
       (async () => {
         try {
-          const res = await this.client
+          const full = await this.client
+            .from('login_security')
+            .select(
+              'user_id, failed_attempts, lockout_level, locked_until, is_permanently_locked, locked_at, last_failed_login_at, last_failed_login_ip'
+            );
+          if (!full.error) return full.data ?? [];
+
+          // Migration 0026 not applied yet: keep the admin directory working.
+          const base = await this.client
             .from('login_security')
             .select('user_id, failed_attempts, locked_until');
-          return res.data ?? [];
+          return base.data ?? [];
         } catch (err) {
           console.warn('Could not query login_security:', err);
           return [];
@@ -222,14 +290,40 @@ export class ProfileRepository {
       return [];
     }
 
-    const secMap = new Map<string, { failed_attempts: number; locked_until: string | null }>();
+    const secMap = new Map<
+      string,
+      {
+        failed_attempts: number;
+        locked_until: string | null;
+        lockout_level: number;
+        is_permanently_locked: boolean;
+        locked_at: string | null;
+        last_failed_login_at: string | null;
+        last_failed_login_ip: string | null;
+      }
+    >();
     const authUserMap = new Map<string, { lastLogin: string | null; avatarUrl: string | null }>();
 
     if (Array.isArray(secResult)) {
-      for (const s of secResult) {
+      const secRows = secResult as unknown as Array<{
+        user_id: string;
+        failed_attempts?: number | null;
+        locked_until?: string | null;
+        lockout_level?: number | null;
+        is_permanently_locked?: boolean | null;
+        locked_at?: string | null;
+        last_failed_login_at?: string | null;
+        last_failed_login_ip?: string | null;
+      }>;
+      for (const s of secRows) {
         secMap.set(s.user_id, {
           failed_attempts: s.failed_attempts ?? 0,
           locked_until: s.locked_until ?? null,
+          lockout_level: s.lockout_level ?? 0,
+          is_permanently_locked: s.is_permanently_locked === true,
+          locked_at: s.locked_at ?? null,
+          last_failed_login_at: s.last_failed_login_at ?? null,
+          last_failed_login_ip: s.last_failed_login_ip ?? null,
         });
       }
     }
@@ -254,6 +348,11 @@ export class ProfileRepository {
           : base.avatar_url || authInfo?.avatarUrl || null,
         failed_attempts: sec?.failed_attempts ?? 0,
         locked_until: sec?.locked_until ?? null,
+        lockout_level: sec?.lockout_level ?? 0,
+        is_permanently_locked: sec?.is_permanently_locked ?? false,
+        locked_at: sec?.locked_at ?? null,
+        last_failed_login_at: sec?.last_failed_login_at ?? null,
+        last_failed_login_ip: sec?.last_failed_login_ip ?? null,
       };
     });
   }
@@ -341,6 +440,63 @@ export class ProfileRepository {
     if (error) {
       throw new Error(`Failed to update profile: ${error.message}`);
     }
+  }
+
+  /**
+   * True when ANY profile row (including soft-deleted accounts, matched on
+   * `email` or the preserved `original_email`) already uses this address.
+   * Used by the registration endpoints so a deleted account's address stays
+   * reserved and can never be silently re-registered.
+   */
+  async emailExistsIncludingDeleted(email: string): Promise<boolean> {
+    const normalized = email.trim().toLowerCase();
+    try {
+      const { data, error } = await this.client
+        .from('profiles')
+        .select('id, email, original_email')
+        .or(`email.ilike.${normalized},original_email.ilike.${normalized}`)
+        .limit(1);
+      if (error) {
+        // Older schemas may lack original_email — retry on email only.
+        const fallback = await this.client
+          .from('profiles')
+          .select('id, email')
+          .ilike('email', normalized)
+          .limit(1);
+        return !fallback.error && (fallback.data?.length ?? 0) > 0;
+      }
+      return (data?.length ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Finds an ACTIVE (not soft-deleted) profile holding the given mobile
+   * number. Accepts any stored format — comparison is done on the
+   * normalised subscriber digits so "+94 77 123 4567" and "+94771234567"
+   * are the same number.
+   */
+  async findActiveByMobilePhone(e164: string): Promise<ProfileDTO | null> {
+    const { lkMobileIdentity } = await import('lib/validation/lkPhone');
+    const wanted = lkMobileIdentity(e164);
+    if (!wanted) return null;
+    try {
+      const { data, error } = await this.client
+        .from('profiles')
+        .select(`${PROFILE_SELECT_FULL}, is_deleted`)
+        .not('mobile_phone', 'is', null);
+      if (error) return null;
+      for (const raw of (data as unknown as RawProfile[]) ?? []) {
+        if (raw.is_deleted === true) continue;
+        if (lkMobileIdentity(raw.mobile_phone) === wanted) {
+          return this.hydrateProfile(mapProfile(raw), true);
+        }
+      }
+    } catch {
+      return null;
+    }
+    return null;
   }
 
   /** Stamp the last successful sign-in time (service-role only). */

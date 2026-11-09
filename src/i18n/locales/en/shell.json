@@ -1,0 +1,165 @@
+{
+  "buttons": {
+    "placeBid": "Place Bid"
+  },
+  "card": {
+    "panel1": "Panel 1",
+    "panel2": "Panel 2",
+    "panel3": "Panel 3",
+    "panel4": "Panel 4",
+    "by": "By {{author}}",
+    "currentBid": "Current Bid: {{price}}"
+  },
+  "spelling": {
+    "didYouMean": "Did you mean:",
+    "applyAll": "Apply all corrections"
+  },
+  "footer": {
+    "rights": "All rights reserved.",
+    "portalTag": "Secure Archival Portal",
+    "helpdesk": "Helpdesk",
+    "archivalProtocols": "Archival Protocols",
+    "securityPolicy": "Security Policy",
+    "copyright": "©{{year}} Southern Provincial Irrigation Department. All rights reserved. • Secure Archival Portal",
+    "spidHelpdesk": "SPID Helpdesk"
+  },
+  "footerAuth": {
+    "copyright": "©{{year}} Horizon UI. All Rights Reserved by",
+    "distributedBy": "• Distributed by",
+    "support": "Support",
+    "license": "License",
+    "termsOfUse": "Terms of Use",
+    "blog": "Blog"
+  },
+  "sidebar": {
+    "logoAlt": "SPID Logo",
+    "cardTitle": "SPID File Management",
+    "cardSubtitle": "Southern Provincial Irrigation Department Central Registry & Dossiers",
+    "cardSecureBadge": "Secure Archival System"
+  },
+  "securityLogs": {
+    "title": "Security Logs",
+    "subtitle": "Malware scanning and upload security events. This page is visible to Administrators only.",
+    "rowsPerPage": "Rows per page",
+    "chipTitle": "{{label}}: {{value}}",
+    "tabs": {
+      "all": "All Events",
+      "uploads": "Uploads",
+      "scans": "Scans",
+      "malware": "Malware",
+      "imports": "Imports",
+      "deleted": "Recently deleted"
+    },
+    "scanner": {
+      "title": "Malware Scanning Engine",
+      "operational": "Operational",
+      "checking": "Checking",
+      "probing": "Probing the configured scanning engine…",
+      "detailTimeout": "{{detail}} • timeout {{seconds}}s",
+      "noStatus": "No scanner status available."
+    },
+    "limits": {
+      "excel": "Excel",
+      "documents": "Documents",
+      "images": "Images"
+    },
+    "columns": {
+      "time": "Time",
+      "event": "Event",
+      "actor": "Actor",
+      "metadata": "Metadata",
+      "actions": "Actions"
+    },
+    "events": {
+      "uploadQuarantined": "Upload Quarantined",
+      "scanStarted": "Security Scan Started",
+      "scanClean": "Scan Clean",
+      "malwareDetected": "Malware Detected",
+      "scanFailed": "Scan Failed",
+      "fileValidationFailed": "File Validation Failed",
+      "importCompleted": "Bulk Import Completed",
+      "importValidationFailed": "Import Validation Failed"
+    },
+    "chips": {
+      "file": "File",
+      "engine": "Engine",
+      "scan": "Scan",
+      "signature": "Signature",
+      "rows": "Rows",
+      "imported": "Imported",
+      "failed": "Failed",
+      "duplicates": "Duplicates",
+      "sha256": "SHA-256",
+      "reason": "Reason"
+    },
+    "actor": {
+      "unknownUser": "Unknown user",
+      "system": "System"
+    },
+    "empty": {
+      "title": "No security events recorded",
+      "hint": "Upload and scanning activity will appear here as it happens."
+    },
+    "errors": {
+      "loadFailed": "Unable to load security logs.",
+      "loadTitle": "Could not load security logs",
+      "scannerUnreachable": "Unable to reach the scanner status endpoint."
+    },
+    "footer": {
+      "noEvents": "No events",
+      "showing": "Showing {{from}}–{{to}} of {{count}} security event",
+      "showing_other": "Showing {{from}}–{{to}} of {{count}} security events"
+    },
+    "auditNote": "Security events are stored in the existing admin-only audit trail; only metadata is recorded, never file contents. Deletions and purges by administrators are recorded in the audit trail outside this list.",
+    "clearLogs": {
+      "button": "Clear logs",
+      "olderThan": "Older than {{days}} days",
+      "allMatching": "All events matching the current filter"
+    },
+    "delete": {
+      "title": "Delete security events",
+      "countWarning": "{{count}} security event(s) will be deleted.",
+      "irreversible": "This cannot be undone. A deletion record is kept in the audit trail.",
+      "includeMalware": "Also delete malware events (evidence — off by default)",
+      "includeRecent": "Also include events from the last 24 hours (second warning)",
+      "reasonLabel": "Reason (optional, recorded in audit)",
+      "typeToConfirm": "Type {{word}} to confirm",
+      "exportCsv": "Export to CSV first",
+      "confirm": "Delete {{count}}",
+      "deleting": "Deleting…",
+      "doneTitle": "Events deleted",
+      "done": "{{count}} events deleted",
+      "doneSkipped": "{{deleted}} deleted, {{skipped}} protected events skipped",
+      "failedTitle": "Delete failed",
+      "previewFailed": "Could not count matching events.",
+      "exportFailed": "Export failed.",
+      "selectedCount": "{{count}} selected",
+      "selected": "Delete selected ({{count}})",
+      "single": "Delete event",
+      "selectPage": "Select all on this page",
+      "selectRow": "Select event",
+      "protected": "Protected",
+      "protectedNote": "Deletion records are protected",
+      "protectedSkippedNote": "Deletion records are protected and will be skipped"
+    },
+    "restore": {
+      "single": "Restore event",
+      "selected": "Restore selected ({{count}})",
+      "done": "{{count}} events restored",
+      "failed": "Restore failed",
+      "all": "Restore all ({{count}})"
+    },
+    "purge": {
+      "title": "Permanently delete security events",
+      "countWarning": "{{count}} already-deleted event(s) will be permanently removed.",
+      "irreversible": "This cannot be undone — the rows are physically deleted from the database.",
+      "confirm": "Delete permanently ({{count}})",
+      "selected": "Delete permanently ({{count}})",
+      "single": "Delete permanently",
+      "emptyAll": "Empty recently deleted",
+      "doneTitle": "Events permanently deleted",
+      "done": "{{count}} events permanently deleted",
+      "failedTitle": "Permanent delete failed"
+    }
+  }
+}

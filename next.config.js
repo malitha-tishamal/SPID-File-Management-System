@@ -53,15 +53,18 @@ const nextConfig = {
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
-      "font-src 'self' data: https://fonts.gstatic.com",
+      "font-src 'self' data:",
       `connect-src 'self' ${supabaseUrl} ${supabaseWs}`.trim(),
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
       "object-src 'none'",
     ].join('; ');
+    const privateHeaders = [
+      { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+    ];
     return [
       {
         source: '/:path*',
@@ -72,8 +75,15 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
         ],
       },
+      // Authenticated areas must never be indexed — belt and suspenders
+      // alongside the <meta name="robots"> tags in the admin/staff layouts.
+      { source: '/admin/:path*', headers: privateHeaders },
+      { source: '/staff/:path*', headers: privateHeaders },
+      { source: '/rtl/:path*', headers: privateHeaders },
+      { source: '/api/:path*', headers: privateHeaders },
     ];
   },
   webpack: (config, { dev, isServer }) => {

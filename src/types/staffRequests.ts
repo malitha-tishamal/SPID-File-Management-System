@@ -1,3 +1,4 @@
+import type { CompetingInfo } from 'lib/competing-requests';
 import type {
   StaffRequestPriority,
   StaffRequestStatus,
@@ -42,6 +43,8 @@ export interface StaffRequestRow {
   returned_at?: string | null;
   pending_extension?: StaffRequestExtension | null;
   extension_history?: StaffRequestExtension[];
+  /** Rank inside the pending group for this file, computed by the API. */
+  competing?: CompetingInfo | null;
   created_at: string;
 }
 

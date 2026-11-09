@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDialogBehavior } from 'lib/dialogBehavior';
 import { FiAlertCircle, FiCalendar, FiUpload, FiX } from 'react-icons/fi';
 import { formatSriLankaDate } from 'lib/datetime';
+import AttributedUser from 'components/ui/AttributedUser';
 import type { IssuedFileRow } from './issuedTypes';
 
 export interface ExtendPayload {
@@ -27,6 +29,7 @@ export default function ExtendReturnModal({
   onConfirm: (payload: ExtendPayload) => Promise<string | null>;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('issued');
   const [newDate, setNewDate] = useState('');
   const [reason, setReason] = useState('');
   const [dateError, setDateError] = useState('');
@@ -60,13 +63,13 @@ export default function ExtendReturnModal({
   const validate = (): boolean => {
     let valid = true;
     if (!newDate) {
-      setDateError('Choose the new return date.');
+      setDateError(t('validation.dateRequired'));
       valid = false;
     } else if (currentDate && newDate <= currentDate) {
       setDateError(
-        `The new return date must be later than the current expected return date (${formatSriLankaDate(
-          currentDate,
-        )}).`,
+        t('validation.dateMustBeLater', {
+          date: formatSriLankaDate(currentDate),
+        }),
       );
       valid = false;
     } else {
@@ -74,7 +77,7 @@ export default function ExtendReturnModal({
     }
 
     if (!reason.trim()) {
-      setReasonError('Provide a reason for the extension.');
+      setReasonError(t('validation.reasonRequired'));
       valid = false;
     } else {
       setReasonError('');
@@ -116,9 +119,9 @@ export default function ExtendReturnModal({
                 id="extend-return-title"
                 className="text-base font-bold text-navy-800 dark:text-white"
               >
-                Extend Return Date
+                {t('modals.extend.title')}
               </h3>
-              <p className="text-xs text-slate-400">Move the official due date</p>
+              <p className="text-xs text-slate-400">{t('modals.extend.subtitle')}</p>
             </div>
           </div>
           <button
@@ -126,7 +129,7 @@ export default function ExtendReturnModal({
             onClick={onCancel}
             disabled={loading}
             className="cursor-pointer rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-navy-700 dark:hover:text-white"
-            aria-label="Cancel"
+            aria-label={t('common:buttons.cancel')}
           >
             <FiX className="h-5 w-5" />
           </button>
@@ -135,20 +138,26 @@ export default function ExtendReturnModal({
         <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4 text-xs dark:border-navy-700 dark:bg-navy-900/50">
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between gap-3">
-              <span className="font-semibold text-slate-400">File:</span>
-              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+              <span className="font-semibold text-slate-400">{t('modals.extend.file')}</span>
+              <span
+                className="max-w-[240px] break-words text-right font-mono font-bold text-slate-700 dark:text-slate-300 [overflow-wrap:anywhere]"
+                title={file.file_no}
+              >
                 {file.file_no}
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="font-semibold text-slate-400">Staff Member:</span>
+              <span className="font-semibold text-slate-400">{t('modals.extend.staffMember')}</span>
               <span className="text-right font-bold text-slate-800 dark:text-white">
-                {file.requester_name}
+                <AttributedUser
+                  name={file.requester_name}
+                  deleted={file.requester_is_deleted}
+                />
               </span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="font-semibold text-slate-400">
-                Current Expected Return:
+                {t('modals.extend.currentExpected')}
               </span>
               <span className="text-right font-bold text-[#4318FF] dark:text-brand-300">
                 {formatSriLankaDate(file.expected_return_date)}
@@ -156,7 +165,7 @@ export default function ExtendReturnModal({
             </div>
             {file.is_extended && (
               <div className="flex justify-between gap-3">
-                <span className="font-semibold text-slate-400">Original Date:</span>
+                <span className="font-semibold text-slate-400">{t('modals.extend.originalDate')}</span>
                 <span className="text-right font-bold text-rose-600 line-through dark:text-rose-400">
                   {formatSriLankaDate(file.original_return_date)}
                 </span>
@@ -169,7 +178,7 @@ export default function ExtendReturnModal({
               htmlFor="extend-new-date"
               className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300"
             >
-              New Return Date <span className="text-rose-500">*</span>
+              {t('modals.extend.newDateLabel')} <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <FiCalendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -202,7 +211,7 @@ export default function ExtendReturnModal({
               htmlFor="extend-reason"
               className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300"
             >
-              Reason for Extension <span className="text-rose-500">*</span>
+              {t('modals.extend.reasonLabel')} <span className="text-rose-500">*</span>
             </label>
             <textarea
               id="extend-reason"
@@ -217,7 +226,7 @@ export default function ExtendReturnModal({
               }}
               onBlur={syncReasonFromDom}
               onKeyUp={syncReasonFromDom}
-              placeholder="E.g. Pending surveyor sign-off on the annexures; the file is needed for two more working days."
+              placeholder={t('modals.extend.reasonPlaceholder')}
               className={`w-full resize-y rounded-xl border bg-white p-2.5 text-xs text-slate-800 outline-none transition-all placeholder:text-slate-400 dark:bg-navy-900 dark:text-white ${
                 reasonError
                   ? 'border-rose-400 focus:border-rose-500'
@@ -253,7 +262,7 @@ export default function ExtendReturnModal({
             disabled={loading}
             className="flex-1 cursor-pointer rounded-xl border border-slate-200 bg-white/80 py-2.5 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-300"
           >
-            Cancel
+            {t('common:buttons.cancel')}
           </button>
           <button
             type="button"
@@ -264,12 +273,12 @@ export default function ExtendReturnModal({
             {loading ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                <span>Saving…</span>
+                <span>{t('common:feedback.saving')}</span>
               </>
             ) : (
               <>
                 <FiUpload className="h-4 w-4" />
-                <span>Confirm Extension</span>
+                <span>{t('modals.extend.confirm')}</span>
               </>
             )}
           </button>

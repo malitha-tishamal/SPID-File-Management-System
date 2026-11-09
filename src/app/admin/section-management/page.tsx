@@ -1,5 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { formatSriLankaDate } from 'lib/datetime';
 import {
   FiPlus,
@@ -36,6 +37,7 @@ import {
 } from 'lib/sectionName';
 import { useSectionNameCheck } from 'lib/useSectionNameCheck';
 import SpellCheckedNameInput from 'components/ui/SpellCheckedNameInput';
+import { useLocalizedFields } from 'lib/useLocalizedFields';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const CLIENT_CACHE_TTL_MS = 15_000;
@@ -104,22 +106,23 @@ function RowAction({
 }
 
 function SectionStatusBadge({ status }: { status?: SectionStatus }) {
+  const { t } = useTranslation('accounts');
   if (!status) return null;
 
   const config: Record<SectionStatus, { label: string; className: string; dot: string }> = {
     approved: {
-      label: 'Active',
+      label: 'common:status.active',
       className:
         'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
       dot: 'bg-emerald-500',
     },
     pending: {
-      label: 'Pending',
+      label: 'common:status.pending',
       className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
       dot: 'bg-amber-500',
     },
     disabled: {
-      label: 'Disabled',
+      label: 'status.disabled',
       className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
       dot: 'bg-red-500',
     },
@@ -133,7 +136,7 @@ function SectionStatusBadge({ status }: { status?: SectionStatus }) {
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${badge.className}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
-      {badge.label}
+      {t(badge.label)}
     </span>
   );
 }
@@ -155,40 +158,42 @@ const SectionRowItem = React.memo(function SectionRowItem({
   onDisable,
   onDelete,
 }: SectionRowItemProps) {
+  const { t } = useTranslation('accounts');
+  const [localizedName] = useLocalizedFields([section.name]);
   const status = section.status ?? 'approved';
 
   return (
     <tr className="border-b border-slate-300 transition-colors hover:bg-gray-50 dark:border-navy-600 dark:hover:bg-navy-800/50">
-      <td className="px-6 py-4">
-        <div className="text-sm font-bold text-slate-900 dark:text-white">{section.name}</div>
+      <td className="min-w-0 px-4 py-4 md:px-6">
+        <div className="break-words text-sm font-bold leading-snug text-slate-900 dark:text-white">{localizedName}</div>
       </td>
-      <td className="px-6 py-4">
-        <div className="flex items-center gap-2">
+      <td className="min-w-0 px-4 py-4 md:px-6">
+        <div className="flex flex-wrap items-center gap-2">
           <SectionStatusBadge status={section.status} />
           {busy && (
             <Spinner
               size="xs"
-              label="Updating section"
+              label={t('sections.updating')}
               className="text-slate-500 dark:text-slate-300"
             />
           )}
         </div>
       </td>
-      <td className="px-6 py-4">
-        <div className="text-sm text-slate-700 dark:text-gray-300">
+      <td className="min-w-0 px-4 py-4 md:px-6">
+        <div className="break-words text-sm text-slate-700 dark:text-gray-300">
           {section.section_lead?.trim() || '—'}
         </div>
       </td>
-      <td className="px-6 py-4">
+      <td className="min-w-0 px-4 py-4 md:px-6">
         <div className="text-xs text-slate-500 dark:text-gray-400">
           {section.created_at ? formatSriLankaDate(section.created_at) : '—'}
         </div>
       </td>
-      <td className="px-6 py-4 text-right">
-        <div className="flex items-center justify-end gap-2">
+      <td className="min-w-0 px-4 py-4 text-right md:px-6">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {status !== 'approved' && (
             <RowAction
-              label="Activate / Approve Section"
+              label={t('sections.activate')}
               tone="emerald"
               disabled={busy}
               onClick={() => onActivate(section)}
@@ -197,7 +202,7 @@ const SectionRowItem = React.memo(function SectionRowItem({
             </RowAction>
           )}
           <RowAction
-            label="Edit section"
+            label={t('sections.edit')}
             tone="blue"
             disabled={busy}
             onClick={() => onEdit(section)}
@@ -206,7 +211,7 @@ const SectionRowItem = React.memo(function SectionRowItem({
           </RowAction>
           {status !== 'disabled' && (
             <RowAction
-              label="Disable section"
+              label={t('sections.disable')}
               tone="amber"
               disabled={busy}
               onClick={() => onDisable(section)}
@@ -215,7 +220,7 @@ const SectionRowItem = React.memo(function SectionRowItem({
             </RowAction>
           )}
           <RowAction
-            label="Delete section"
+            label={t('sections.delete')}
             tone="red"
             disabled={busy}
             onClick={() => onDelete(section)}
@@ -229,6 +234,7 @@ const SectionRowItem = React.memo(function SectionRowItem({
 });
 
 export default function SectionManagementPage() {
+  const { t } = useTranslation('accounts');
   const { showToast } = useToast();
 
   const [sections, setSections] = useState<SectionRow[]>(() => memorySections ?? []);
@@ -348,18 +354,18 @@ export default function SectionManagementPage() {
         setLoadError(true);
         showToast({
           type: 'error',
-          title: 'Load Failed',
-          message: 'Could not load sections.',
+          title: t('feedback.loadFailedTitle'),
+          message: t('sections.errors.loadFailed'),
         });
       } else if (force) {
         showToast({
           type: 'error',
-          title: 'Refresh Failed',
-          message: 'Could not refresh sections.',
+          title: t('feedback.refreshFailedTitle'),
+          message: t('sections.errors.refreshFailed'),
         });
       }
     },
-    [commitSections, showToast]
+    [commitSections, showToast, t]
   );
 
   const beginMutation = useCallback(() => {
@@ -565,10 +571,10 @@ export default function SectionManagementPage() {
           }
           showToast({
             type: 'success',
-            title: disabling ? 'Section Disabled' : 'Section Activated',
+            title: t(disabling ? 'sections.toasts.disabledTitle' : 'sections.toasts.activatedTitle'),
             message:
               json.message ||
-              (disabling ? 'The section has been disabled.' : 'The section has been activated.'),
+              t(disabling ? 'sections.toasts.disabledMessage' : 'sections.toasts.activatedMessage'),
           });
           invalidateClientSectionsCache();
           broadcastAdminSync('SECTIONS_UPDATED');
@@ -580,10 +586,10 @@ export default function SectionManagementPage() {
           );
           showToast({
             type: 'error',
-            title: disabling ? 'Disable Failed' : 'Activation Failed',
+            title: t(disabling ? 'sections.toasts.disableFailedTitle' : 'sections.toasts.activationFailedTitle'),
             message:
               json?.message ||
-              (disabling ? 'Could not disable section.' : 'Could not activate section.'),
+              t(disabling ? 'sections.errors.disableFailed' : 'sections.errors.activateFailed'),
           });
         }
       } catch {
@@ -594,8 +600,8 @@ export default function SectionManagementPage() {
         );
         showToast({
           type: 'error',
-          title: disabling ? 'Disable Failed' : 'Activation Failed',
-          message: 'Could not reach the server.',
+          title: t(disabling ? 'sections.toasts.disableFailedTitle' : 'sections.toasts.activationFailedTitle'),
+          message: t('feedback.serverUnreachable'),
         });
       } finally {
         setLoadingId(null);
@@ -603,7 +609,7 @@ export default function SectionManagementPage() {
         endMutation();
       }
     },
-    [beginMutation, commitSections, endMutation, showToast]
+    [beginMutation, commitSections, endMutation, showToast, t]
   );
 
   const handleDelete = useCallback(async () => {
@@ -621,8 +627,8 @@ export default function SectionManagementPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'Section Deleted',
-          message: json.message || `"${target.name}" has been permanently deleted.`,
+          title: t('sections.toasts.deletedTitle'),
+          message: json.message || t('sections.toasts.deletedMessage', { name: target.name }),
         });
         invalidateClientSectionsCache();
         broadcastAdminSync('SECTIONS_UPDATED');
@@ -630,19 +636,23 @@ export default function SectionManagementPage() {
         commitSections(restoreRow(sectionsRef.current, target));
         showToast({
           type: 'error',
-          title: 'Delete Failed',
-          message: json?.message || 'Could not delete section.',
+          title: t('sections.toasts.deleteFailedTitle'),
+          message: json?.message || t('sections.errors.deleteFailed'),
         });
       }
     } catch {
       commitSections(restoreRow(sectionsRef.current, target));
-      showToast({ type: 'error', title: 'Delete Failed', message: 'Could not reach the server.' });
+      showToast({
+        type: 'error',
+        title: t('sections.toasts.deleteFailedTitle'),
+        message: t('feedback.serverUnreachable'),
+      });
     } finally {
       setDeleteTarget(null);
       setLoadingId(null);
       endMutation();
     }
-  }, [beginMutation, commitSections, deleteTarget, endMutation, showToast]);
+  }, [beginMutation, commitSections, deleteTarget, endMutation, showToast, t]);
 
   const handleDisable = useCallback(() => {
     if (!disableTarget) return;
@@ -683,8 +693,8 @@ export default function SectionManagementPage() {
           }
           showToast({
             type: 'success',
-            title: 'Section Updated',
-            message: json.message || 'The section has been updated.',
+            title: t('sections.toasts.updatedTitle'),
+            message: json.message || t('sections.toasts.updatedMessage'),
           });
           invalidateClientSectionsCache();
           broadcastAdminSync('SECTIONS_UPDATED');
@@ -692,18 +702,22 @@ export default function SectionManagementPage() {
         } else {
           showToast({
             type: 'error',
-            title: 'Update Failed',
-            message: json?.message || 'Could not update section.',
+            title: t('sections.toasts.updateFailedTitle'),
+            message: json?.message || t('sections.errors.updateFailed'),
           });
         }
       } catch {
-        showToast({ type: 'error', title: 'Update Failed', message: 'Could not reach the server.' });
+        showToast({
+          type: 'error',
+          title: t('sections.toasts.updateFailedTitle'),
+          message: t('feedback.serverUnreachable'),
+        });
       } finally {
         setLoadingId(null);
         endMutation();
       }
     },
-    [beginMutation, commitSections, editSection, endMutation, showToast]
+    [beginMutation, commitSections, editSection, endMutation, showToast, t]
   );
 
   const handleAddSave = useCallback(
@@ -726,8 +740,8 @@ export default function SectionManagementPage() {
           }
           showToast({
             type: 'success',
-            title: 'Section Created',
-            message: json.message || 'The section has been created.',
+            title: t('sections.toasts.createdTitle'),
+            message: json.message || t('sections.toasts.createdMessage'),
           });
           invalidateClientSectionsCache();
           broadcastAdminSync('SECTIONS_UPDATED');
@@ -735,18 +749,22 @@ export default function SectionManagementPage() {
         } else {
           showToast({
             type: 'error',
-            title: 'Create Failed',
-            message: json?.message || 'Could not create section.',
+            title: t('sections.toasts.createFailedTitle'),
+            message: json?.message || t('sections.errors.createFailed'),
           });
         }
       } catch {
-        showToast({ type: 'error', title: 'Create Failed', message: 'Could not reach the server.' });
+        showToast({
+          type: 'error',
+          title: t('sections.toasts.createFailedTitle'),
+          message: t('feedback.serverUnreachable'),
+        });
       } finally {
         setLoadingId(null);
         endMutation();
       }
     },
-    [beginMutation, commitSections, endMutation, showToast]
+    [beginMutation, commitSections, endMutation, showToast, t]
   );
 
   const closeFormModal = useCallback(() => {
@@ -761,16 +779,16 @@ export default function SectionManagementPage() {
   return (
     <div className="mt-3 flex flex-col gap-5">
       <PageHeader
-        crumbs={['Pages', 'System Management', 'Section Management']}
-        title="Section Management"
-        subtitle="Manage departmental sections, divisions, and their configuration across the irrigation department system."
+        crumbs={[t('page.crumbs.pages'), t('page.crumbs.systemManagement'), t('nav:menu.section-management')]}
+        title={t('nav:menu.section-management')}
+        subtitle={t('sections.subtitle')}
         right={
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
             className="flex cursor-pointer items-center gap-2 rounded-xl bg-[#4318FF] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-[#4318FF]/25 transition-all hover:bg-brand-600 active:scale-95"
           >
-            <FiPlus className="h-3.5 w-3.5" /> Add New Section
+            <FiPlus className="h-3.5 w-3.5" /> {t('sections.addNew')}
           </button>
         }
       />
@@ -779,38 +797,38 @@ export default function SectionManagementPage() {
         <StatCard
           icon={FiDatabase}
           tone="purple"
-          label="Total Sections"
+          label={t('sections.stats.total')}
           value={stats.total}
           loading={initialLoading}
-          pill="Sections"
-          sub="All departments"
+          pill={t('sections.stats.totalPill')}
+          sub={t('sections.stats.totalSub')}
         />
         <StatCard
           icon={FiFolder}
           tone="green"
-          label="Active Sections"
+          label={t('sections.stats.active')}
           value={stats.approved}
           loading={initialLoading}
           pill={initialLoading ? undefined : `${activePercent}%`}
-          sub="Operational"
+          sub={t('sections.stats.activeSub')}
         />
         <StatCard
           icon={FiClock}
           tone="blue"
-          label="Pending Approval"
+          label={t('sections.stats.pending')}
           value={stats.pending}
           loading={initialLoading}
-          pill="Action"
-          sub="Awaiting review"
+          pill={t('sections.stats.pendingPill')}
+          sub={t('sections.stats.pendingSub')}
         />
         <StatCard
           icon={FiPower}
           tone="red"
-          label="Disabled Sections"
+          label={t('sections.stats.disabled')}
           value={stats.disabled}
           loading={initialLoading}
-          pill="Inactive"
-          sub="Access restricted"
+          pill={t('sections.stats.disabledPill')}
+          sub={t('sections.stats.disabledSub')}
         />
       </div>
 
@@ -820,12 +838,12 @@ export default function SectionManagementPage() {
             <FiSearch className="h-4 w-4 shrink-0 text-slate-700 dark:text-gray-300" />
             <input
               type="text"
-              placeholder="Search by section name or lead..."
+              placeholder={t('sections.searchPlaceholder')}
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               style={{ backgroundColor: 'transparent' }}
               className="h-full w-full !bg-transparent text-xs font-bold text-slate-950 outline-none placeholder:font-medium placeholder:text-slate-600 dark:!bg-transparent dark:text-white dark:placeholder:text-gray-400"
-              aria-label="Search sections"
+              aria-label={t('sections.searchAria')}
               maxLength={120}
             />
             {searchInput && (
@@ -835,7 +853,7 @@ export default function SectionManagementPage() {
                   setSearchInput('');
                   setDebouncedSearch('');
                 }}
-                aria-label="Clear search"
+                aria-label={t('sections.clearSearch')}
                 className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 dark:text-gray-400 dark:hover:bg-navy-700 dark:hover:text-white"
               >
                 <FiX className="h-3.5 w-3.5" />
@@ -846,21 +864,21 @@ export default function SectionManagementPage() {
             <select
               value={filterStatus}
               onChange={(event) => setFilterStatus(event.target.value as 'all' | SectionStatus)}
-              aria-label="Filter sections by status"
+              aria-label={t('sections.filterAria')}
               className="h-9 cursor-pointer rounded-xl border border-slate-300 bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200"
             >
-              <option value="all">All Statuses</option>
-              <option value="approved">Active</option>
-              <option value="pending">Pending</option>
-              <option value="disabled">Disabled</option>
+              <option value="all">{t('filters.allStatuses')}</option>
+              <option value="approved">{t('common:status.active')}</option>
+              <option value="pending">{t('common:status.pending')}</option>
+              <option value="disabled">{t('status.disabled')}</option>
             </select>
             <button
               type="button"
               onClick={handleRefresh}
               disabled={isRefreshBusy}
-              aria-label="Refresh sections"
+              aria-label={t('sections.refreshAria')}
               aria-busy={isRefreshBusy || undefined}
-              title="Refresh sections"
+              title={t('sections.refreshAria')}
               className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-slate-300 bg-[#f4f7fe] text-slate-900 transition-colors hover:border-[#4318FF] hover:text-[#4318FF] disabled:cursor-not-allowed disabled:opacity-60 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200"
             >
               {isRefreshBusy ? (
@@ -874,14 +892,14 @@ export default function SectionManagementPage() {
         {hasActiveFilters && (
           <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-600 dark:text-gray-400">
             <span>
-              {filtered.length} of {sections.length} sections match
+              {t('sections.filterMatch', { shown: filtered.length, total: sections.length })}
             </span>
             <button
               type="button"
               onClick={clearFilters}
               className="cursor-pointer font-bold text-[#4318FF] hover:underline dark:text-brand-300"
             >
-              Clear filters
+              {t('common:buttons.clearFilters')}
             </button>
           </div>
         )}
@@ -894,26 +912,26 @@ export default function SectionManagementPage() {
         >
           {initialLoading && (
             <span className="sr-only" role="status">
-              Loading sections…
+              {t('sections.loading')}
             </span>
           )}
-          <table aria-label="Sections" className="w-full text-left">
+          <table aria-label={t('sections.tableAria')} className="w-full min-w-[720px] table-auto text-left">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 dark:border-navy-600 dark:bg-navy-800">
                 <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
-                  Section Name
+                  {t('sections.table.name')}
                 </th>
                 <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
-                  Status
+                  {t('common:labels.status')}
                 </th>
                 <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
-                  Section Lead
+                  {t('sections.table.lead')}
                 </th>
                 <th scope="col" className="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
-                  Created
+                  {t('common:labels.created')}
                 </th>
                 <th scope="col" className="px-6 py-4 text-right text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-gray-300">
-                  Actions
+                  {t('common:labels.actions')}
                 </th>
               </tr>
             </thead>
@@ -955,10 +973,10 @@ export default function SectionManagementPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          Could not load sections
+                          {t('empty.loadErrorTitle')}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
-                          Check your connection and try again.
+                          {t('empty.loadErrorBody')}
                         </p>
                       </div>
                       <button
@@ -966,7 +984,7 @@ export default function SectionManagementPage() {
                         onClick={handleRefresh}
                         className="cursor-pointer rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-brand-600"
                       >
-                        Try again
+                        {t('common:buttons.retry')}
                       </button>
                     </div>
                   </td>
@@ -980,12 +998,14 @@ export default function SectionManagementPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-900 dark:text-white">
-                          {sections.length === 0 ? 'No sections yet' : 'No matching sections'}
+                          {sections.length === 0
+                            ? t('empty.sectionsTitle')
+                            : t('empty.noMatchTitle')}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
                           {sections.length === 0
-                            ? 'Create your first section to get started.'
-                            : 'Try adjusting your search or status filter.'}
+                            ? t('empty.sectionsBody')
+                            : t('empty.noMatchBody')}
                         </p>
                       </div>
                       {sections.length === 0 ? (
@@ -994,7 +1014,7 @@ export default function SectionManagementPage() {
                           onClick={() => setShowAddModal(true)}
                           className="cursor-pointer rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-brand-600"
                         >
-                          Add New Section
+                          {t('sections.addNew')}
                         </button>
                       ) : (
                         <button
@@ -1002,7 +1022,7 @@ export default function SectionManagementPage() {
                           onClick={clearFilters}
                           className="cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-navy-600 dark:text-gray-200 dark:hover:bg-navy-800"
                         >
-                          Clear filters
+                          {t('common:buttons.clearFilters')}
                         </button>
                       )}
                     </div>
@@ -1028,19 +1048,18 @@ export default function SectionManagementPage() {
         {!initialLoading && !loadError && filtered.length > 0 && (
           <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 dark:border-navy-600 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[11px] font-medium text-slate-500 dark:text-gray-400">
-              Showing <span className="font-bold text-slate-700 dark:text-gray-200">{rangeStart}–{rangeEnd}</span> of{' '}
-              <span className="font-bold text-slate-700 dark:text-gray-200">{filtered.length}</span>
+              {t('common:table.showing', { from: rangeStart, to: rangeEnd, total: filtered.length })}
               {filtered.length !== sections.length && (
-                <span> (filtered from {sections.length})</span>
+                <span> {t('sections.filteredFrom', { total: sections.length })}</span>
               )}
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-gray-400">
-                Rows
+                {t('sections.rows')}
                 <select
                   value={pageSize}
                   onChange={(event) => setPageSize(Number(event.target.value))}
-                  aria-label="Rows per page"
+                  aria-label={t('sections.rowsPerPage')}
                   className="h-8 cursor-pointer rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 outline-none dark:border-navy-600 dark:bg-navy-800 dark:text-gray-200"
                 >
                   {PAGE_SIZE_OPTIONS.map((size) => (
@@ -1055,19 +1074,19 @@ export default function SectionManagementPage() {
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={currentPage <= 1}
-                  aria-label="Previous page"
+                  aria-label={t('table.previousPage')}
                   className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 dark:hover:bg-navy-700"
                 >
                   <FiChevronLeft className="h-4 w-4" />
                 </button>
                 <span className="min-w-[76px] text-center text-[11px] font-bold text-slate-600 dark:text-gray-300">
-                  Page {currentPage} of {pageCount}
+                  {t('common:table.pageOf', { page: currentPage, totalPages: pageCount })}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                   disabled={currentPage >= pageCount}
-                  aria-label="Next page"
+                  aria-label={t('table.nextPage')}
                   className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-300 dark:hover:bg-navy-700"
                 >
                   <FiChevronRight className="h-4 w-4" />
@@ -1080,9 +1099,9 @@ export default function SectionManagementPage() {
 
       {deleteTarget && (
         <ConfirmActionModal
-          title="Delete Section"
-          description={`Are you sure you want to delete "${deleteTarget.name}"? This will permanently remove the section and all associated data. This action cannot be undone.`}
-          confirmLabel="Delete Section"
+          title={t('sections.confirm.deleteTitle')}
+          description={t('sections.confirm.deleteDescription', { name: deleteTarget.name })}
+          confirmLabel={t('sections.confirm.deleteConfirm')}
           tone="danger"
           loading={loadingId === deleteTarget.id}
           onConfirm={handleDelete}
@@ -1092,9 +1111,9 @@ export default function SectionManagementPage() {
 
       {disableTarget && (
         <ConfirmActionModal
-          title="Disable Section"
-          description={`Are you sure you want to disable "${disableTarget.name}"? Once disabled, it cannot be updated or navigated. Pending workflow will remain, creating inconsistent and unusable data for both users and admins.`}
-          confirmLabel="Disable Section"
+          title={t('sections.confirm.disableTitle')}
+          description={t('sections.confirm.disableDescription', { name: disableTarget.name })}
+          confirmLabel={t('sections.confirm.disableConfirm')}
           tone="warning"
           loading={loadingId === disableTarget.id}
           onConfirm={handleDisable}
@@ -1130,6 +1149,7 @@ function SectionFormModal({
   onClose: () => void;
   onSave: (payload: { name: string; section_lead?: string | null }) => Promise<void>;
 }) {
+  const { t } = useTranslation('accounts');
   const [name, setName] = useState(section?.name || '');
   const [sectionLead, setSectionLead] = useState(section?.section_lead || '');
   const isEdit = !!section;
@@ -1173,12 +1193,10 @@ function SectionFormModal({
                 id="section-form-title"
                 className="text-lg font-bold text-navy-700 dark:text-white"
               >
-                {isEdit ? 'Edit Section' : 'Add New Section'}
+                {t(isEdit ? 'sections.form.editTitle' : 'sections.form.addTitle')}
               </h3>
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                {isEdit
-                  ? 'Update the section details below.'
-                  : 'Create a new departmental section.'}
+                {t(isEdit ? 'sections.form.editSubtitle' : 'sections.form.addSubtitle')}
               </p>
             </div>
           </div>
@@ -1186,7 +1204,7 @@ function SectionFormModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            aria-label="Close"
+            aria-label={t('common:buttons.close')}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-navy-800 dark:hover:text-white"
           >
             <FiX className="h-4 w-4" />
@@ -1199,7 +1217,7 @@ function SectionFormModal({
               htmlFor="section-name"
               className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
             >
-              Section Name <span className="text-red-500">*</span>
+              {t('sections.form.nameLabel')} <span className="text-red-500">*</span>
             </label>
             <SpellCheckedNameInput
               id="section-name"
@@ -1207,7 +1225,7 @@ function SectionFormModal({
               onChange={setName}
               sections={existingSections}
               extraDictionaryText={sectionLead}
-              placeholder="e.g. Engineering Central Registry"
+              placeholder={t('sections.form.namePlaceholder')}
               maxLength={SECTION_NAME_MAX_LENGTH}
               autoFocus
               disabled={saving}
@@ -1227,7 +1245,7 @@ function SectionFormModal({
             >
               <span>
                 {duplicateMessage ??
-                  `At least ${SECTION_NAME_MIN_LENGTH} characters. Spelling suggestions never block saving.`}
+                  t('sections.form.nameHint', { count: SECTION_NAME_MIN_LENGTH })}
               </span>
               <span>
                 {name.length}/{SECTION_NAME_MAX_LENGTH}
@@ -1239,15 +1257,15 @@ function SectionFormModal({
               htmlFor="section-lead"
               className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
             >
-              Section Lead{' '}
-              <span className="font-normal text-slate-400 dark:text-slate-500">(Optional)</span>
+              {t('sections.form.leadLabel')}{' '}
+              <span className="font-normal text-slate-400 dark:text-slate-500">{t('sections.form.optional')}</span>
             </label>
             <input
               id="section-lead"
               type="text"
               value={sectionLead}
               onChange={(event) => setSectionLead(event.target.value)}
-              placeholder="e.g. K. L. Perera"
+              placeholder={t('sections.form.leadPlaceholder')}
               disabled={saving}
               spellCheck={false}
               autoCorrect="off"
@@ -1262,17 +1280,17 @@ function SectionFormModal({
               disabled={saving}
               className="flex-1"
             >
-              Cancel
+              {t('common:buttons.cancel')}
             </Button>
             <Button
               type="submit"
               variant="primary"
               loading={saving}
-              loadingText="Saving..."
+              loadingText={t('modals.saving')}
               disabled={!canSubmit}
               className="flex-1"
             >
-              {isEdit ? 'Update Section' : 'Create Section'}
+              {t(isEdit ? 'sections.form.update' : 'sections.form.create')}
             </Button>
           </div>
         </form>

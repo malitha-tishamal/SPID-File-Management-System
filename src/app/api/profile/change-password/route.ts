@@ -1,6 +1,8 @@
 import { withErrorHandling, jsonOk, requireServerEnv, ApiError } from 'lib/apiResponse';
 import { AuthorizationService } from 'services/AuthorizationService';
+import { AuthService } from 'services/AuthService';
 import { getSupabaseAdminClient } from 'config/supabase/server';
+import { getRequestMeta } from 'lib/requestMeta';
 import { validatePasswordPair } from 'validators/authValidators';
 
 export const dynamic = 'force-dynamic';
@@ -29,19 +31,9 @@ export const POST = withErrorHandling(async (req: Request) => {
 
   const admin = getSupabaseAdminClient();
 
-  // Verify current password by attempting an auth check with admin
-  const { error: signInErr } = await admin.auth.signInWithPassword({
-    email: profile.email,
-    password: currentPassword,
-  });
-
-  if (signInErr) {
-    throw new ApiError(
-      400,
-      'AUTHENTICATION_DISCREPANCY',
-      'We could not verify and update your credentials. Please review the security requirements and re-enter your current password.'
-    );
-  }
+  // Same lockout service as sign-in: a locked account cannot keep guessing
+  // its current password through this endpoint.
+  await AuthService.verifyCurrentPassword(profile, currentPassword, getRequestMeta(req));
 
   // Update password in Supabase Auth
   const { error: updateErr } = await admin.auth.admin.updateUserById(profile.id, {

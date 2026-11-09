@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useTranslation } from 'react-i18next';
 import {
   FiAlertTriangle,
   FiArrowLeft,
@@ -16,6 +17,7 @@ import {
 } from 'react-icons/fi';
 import { useToast } from 'components/toast/ToastContext';
 import { exportToCsv, formatDateTimeForCsv } from 'lib/csvExport';
+import { attributedNameText } from 'utils/userDisplay';
 import { formatSriLankaDate, sriLankaTodayInput } from 'lib/datetime';
 import {
   clearQueryParam,
@@ -33,12 +35,13 @@ import type {
 } from './issuedTypes';
 
 const VIEW_TABS: { key: IssuedView; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { key: 'active', label: 'Active', icon: FiClock },
-  { key: 'overdue', label: 'Overdue', icon: FiAlertTriangle },
-  { key: 'returned', label: 'Returned', icon: FiCheckCircle },
+  { key: 'active', label: 'tabs.active', icon: FiClock },
+  { key: 'overdue', label: 'tabs.overdue', icon: FiAlertTriangle },
+  { key: 'returned', label: 'tabs.returned', icon: FiCheckCircle },
 ];
 
 export default function IssuedFilesPage() {
+  const { t } = useTranslation('issued');
   const { showToast } = useToast();
 
   const [view, setView] = useState<IssuedView>('active');
@@ -86,13 +89,13 @@ export default function IssuedFilesPage() {
           hasLoadedRef.current = true;
         } else {
           setError(
-            json?.message || 'Failed to load issued files from the server.',
+            json?.message || t('feedback.loadFailed'),
           );
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         setError(
-          'Could not connect to the server to load the issued files ledger.',
+          t('feedback.loadConnectionFailed'),
         );
       } finally {
         if (!signal?.aborted) {
@@ -101,7 +104,7 @@ export default function IssuedFilesPage() {
         }
       }
     },
-    [view],
+    [view, t],
   );
 
   useEffect(() => {
@@ -140,10 +143,8 @@ export default function IssuedFilesPage() {
     setView(ledgerBeforeProbe.current);
     ledgerBeforeProbe.current = null;
     setHighlightFileId(id);
-    setDeepLinkNotice(
-      'That issued file is no longer in the ledger, so there is nothing to open. The full list is shown instead.',
-    );
-  }, [loading, files, view]);
+    setDeepLinkNotice(t('feedback.deepLinkGone'));
+  }, [loading, files, view, t]);
 
   /** Search filters the loaded rows by file number, file name or staff name. */
   const visibleFiles = useMemo(() => {
@@ -160,36 +161,38 @@ export default function IssuedFilesPage() {
     if (visibleFiles.length === 0) {
       showToast({
         type: 'info',
-        title: 'No Records to Export',
-        message:
-          'No matching issued files to export. Try adjusting your search or view.',
+        title: t('feedback.noRecordsTitle'),
+        message: t('feedback.noRecordsMessage'),
       });
       return;
     }
 
     const headers = [
-      'File Number',
-      'File Name',
-      'Staff Name',
-      'Section',
-      'Issue Date',
-      'Duration (Days)',
-      'Original Return Date',
-      'Expected Return Date',
-      'Extended',
-      'Return Status',
-      'Returned Date',
+      t('export.fileNumber'),
+      t('export.fileName'),
+      t('export.staffName'),
+      t('export.section'),
+      t('export.issueDate'),
+      t('export.durationDays'),
+      t('export.originalReturn'),
+      t('export.expectedReturn'),
+      t('export.extended'),
+      t('export.returnStatus'),
+      t('export.returnedDate'),
     ];
     const rows = visibleFiles.map((f) => [
       f.file_no,
       f.file_name,
-      f.requester_name,
+      attributedNameText(f.requester_name, {
+        deleted: f.requester_is_deleted,
+        label: t('common:deletedUser'),
+      }),
       f.section_name,
       formatDateTimeForCsv(f.issued_at || f.request_date),
       f.duration_days ?? '',
       formatSriLankaDate(f.original_return_date),
       formatSriLankaDate(f.expected_return_date),
-      f.is_extended && !f.returned_at ? 'Yes' : 'No',
+      f.is_extended && !f.returned_at ? t('common:labels.yes') : t('common:labels.no'),
       f.return_label,
       f.returned_at ? formatDateTimeForCsv(f.returned_at) : '',
     ]);
@@ -198,10 +201,8 @@ export default function IssuedFilesPage() {
 
     showToast({
       type: 'success',
-      title: 'Export Complete',
-      message: `Exported ${rows.length} issued file${
-        rows.length !== 1 ? 's' : ''
-      } to CSV.`,
+      title: t('feedback.exportCompleteTitle'),
+      message: t('feedback.exportCompleteMessage', { count: rows.length }),
     });
   };
 
@@ -222,10 +223,10 @@ export default function IssuedFilesPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'Return Recorded',
+          title: t('feedback.returnRecordedTitle'),
           message:
             json.data?.message ||
-            `${target.file_no} was marked as received back.`,
+            t('feedback.returnRecordedMessage', { file: target.file_no }),
         });
         setReturnFile(null);
         setDetailFile((current) => (current?.id === target.id ? null : current));
@@ -233,15 +234,15 @@ export default function IssuedFilesPage() {
       } else {
         showToast({
           type: 'error',
-          title: 'Return Not Recorded',
-          message: json?.message || 'Server rejected the return update.',
+          title: t('feedback.returnFailedTitle'),
+          message: json?.message || t('feedback.returnServerRejected'),
         });
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server to record the return.',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.returnConnectionFailed'),
       });
     } finally {
       setIsReturning(false);
@@ -253,7 +254,7 @@ export default function IssuedFilesPage() {
   const handleConfirmExtend = async (
     payload: ExtendPayload,
   ): Promise<string | null> => {
-    if (!extendFile) return 'No file is selected. Close and reopen the dialog.';
+    if (!extendFile) return t('feedback.noFileSelected');
     const target = extendFile;
     setIsExtending(true);
     setBusyId(target.id);
@@ -275,10 +276,13 @@ export default function IssuedFilesPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'Return Date Extended',
+          title: t('feedback.extendedTitle'),
           message:
             json.data?.message ||
-            `${target.file_no} is now due on ${payload.new_return_date}.`,
+            t('feedback.extendedMessage', {
+              file: target.file_no,
+              date: payload.new_return_date,
+            }),
         });
         setExtendFile(null);
         setDetailFile((current) => (current?.id === target.id ? null : current));
@@ -286,18 +290,18 @@ export default function IssuedFilesPage() {
         return null;
       }
 
-      const message = json?.message || 'Server rejected the extension.';
+      const message = json?.message || t('feedback.extensionServerRejected');
       showToast({
         type: 'error',
-        title: 'Extension Failed',
+        title: t('feedback.extensionFailedTitle'),
         message,
       });
       return message;
     } catch {
-      const message = 'Could not reach the server to extend this return date.';
+      const message = t('feedback.extendConnectionFailed');
       showToast({
         type: 'error',
-        title: 'Connection Error',
+        title: t('feedback.connectionErrorTitle'),
         message,
       });
       return message;
@@ -309,32 +313,32 @@ export default function IssuedFilesPage() {
 
   const summaryCards = [
     {
-      label: 'ACTIVE ISSUES',
+      label: t('summary.activeIssues'),
       value: counts.active,
-      sub: 'Out of the repository',
+      sub: t('summary.activeHint'),
       icon: FiPackage,
       iconClass:
         'bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300',
     },
     {
-      label: 'OVERDUE',
+      label: t('summary.overdue'),
       value: counts.overdue,
-      sub: 'Past the due date',
+      sub: t('summary.overdueHint'),
       icon: FiAlertTriangle,
       iconClass: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300',
     },
     {
-      label: 'EXTENDED',
+      label: t('summary.extended'),
       value: counts.extended,
-      sub: 'Due date moved by admin',
+      sub: t('summary.extendedHint'),
       icon: FiTrendingUp,
       iconClass:
         'bg-[#FFFBEB] text-[#D97706] dark:bg-amber-950/40 dark:text-amber-300',
     },
     {
-      label: 'RETURNED',
+      label: t('summary.returned'),
       value: counts.returned,
-      sub: 'Received back in store',
+      sub: t('summary.returnedHint'),
       icon: FiCheckCircle,
       iconClass:
         'bg-[#E6F9F0] text-[#05CD99] dark:bg-emerald-950/40 dark:text-emerald-300',
@@ -350,13 +354,13 @@ export default function IssuedFilesPage() {
             href="/admin/default"
             className="transition-colors hover:text-slate-600 dark:hover:text-white"
           >
-            Pages
+            {t('page.pages')}
           </Link>
           <span>/</span>
-          <span className="text-slate-500 dark:text-gray-300">Record Room</span>
+          <span className="text-slate-500 dark:text-gray-300">{t('page.recordRoom')}</span>
           <span>/</span>
           <span className="font-bold text-[#1B254B] dark:text-white">
-            Issued Files
+            {t('page.issuedFiles')}
           </span>
         </nav>
 
@@ -365,7 +369,7 @@ export default function IssuedFilesPage() {
           className="inline-flex items-center gap-1.5 text-xs font-bold text-[#4318FF] hover:underline dark:text-brand-300"
         >
           <FiArrowLeft className="h-3.5 w-3.5" />
-          <span>Back to Recordroom Dashboard</span>
+          <span>{t('page.backToDashboard')}</span>
         </Link>
       </div>
 
@@ -373,12 +377,10 @@ export default function IssuedFilesPage() {
       <div className="mb-5">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#1B254B] dark:text-white sm:text-3xl">
-            Issued Files
+            {t('page.title')}
           </h1>
           <p className="mt-0.5 max-w-xl text-xs text-slate-400 dark:text-gray-400">
-            Every approved staff checkout with its official return date. Record
-            physical returns, extend due dates and audit the history — all read
-            live from the database.
+            {t('page.subtitle')}
           </p>
         </div>
 
@@ -403,7 +405,7 @@ export default function IssuedFilesPage() {
                     {card.value}
                   </span>
                   <span className="text-[11px] font-bold text-slate-400">
-                    files
+                    {t('summary.files')}
                   </span>
                 </div>
                 <span className="block text-[10px] font-semibold leading-tight text-slate-400">
@@ -420,7 +422,7 @@ export default function IssuedFilesPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <div
             role="group"
-            aria-label="Issued file ledger views"
+            aria-label={t('page.viewsLabel')}
             className="flex flex-wrap items-center gap-2.5"
           >
             {VIEW_TABS.map((tab) => {
@@ -439,7 +441,7 @@ export default function IssuedFilesPage() {
                   }`}
                 >
                   <tab.icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{tab.label}</span>
+                  <span>{t(tab.label)}</span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                       isActive
@@ -465,8 +467,8 @@ export default function IssuedFilesPage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              aria-label="Search issued files by file number, file name or staff name"
-              placeholder="Search file number, file name or staff name…"
+              aria-label={t('page.searchAria')}
+              placeholder={t('page.searchPlaceholder')}
               className="border-transparent h-9 w-full rounded-xl border bg-slate-50/70 pl-9 pr-3 text-xs text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-[#4318FF] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4318FF] dark:bg-navy-900/70 dark:text-white"
             />
           </div>
@@ -476,22 +478,22 @@ export default function IssuedFilesPage() {
             onClick={() => void loadFiles()}
             disabled={loading || refreshing}
             className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300"
-            title="Reload the issued files ledger"
+            title={t('page.refreshTitle')}
           >
             <FiRefreshCw
               className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`}
             />
-            <span>Refresh</span>
+            <span>{t('common:buttons.refresh')}</span>
           </button>
 
           <button
             type="button"
             onClick={handleExportCsv}
             className="shadow-xs flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-[#4318FF] px-3 text-xs font-bold text-white transition-colors hover:bg-[#3311CC]"
-            title="Export the visible issued files as CSV"
+            title={t('page.exportTitle')}
           >
             <FiDownload className="h-3.5 w-3.5" />
-            <span>Export CSV</span>
+            <span>{t('page.exportCsv')}</span>
           </button>
         </div>
       </div>
@@ -501,22 +503,22 @@ export default function IssuedFilesPage() {
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
             {view === 'active'
-              ? 'FILES CURRENTLY ISSUED (AWAITING RETURN)'
+              ? t('page.headings.active')
               : view === 'overdue'
-                ? 'OVERDUE ISSUES (PAST THE OFFICIAL DUE DATE)'
-                : 'RETURNED FILES (RECEIVED BACK IN STORE)'}
+                ? t('page.headings.overdue')
+                : t('page.headings.returned')}
           </h2>
           <span
             role="status"
             aria-live="polite"
             className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-navy-700 dark:text-slate-300"
           >
-            {visibleFiles.length} of {total}
-            <span className="sr-only"> issued files shown</span>
+            {t('page.countLine', { shown: visibleFiles.length, total })}
+            <span className="sr-only"> {t('page.countSrOnly')}</span>
           </span>
         </div>
         <span className="hidden text-[11px] italic text-slate-400 sm:inline">
-          Returns and extensions are saved by the server before the ledger updates.
+          {t('page.ledgerNote')}
         </span>
       </div>
 
@@ -535,7 +537,7 @@ export default function IssuedFilesPage() {
           role="alert"
           className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300 shadow-xs"
         >
-          <p className="font-bold">Could not load issued files</p>
+          <p className="font-bold">{t('page.loadFailedTitle')}</p>
           <p className="mt-1 whitespace-pre-wrap text-xs">{error}</p>
           <button
             type="button"
@@ -543,7 +545,7 @@ export default function IssuedFilesPage() {
             className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-[#4318FF] px-3.5 py-2 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#3311CC]"
           >
             <FiRefreshCw className="h-3.5 w-3.5" />
-            <span>Retry</span>
+            <span>{t('page.retry')}</span>
           </button>
         </div>
       ) : (

@@ -1,8 +1,14 @@
 import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from 'config/supabase/server';
 import { AuthorizationService } from 'services/AuthorizationService';
 import { AuditLogRepository } from 'models/AuditLogRepository';
-import { NotificationService } from 'services/NotificationService';
+import { isUniqueViolation } from 'models/FileRepository';
+import {
+  notifyAdminsForRequest,
+  notifyRequestOutcome,
+  resolveRequestNotifications,
+} from 'lib/notifications';
 import { addDaysToDate } from 'lib/returnStatus';
 import { sriLankaDayEndIso, sriLankaDayStartIso } from 'lib/datetime';
 import {
@@ -15,11 +21,70 @@ import {
 } from 'lib/staffRequests';
 import {
   REQUEST_CONFLICT_MESSAGES,
+  STAFF_REQUEST_PRIORITY_WEIGHT,
   type RequestConflictKind,
 } from 'lib/staffRequestPriority';
+import {
+  isDeletedAuthor,
+  visibleAuthorEmail,
+  type AttributionProfile,
+} from 'lib/userAttribution';
+import {
+  getCompetingInfo,
+  sortByCompetingRank,
+  type CompetingInfo,
+  type CompetingRequestInput,
+} from 'lib/competing-requests';
+
+/**
+ * A pending row `checkCompeting` ranks. The ranking only needs the base fields;
+ * the requester columns ride along because the staff notice separates "my
+ * request is in line" from "someone else is waiting".
+ */
+interface CompetingCheckRow extends CompetingRequestInput {
+  requester_id: string | null;
+  requester_name: string;
+  requester_section: string | null;
+}
 
 const REQUEST_SELECT =
   'id, file_id, file_no, file_name, section_name, storage_location, requester_id, requester_name, requester_email, requester_role, requester_section, request_date, duration_days, priority, status, admin_notes, cancellation_reason, reviewed_by, reviewed_at, original_return_date, expected_return_date, issued_at, returned_at, returned_by, created_at';
+
+/**
+ * Second admin action on an already-reviewed request: 409 with who handled it
+ * and when, so the UI can show "Already approved by …" instead of a generic
+ * error. The status check inside the update (`.eq('status','PENDING')`) keeps
+ * this race-safe — only one reviewer can win.
+ */
+async function throwAlreadyHandled(
+  admin: SupabaseClient,
+  row: {
+    id: number;
+    status: string;
+    reviewed_by?: string | null;
+    reviewed_at?: string | null;
+  },
+): Promise<never> {
+  let handledBy: string | null = null;
+  if (row.reviewed_by) {
+    const { data: reviewer } = await admin
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', row.reviewed_by)
+      .maybeSingle();
+    handledBy = reviewer?.full_name || reviewer?.email || null;
+  }
+  throw new ApiError(
+    409,
+    'REQUEST_ALREADY_HANDLED',
+    `This file request was already ${String(row.status).toLowerCase()}.`,
+    {
+      handledBy,
+      handledAt: row.reviewed_at ?? null,
+      status: row.status,
+    },
+  );
+}
 
 /**
  * Migrations 0017 and 0021 add columns this module selects. PostgREST answers
@@ -75,11 +140,135 @@ function throwIfSubmitFunctionMissing(error: { code?: string; message?: string }
 function computeReturnDate(requestDate: string, durationDays: number): string {
   return addDaysToDate(String(requestDate).slice(0, 10), Number(durationDays) || 0);
 }
+
+/** Who physically holds the file right now, read from the live issuance row. */
+export interface ActiveIssuance {
+  request_id: number;
+  file_no: string;
+  file_name: string;
+  holder_id: string;
+  holder_name: string;
+  issued_at: string | null;
+  expected_return_date: string | null;
+}
+
+const ISSUANCE_SELECT =
+  'id, file_no, file_name, requester_id, requester_name, issued_at, reviewed_at, expected_return_date';
+
+/**
+ * An approved request that has not been returned is the file's active
+ * issuance. `excludeRequestId` keeps re-reviewing the same row from counting
+ * as a conflict with itself.
+ */
+async function findActiveIssuance(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  target: { file_id?: number | null; file_no?: string | null } | number,
+  excludeRequestId?: number,
+): Promise<ActiveIssuance | null> {
+  const fileId = typeof target === 'number' ? target : Number(target?.file_id);
+  const fileNo = typeof target === 'object' && target?.file_no ? String(target.file_no).trim() : null;
+
+  let query = admin
+    .from('staff_file_requests')
+    .select(ISSUANCE_SELECT)
+    .eq('status', 'APPROVED')
+    .is('returned_at', null)
+    .order('issued_at', { ascending: false, nullsFirst: false })
+    .limit(5);
+
+  if (Number.isSafeInteger(fileId) && fileId > 0) {
+    query = query.eq('file_id', fileId);
+  } else if (fileNo) {
+    query = query.eq('file_no', fileNo);
+  } else {
+    return null;
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throwIfRequestsTableMissing(error);
+    throwIfRequestColumnsMissing(error);
+    throw error;
+  }
+
+  const row = (data ?? []).find((item: any) => item.id !== excludeRequestId);
+  if (!row) return null;
+
+  return {
+    request_id: row.id,
+    file_no: row.file_no,
+    file_name: row.file_name,
+    holder_id: row.requester_id,
+    holder_name: row.requester_name,
+    issued_at: row.issued_at || row.reviewed_at || null,
+    expected_return_date: row.expected_return_date || null,
+  };
+}
+
+/** 409 payload the Admin "File Currently Issued" modal renders from. */
+function fileIssuedConflict(holder: ActiveIssuance) {
+  return new ApiError(
+    409,
+    'REQUEST_CONFLICT',
+    'This file is currently issued to another staff member and cannot be approved until it is returned.',
+    { reason: 'file_currently_issued', issuance: holder },
+  );
+}
+
+/** Enough fields for the shared ranking plus the words a refusal needs. */
+const GROUP_SELECT =
+  'id, file_id, file_no, priority, status, created_at, request_date, requester_id, requester_name';
+
+/**
+ * Every pending request competing for the same file as `target`. The whole
+ * group is read from the table rather than taken from a page of results, so a
+ * filtered or paginated list can never rank against an incomplete set.
+ */
+async function findPendingGroup(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  target: { file_id?: number | null; file_no?: string | null },
+): Promise<Record<string, any>[]> {
+  const fileId = Number(target.file_id);
+  const query = admin
+    .from('staff_file_requests')
+    .select(GROUP_SELECT)
+    .eq('status', 'PENDING');
+
+  if (Number.isSafeInteger(fileId) && fileId > 0) {
+    const { data, error } = await query.eq('file_id', fileId);
+    if (error) throw error;
+    return (data ?? []) as Record<string, any>[];
+  }
+
+  const fileNo = String(target.file_no ?? '').trim();
+  if (!fileNo) return [];
+  const { data, error } = await query.eq('file_no', fileNo);
+  if (error) throw error;
+  return (data ?? []) as Record<string, any>[];
+}
+
+/** Rank 0 of a group, i.e. the request the approve API accepts. */
+function leaderOf(
+  group: readonly CompetingRequestInput[],
+  info: Map<number, CompetingInfo>,
+): Record<string, any> | null {
+  const leader = group.find(
+    (row) => info.get(Number(row.id))?.rank === 0,
+  ) as Record<string, any> | undefined;
+  return leader ?? null;
+}
+
 const REQUEST_PRIORITIES = ['HIGH', 'NORMAL', 'LOW'] as const;
 type RequestPriority = (typeof REQUEST_PRIORITIES)[number];
 
 function isRequestPriority(value: string): value is RequestPriority {
   return REQUEST_PRIORITIES.some((priority) => priority === value);
+}
+
+/** HIGH first, then NORMAL, then LOW. An unreadable value ranks last. */
+function priorityWeightOf(priority: unknown): number {
+  return STAFF_REQUEST_PRIORITY_WEIGHT[priority as RequestPriority] ?? -1;
 }
 
 type SubmitOutcome =
@@ -194,16 +383,30 @@ export class StaffFileRequestController {
   ): Promise<Record<string, any>[]> {
     if (rows.length === 0) return [];
 
-    const reviewerIds = Array.from(
-      new Set(rows.map((row) => row.reviewed_by).filter((id) => Boolean(id))),
+    // Soft-deleted accounts stay joinable so history keeps its attribution; the
+    // flags tell the UI to mark the name instead of hiding the row.
+    const profileIds = Array.from(
+      new Set(
+        rows
+          .flatMap((row) => [row.reviewed_by, row.requester_id])
+          .filter((id) => Boolean(id)),
+      ),
     );
     const requestIds = rows
       .map((row) => row.id)
       .filter((id) => typeof id === 'number');
 
-    const [reviewersRes, extensionsRes] = await Promise.all([
-      reviewerIds.length > 0
-        ? admin.from('profiles').select('id, full_name, email').in('id', reviewerIds)
+    const fileIds = Array.from(
+      new Set(
+        rows
+          .map((row) => Number(row.file_id))
+          .filter((id) => Number.isSafeInteger(id) && id > 0),
+      ),
+    );
+
+    const [reviewersRes, extensionsRes, groupRes] = await Promise.all([
+      profileIds.length > 0
+        ? admin.from('profiles').select('id, full_name, email, is_deleted').in('id', profileIds)
         : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
       requestIds.length > 0
         ? admin
@@ -214,25 +417,44 @@ export class StaffFileRequestController {
             .in('request_id', requestIds)
             .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
+      // The full competing group, so a paged list still ranks every row that
+      // shares a file with a request off this page.
+      fileIds.length > 0
+        ? admin
+            .from('staff_file_requests')
+            .select(GROUP_SELECT)
+            .in('file_id', fileIds)
+            .eq('status', 'PENDING')
+        : Promise.resolve({ data: [] as Record<string, any>[], error: null }),
     ]);
 
-    const reviewerMap = new Map<string, Record<string, any>>();
-    for (const reviewer of (reviewersRes as { data?: Record<string, any>[] }).data ?? []) {
-      reviewerMap.set(reviewer.id, reviewer);
+    const profileMap = new Map<string, AttributionProfile>();
+    for (const reviewer of (reviewersRes as { data?: AttributionProfile[] }).data ?? []) {
+      profileMap.set(reviewer.id, reviewer);
     }
     const extensionRows = ((extensionsRes as { data?: Record<string, any>[] }).data ??
       []) as Record<string, any>[];
+
+    const competingById = getCompetingInfo([
+      ...(((groupRes as { data?: Record<string, any>[] }).data ??
+        []) as CompetingRequestInput[]),
+      // Rows that carry no file id can only be grouped by their file number.
+      ...rows.filter(
+        (row) => !Number.isSafeInteger(Number(row.file_id)) || Number(row.file_id) <= 0,
+      ) as CompetingRequestInput[],
+    ]);
 
     return rows.map((req) => {
       const own = extensionRows.filter((row) => row.request_id === req.id);
       return {
         ...req,
+        competing: competingById.get(Number(req.id)) ?? null,
         reviewer_name: req.reviewed_by
-          ? reviewerMap.get(req.reviewed_by)?.full_name || 'Administrator'
+          ? profileMap.get(req.reviewed_by)?.full_name || 'Administrator'
           : null,
-        reviewer_email: req.reviewed_by
-          ? reviewerMap.get(req.reviewed_by)?.email || null
-          : null,
+        reviewer_email: visibleAuthorEmail(profileMap, req.reviewed_by),
+        reviewer_is_deleted: isDeletedAuthor(profileMap, req.reviewed_by),
+        requester_is_deleted: isDeletedAuthor(profileMap, req.requester_id),
         pending_extension: own.find((row) => row.status === 'PENDING') || null,
         extension_history: own.filter((row) => row.status !== 'PENDING'),
         extension_count: own.filter((row) => row.status === 'APPROVED').length,
@@ -386,17 +608,51 @@ export class StaffFileRequestController {
           );
         }
 
-        await new NotificationService(admin).notifyAdmins({
+        await notifyAdminsForRequest(admin, {
+          kind: 'FILE_ISSUE_REQUESTED',
+          refType: 'staff_file_request',
+          refId: Number(request.id),
           title: upgraded
             ? 'Staff file request priority upgraded'
             : 'New staff file request',
           body: upgraded
             ? `${profile.full_name} upgraded ${request.file_no} — ${request.file_name} to ${priority} priority. The previous pending request was cancelled.`
             : `${profile.full_name} requested ${request.file_no} — ${request.file_name} for ${durationDays} day${durationDays === 1 ? '' : 's'}.`,
+          titleKey: upgraded
+            ? 'content.priorityUpgradedTitle'
+            : 'content.newRequestTitle',
+          bodyKey: upgraded
+            ? 'content.priorityUpgradedBody'
+            : 'content.newRequestBody',
+          params: upgraded
+            ? {
+                staffName: profile.full_name,
+                fileNo: request.file_no,
+                fileName: request.file_name,
+                priority,
+              }
+            : {
+                staffName: profile.full_name,
+                fileNo: request.file_no,
+                fileName: request.file_name,
+                days: durationDays,
+              },
           type: 'info',
           link: `/admin/staff-file-request?tab=pending&request=${request.id}`,
           dedupeKey: `file-request:${request.id}:submitted`,
         });
+
+        // A priority upgrade cancels the member's earlier pending request —
+        // its admin notifications resolve as CANCELLED so they do not linger.
+        if (result.cancelled_request_id) {
+          await resolveRequestNotifications(admin, {
+            refType: 'staff_file_request',
+            refId: Number(result.cancelled_request_id),
+            resolution: 'CANCELLED',
+            resolvedById: profile.id,
+            resolvedByName: profile.full_name || profile.email || null,
+          });
+        }
 
         return jsonOk(
           {
@@ -625,6 +881,7 @@ export class StaffFileRequestController {
         count: 0,
         requests: [],
         own_pending: null,
+        issuance: null,
       });
     }
 
@@ -645,18 +902,37 @@ export class StaffFileRequestController {
 
     // The caller's own request drives the duplicate/upgrade decision; the
     // notice on the form is about other staff members competing for the file.
-    const pendingRequests = data ?? [];
+    // Both are ranked by the shared helper, so the order shown here is the order
+    // the approve API enforces.
+    const pendingRequests = (data ?? []) as CompetingCheckRow[];
+    const competingInfo = getCompetingInfo(pendingRequests);
+    const ranked = sortByCompetingRank(pendingRequests, competingInfo).map((row) => ({
+      ...row,
+      competing: competingInfo.get(Number(row.id)) ?? null,
+    }));
+
     const ownPending =
-      pendingRequests.find((request) => request.requester_id === profile.id) ?? null;
-    const competingRequests = pendingRequests.filter(
+      ranked.find((request) => request.requester_id === profile.id) ?? null;
+    const competingRequests = ranked.filter(
       (request) => request.requester_id !== profile.id,
     );
+
+    // The warning is advisory — approval is what enforces availability.
+    let issuance: ActiveIssuance | null = null;
+    try {
+      const live = await findActiveIssuance(admin, fileId);
+      // Holding the file yourself is not "issued to another staff member".
+      issuance = live && live.holder_id !== profile.id ? live : null;
+    } catch (issuanceError) {
+      console.warn('Could not read current issuance:', issuanceError);
+    }
 
     return jsonOk({
       has_competing: competingRequests.length > 0,
       count: competingRequests.length,
       requests: competingRequests,
       own_pending: ownPending,
+      issuance,
     });
   }
 
@@ -717,6 +993,17 @@ export class StaffFileRequestController {
         auditError,
       );
     }
+
+    // The request is no longer pending: every admin's open notification for
+    // it resolves as CANCELLED.
+    await resolveRequestNotifications(admin, {
+      refType: 'staff_file_request',
+      refId: id,
+      resolution: 'CANCELLED',
+      resolvedById: profile.id,
+      resolvedByName: profile.full_name || profile.email || null,
+    });
+
     return jsonOk({ request, message: 'Your file request was cancelled.' });
   }
 
@@ -733,46 +1020,44 @@ export class StaffFileRequestController {
       throwIfRequestColumnsMissing(error);
       throw error;
     }
-    const priorityOrder: Record<RequestPriority, number> = {
-      HIGH: 0,
-      NORMAL: 1,
-      LOW: 2,
-    };
-    const reviewerIds = Array.from(
+    // This endpoint returns every request, so the pending rows it already holds
+    // are the complete competing set — no extra query.
+    const competingById = getCompetingInfo(
+      (data ?? []) as CompetingRequestInput[],
+    );
+    const profileIds = Array.from(
       new Set(
         (data ?? [])
-          .map((item) => item.reviewed_by)
+          .flatMap((item) => [item.reviewed_by, item.requester_id])
           .filter((id) => Boolean(id)),
       ),
     );
-    const reviewerMap = new Map();
-    if (reviewerIds.length > 0) {
+    const profileMap = new Map<string, AttributionProfile>();
+    if (profileIds.length > 0) {
       const { data: reviewers } = await admin
         .from('profiles')
-        .select('id, full_name, email')
-        .in('id', reviewerIds);
+        .select('id, full_name, email, is_deleted')
+        .in('id', profileIds);
       if (reviewers) {
-        reviewers.forEach((rev) => reviewerMap.set(rev.id, rev));
+        reviewers.forEach((rev) => profileMap.set(rev.id, rev));
       }
     }
 
     const requests = (data ?? []).map((req) => ({
       ...req,
+      competing: competingById.get(Number(req.id)) ?? null,
       reviewer_name: req.reviewed_by
-        ? reviewerMap.get(req.reviewed_by)?.full_name || 'Administrator'
+        ? profileMap.get(req.reviewed_by)?.full_name || 'Administrator'
         : null,
-      reviewer_email: req.reviewed_by
-        ? reviewerMap.get(req.reviewed_by)?.email || null
-        : null,
+      reviewer_email: visibleAuthorEmail(profileMap, req.reviewed_by),
+      reviewer_is_deleted: isDeletedAuthor(profileMap, req.reviewed_by),
+      requester_is_deleted: isDeletedAuthor(profileMap, req.requester_id),
     })).sort((left, right) => {
       const statusDifference =
         Number(left.status !== 'PENDING') - Number(right.status !== 'PENDING');
-      const priorityDifference =
-        priorityOrder[left.priority as RequestPriority] -
-        priorityOrder[right.priority as RequestPriority];
       return (
         statusDifference ||
-        priorityDifference ||
+        priorityWeightOf(right.priority) - priorityWeightOf(left.priority) ||
         new Date(right.created_at).getTime() -
           new Date(left.created_at).getTime()
       );
@@ -810,7 +1095,7 @@ export class StaffFileRequestController {
     const { data: existing, error: lookupError } = await admin
       .from('staff_file_requests')
       .select(
-        'id, status, file_no, file_name, requester_id, request_date, duration_days',
+        'id, status, file_id, file_no, file_name, requester_id, requester_name, priority, request_date, duration_days, reviewed_by, reviewed_at',
       )
       .eq('id', id)
       .maybeSingle();
@@ -821,11 +1106,59 @@ export class StaffFileRequestController {
     if (!existing)
       throw new ApiError(404, 'NOT_FOUND', 'File request not found.');
     if (existing.status !== 'PENDING') {
-      throw new ApiError(
-        409,
-        'VALIDATION_ERROR',
-        'This file request has already been reviewed.',
-      );
+      await throwAlreadyHandled(admin, existing);
+    }
+
+    // Availability beats priority: an approved-but-unreturned request for the
+    // same file means the physical folder is still in someone's hands.
+    if (body.status === 'APPROVED') {
+      const holder = await findActiveIssuance(admin, existing, id);
+      if (holder) throw fileIssuedConflict(holder);
+    }
+
+    /**
+     * Only the highest-ranked pending request for a file may be approved, using
+     * the same ranking the queue and the staff views render. Read fresh from the
+     * table so two admins working on different tabs cannot disagree, and so a
+     * bypassed button still cannot promote a lower-ranked request.
+     */
+    if (body.status === 'APPROVED') {
+      let group: Record<string, any>[] = [];
+      try {
+        group = await findPendingGroup(admin, existing);
+      } catch (groupError) {
+        // Ranking unavailable: fall through to the availability guard above and
+        // let the update proceed, rather than rejecting a valid approval.
+        console.warn('Could not read the competing group for approval:', groupError);
+      }
+      const groupInfo = getCompetingInfo(group as CompetingRequestInput[]);
+      const rank = groupInfo.get(id)?.rank ?? 0;
+      if (rank > 0) {
+        const leader = leaderOf(
+          group as CompetingRequestInput[],
+          groupInfo,
+        );
+        throw new ApiError(
+          409,
+          'REQUEST_CONFLICT',
+          `This request is not first in line for ${existing.file_no}. ${
+            leader?.requester_name || 'Another staff member'
+          }'s ${leader?.priority || 'higher'} priority request (#${
+            leader?.id ?? '?'
+          }) must be approved or rejected first.`,
+          {
+            reason: 'not_highest_priority',
+            rank,
+            leader: leader
+              ? {
+                  id: leader.id,
+                  requester_name: leader.requester_name,
+                  priority: leader.priority,
+                }
+              : null,
+          },
+        );
+      }
     }
 
     const reviewedAt = new Date().toISOString();
@@ -855,14 +1188,35 @@ export class StaffFileRequestController {
     if (error) {
       throwIfRequestsTableMissing(error);
       throwIfRequestColumnsMissing(error);
+      // Two admins approving different requests for one file: the partial
+      // unique index lets exactly one of them through.
+      if (isUniqueViolation(error)) {
+        const holder = await findActiveIssuance(admin, existing, id);
+        if (holder) throw fileIssuedConflict(holder);
+        throw new ApiError(
+          409,
+          'REQUEST_CONFLICT',
+          'This file was issued to another request while you were reviewing it.',
+          { reason: 'file_currently_issued', issuance: null },
+        );
+      }
       throw error;
     }
-    if (!request)
+    if (!request) {
+      // Lost the race: another admin reviewed it between our read and update.
+      const { data: current } = await admin
+        .from('staff_file_requests')
+        .select('id, status, reviewed_by, reviewed_at')
+        .eq('id', id)
+        .maybeSingle();
+      if (current) await throwAlreadyHandled(admin, current);
       throw new ApiError(
         409,
-        'VALIDATION_ERROR',
+        'REQUEST_ALREADY_HANDLED',
         'This file request has already been reviewed.',
+        { handledBy: null, handledAt: null },
       );
+    }
 
     try {
       await new AuditLogRepository(admin).log({
@@ -887,24 +1241,149 @@ export class StaffFileRequestController {
     };
 
     const approved = body.status === 'APPROVED';
-    await new NotificationService(admin).notifyUser(
-      existing.requester_id,
-      approved
+    if (approved) {
+      try {
+        const fileId = Number(existing.file_id);
+        const fileNo = String(existing.file_no ?? '').trim();
+        let compQuery = admin
+          .from('staff_file_requests')
+          .select('id, requester_id, file_no, file_name')
+          .eq('status', 'PENDING')
+          .neq('id', id);
+
+        if (Number.isSafeInteger(fileId) && fileId > 0) {
+          compQuery = compQuery.eq('file_id', fileId);
+        } else if (fileNo) {
+          compQuery = compQuery.eq('file_no', fileNo);
+        } else {
+          compQuery = null;
+        }
+
+        if (compQuery) {
+          const { data: competingRows } = await compQuery;
+          if (competingRows && competingRows.length > 0) {
+            const allocationNote = `Physical file allocated to competing request from ${existing.requester_name || 'another staff member'} (${existing.priority || 'HIGH'} Priority).`;
+            const compIds = competingRows.map((r) => r.id);
+
+            await admin
+              .from('staff_file_requests')
+              .update({
+                status: 'REJECTED',
+                admin_notes: allocationNote,
+                reviewed_by: adminProfile.id,
+                reviewed_at: reviewedAt,
+              })
+              .in('id', compIds)
+              .eq('status', 'PENDING');
+
+            const auditRepo = new AuditLogRepository(admin);
+
+            for (const comp of competingRows) {
+              try {
+                await auditRepo.log({
+                  actorId: adminProfile.id,
+                  action: 'file.checkout_request_rejected',
+                  details: {
+                    request_id: comp.id,
+                    file_no: comp.file_no,
+                    admin_notes: allocationNote,
+                    auto_rejected_by_allocation: true,
+                    allocated_to_request_id: id,
+                  },
+                });
+              } catch (auditErr) {
+                console.warn('Audit log failed for auto-rejected request:', auditErr);
+              }
+
+              try {
+                // Their open admin notifications resolve as REJECTED before
+                // the staff member's own rejection notice is written.
+                await resolveRequestNotifications(admin, {
+                  refType: 'staff_file_request',
+                  refId: Number(comp.id),
+                  resolution: 'REJECTED',
+                  resolvedById: adminProfile.id,
+                  resolvedByName:
+                    adminProfile.full_name || adminProfile.email || null,
+                });
+                await notifyRequestOutcome(admin, {
+                  userId: comp.requester_id,
+                  kind: 'FILE_ISSUE_REJECTED',
+                  refType: 'staff_file_request',
+                  refId: Number(comp.id),
+                  title: 'Your file request was not allocated',
+                  body: `${comp.file_no} — ${comp.file_name}. Reason: ${allocationNote}`,
+                  titleKey: 'content.requestNotAllocatedTitle',
+                  bodyKey: 'content.requestNotAllocatedBody',
+                  params: {
+                    fileNo: comp.file_no,
+                    fileName: comp.file_name,
+                    reason: allocationNote,
+                    adminName:
+                      adminProfile.full_name || adminProfile.email || 'Administrator',
+                  },
+                  type: 'error',
+                  link: `/staff/your-requests?request=${comp.id}`,
+                  dedupeKey: `file-request:${comp.id}:rejected`,
+                });
+              } catch (notifErr) {
+                console.warn('Notification failed for auto-rejected request:', notifErr);
+              }
+            }
+          }
+        }
+      } catch (autoRejectErr) {
+        console.warn('Failed to auto-reject competing requests on approval:', autoRejectErr);
+      }
+    }
+    const adminDisplayName =
+      adminProfile.full_name || adminProfile.email || 'Administrator';
+
+    // Every admin's open notification for this request resolves together, then
+    // the requesting staff member gets their own outcome notice.
+    await resolveRequestNotifications(admin, {
+      refType: 'staff_file_request',
+      refId: id,
+      resolution: approved ? 'APPROVED' : 'REJECTED',
+      resolvedById: adminProfile.id,
+      resolvedByName: adminDisplayName,
+    });
+    await notifyRequestOutcome(admin, {
+      userId: existing.requester_id,
+      kind: approved ? 'FILE_ISSUE_APPROVED' : 'FILE_ISSUE_REJECTED',
+      refType: 'staff_file_request',
+      refId: id,
+      title: approved
+        ? 'Your file request was approved'
+        : 'Your file request was rejected',
+      body: approved
+        ? `${existing.file_no} — ${existing.file_name} is issued to you by ${adminDisplayName}. Collect it from the repository and return it by ${returnedRequest.expected_return_date || computeReturnDate(existing.request_date, existing.duration_days)}.`
+        : `${existing.file_no} — ${existing.file_name}. Reason: ${adminNotes || 'No reason recorded.'}`,
+      titleKey: approved
+        ? 'content.fileIssueApprovedTitle'
+        : 'content.fileIssueRejectedTitle',
+      bodyKey: approved
+        ? 'content.fileIssueApprovedBody'
+        : 'content.fileIssueRejectedBody',
+      params: approved
         ? {
-            title: 'Your file request was approved',
-            body: `${existing.file_no} — ${existing.file_name} is issued to you. Collect it from the repository and return it by ${returnedRequest.expected_return_date || computeReturnDate(existing.request_date, existing.duration_days)}.`,
-            type: 'success',
-            link: `/staff/your-requests?request=${id}`,
-            dedupeKey: `file-request:${id}:approved`,
+            fileNo: existing.file_no,
+            fileName: existing.file_name,
+            adminName: adminDisplayName,
+            dueDate:
+              returnedRequest.expected_return_date ||
+              computeReturnDate(existing.request_date, existing.duration_days),
           }
         : {
-            title: 'Your file request was rejected',
-            body: `${existing.file_no} — ${existing.file_name}. Reason: ${adminNotes || 'No reason recorded.'}`,
-            type: 'error',
-            link: `/staff/your-requests?request=${id}`,
-            dedupeKey: `file-request:${id}:rejected`,
+            fileNo: existing.file_no,
+            fileName: existing.file_name,
+            adminName: adminDisplayName,
+            reason: adminNotes || 'No reason recorded.',
           },
-    );
+      type: approved ? 'success' : 'error',
+      link: `/staff/your-requests?request=${id}`,
+      dedupeKey: `file-request:${id}:${approved ? 'approved' : 'rejected'}`,
+    });
 
     return jsonOk({
       request: returnedRequest,

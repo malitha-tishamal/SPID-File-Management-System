@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { TABLE_ACTIONS_CLASS, TABLE_BODY_CLASS, TABLE_HEAD_CLASS, TABLE_HIGHLIGHT_CLASS, tableRowClass } from 'lib/tableStyles';
+import { Trans, useTranslation } from 'react-i18next';
+import { TABLE_ACTIONS_CLASS, TABLE_BODY_CLASS, TABLE_GROUP_BREAK_CLASS, TABLE_HEAD_CLASS, TABLE_HIGHLIGHT_CLASS, tableRowClass } from 'lib/tableStyles';
 import ReactDOM from 'react-dom';
 import {
   FiAlertCircle,
@@ -21,6 +22,23 @@ import {
   FiXCircle,
 } from 'react-icons/fi';
 import { useToast } from 'components/toast/ToastContext';
+import CompetingBadge from 'components/requests/CompetingBadge';
+import RequestFilterBar from 'components/admin/requests/RequestFilterBar';
+import {
+  getCompetingGroup,
+  getCompetingGroupKey,
+  getCompetingInfo,
+  getCompetingRowClasses,
+  getCompetingRowState,
+  sortByCompetingGroups,
+} from 'lib/competing-requests';
+import {
+  matchesRequestSearch,
+  parsePriorityFilter,
+  sanitizeRequestSearch,
+  type StaffRequestPriorityFilter,
+} from 'lib/staffRequests';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
 import TableLoadingProgressBar from 'components/admin/files/TableLoadingProgressBar';
 import { useDialogBehavior } from 'lib/dialogBehavior';
 import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
@@ -28,7 +46,10 @@ import {
   clearQueryParam,
   parseRecordId,
   readQueryParam,
+  setQueryParam,
 } from 'lib/deep-link';
+import AttributedUser from 'components/ui/AttributedUser';
+import { attributedNameText, isReservedDeletedEmail } from 'utils/userDisplay';
 
 type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 type RequestPriority = 'HIGH' | 'NORMAL' | 'LOW';
@@ -55,6 +76,9 @@ type StaffRequest = {
   reviewed_at?: string | null;
   reviewer_name?: string | null;
   reviewer_email?: string | null;
+  /** Soft-delete markers (migration 0027); undefined on older deployments. */
+  requester_is_deleted?: boolean;
+  reviewer_is_deleted?: boolean;
   expected_return_date?: string | null;
   returned_at?: string | null;
   created_at: string;
@@ -75,6 +99,9 @@ type ExtensionRequest = {
   requester_name?: string | null;
   requester_section?: string | null;
   reviewed_by_name?: string | null;
+  /** Soft-delete markers from listExtensions; undefined on older deployments. */
+  requester_is_deleted?: boolean;
+  reviewer_is_deleted?: boolean;
   reviewed_at?: string | null;
   review_note?: string | null;
   created_at: string;
@@ -85,34 +112,34 @@ const priorityStyle: Record<
   { label: string; className: string; badgeClass: string }
 > = {
   HIGH: {
-    label: 'High',
-    className: 'text-rose-600 dark:text-rose-400',
+    label: 'common:priority.HIGH',
+    className: 'text-red-700 dark:text-red-400',
     badgeClass:
-      'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800',
+      'bg-rose-50 text-red-800 border border-rose-300 dark:bg-rose-900 dark:text-rose-50 dark:border-rose-700',
   },
   NORMAL: {
-    label: 'Normal',
-    className: 'text-amber-600 dark:text-amber-400',
+    label: 'common:priority.NORMAL',
+    className: 'text-orange-700 dark:text-orange-400',
     badgeClass:
-      'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800',
+      'bg-amber-50 text-orange-800 border border-amber-300 dark:bg-amber-900 dark:text-amber-50 dark:border-amber-700',
   },
   LOW: {
-    label: 'Low',
-    className: 'text-blue-600 dark:text-blue-400',
+    label: 'common:priority.LOW',
+    className: 'text-slate-700 dark:text-slate-300',
     badgeClass:
-      'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800',
+      'bg-slate-100 text-slate-800 border border-slate-300 dark:bg-slate-700 dark:text-slate-50 dark:border-slate-500',
   },
 };
 
 const statusClass: Record<RequestStatus, string> = {
   PENDING:
-    'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40',
+    'bg-amber-100 text-amber-900 dark:bg-amber-800 dark:text-amber-50 border border-amber-300 dark:border-amber-600',
   APPROVED:
-    'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40',
+    'bg-emerald-100 text-emerald-900 dark:bg-emerald-800 dark:text-emerald-50 border border-emerald-300 dark:border-emerald-600',
   REJECTED:
-    'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40',
+    'bg-rose-100 text-rose-900 dark:bg-rose-900 dark:text-rose-50 border border-rose-300 dark:border-rose-700',
   CANCELLED:
-    'bg-slate-100 text-slate-600 dark:bg-navy-700 dark:text-slate-300 border border-slate-200 dark:border-navy-600',
+    'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-50 border border-slate-300 dark:border-slate-500',
 };
 
 function getLocationParts(location: string): string[] {
@@ -122,16 +149,38 @@ function getLocationParts(location: string): string[] {
     .filter(Boolean);
 }
 
-// Priority numeric weight: HIGH = 3, NORMAL = 2, LOW = 1
-const priorityWeight: Record<RequestPriority, number> = {
-  HIGH: 3,
-  NORMAL: 2,
-  LOW: 1,
+// Priority numeric weight lives in `lib/staffRequestPriority`; the competing
+// ranking and its row styling live in `lib/competing-requests`, shared with the
+// staff views and the approve API.
+
+/** Typing in the search box should not re-filter on every keystroke. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+/** Realtime events arrive in bursts; one reload per burst keeps the table cheap. */
+const REALTIME_REFRESH_DEBOUNCE_MS = 1000;
+
+/** The live issuance blocking an approval, as reported by the server. */
+type CurrentIssuance = {
+  request_id: number;
+  file_no: string;
+  file_name: string;
+  holder_id?: string;
+  holder_name: string;
+  issued_at: string | null;
+  expected_return_date: string | null;
 };
 
 export default function AdminStaffFileRequestPage() {
+  const { t } = useTranslation('staffRequests');
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<RequestTab>('pending');
+  // Filter state. `searchInput` is what the box holds while typing; `search` is
+  // the debounced value the list filters on, so a refresh never disturbs it.
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [priorityFilter, setPriorityFilter] =
+    useState<StaffRequestPriorityFilter>('ALL');
+  const [groupByFile, setGroupByFile] = useState(false);
   const [requests, setRequests] = useState<StaffRequest[]>([]);
   const [loading, setLoading] = useState(true);
   /**
@@ -163,6 +212,12 @@ export default function AdminStaffFileRequestPage() {
   // Simple approval confirmation (non-competing requests)
   const [approvalTarget, setApprovalTarget] = useState<StaffRequest | null>(null);
 
+  // Server-side availability block: the file is still issued to someone else.
+  const [issuedBlock, setIssuedBlock] = useState<{
+    issuance: CurrentIssuance | null;
+    blockedFileNo: string;
+  } | null>(null);
+
   // Return-date extension requests awaiting a decision
   const [extensions, setExtensions] = useState<ExtensionRequest[]>([]);
   const [extensionBusyId, setExtensionBusyId] = useState<number | null>(null);
@@ -182,6 +237,10 @@ export default function AdminStaffFileRequestPage() {
   const extensionTicket = useRef(0);
   const hasLoadedRequests = useRef(false);
 
+  // Requests already announced by a realtime toast, so a reconnect that replays
+  // an event can never show the admin the same "new request" notice twice.
+  const announcedRequestIds = useRef<Set<number>>(new Set());
+
   // Notification deep links: ?tab=extensions&extension=4, ?tab=pending&request=12
   const [highlightRequestId, setHighlightRequestId] = useState<number | null>(null);
   const [highlightExtensionId, setHighlightExtensionId] = useState<number | null>(null);
@@ -189,7 +248,7 @@ export default function AdminStaffFileRequestPage() {
   const requestLinkHandled = useRef(false);
   const extensionLinkHandled = useRef(false);
 
-  // Escape-to-close and focus handoff for the six dialogs rendered below.
+  // Escape-to-close and focus handoff for the seven dialogs rendered below.
   const rejectionPanelRef = useDialogBehavior<HTMLFormElement>(
     Boolean(rejectionRequest),
     () => {
@@ -212,6 +271,10 @@ export default function AdminStaffFileRequestPage() {
     () => {
       if (busyId === null) setApprovalTarget(null);
     },
+  );
+  const issuedBlockPanelRef = useDialogBehavior<HTMLDivElement>(
+    Boolean(issuedBlock),
+    () => setIssuedBlock(null),
   );
   const extensionDecisionPanelRef = useDialogBehavior<HTMLFormElement>(
     Boolean(extensionDecision),
@@ -246,7 +309,7 @@ export default function AdminStaffFileRequestPage() {
       const response = await fetch('/api/admin/file-requests');
       const json = await response.json();
       if (!response.ok || !json.ok)
-        throw new Error(json.message || 'Unable to load staff file requests.');
+        throw new Error(json.message || t('feedback.loadRequestsFailed'));
       if (ticket !== requestTicket.current) return;
       setRequests(json.data?.requests ?? []);
       hasLoadedRequests.current = true;
@@ -255,7 +318,7 @@ export default function AdminStaffFileRequestPage() {
       setError(
         err instanceof Error
           ? err.message
-          : 'Unable to load staff file requests.',
+          : t('feedback.loadRequestsFailed'),
       );
     } finally {
       if (ticket === requestTicket.current) {
@@ -263,7 +326,7 @@ export default function AdminStaffFileRequestPage() {
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [t]);
 
   const loadExtensions = useCallback(async () => {
     const ticket = ++extensionTicket.current;
@@ -273,7 +336,7 @@ export default function AdminStaffFileRequestPage() {
       const response = await fetch('/api/admin/file-request-extensions?status=PENDING');
       const json = await response.json();
       if (!response.ok || !json.ok)
-        throw new Error(json.message || 'Unable to load extension requests.');
+        throw new Error(json.message || t('feedback.loadExtensionsFailed'));
       if (ticket !== extensionTicket.current) return;
       setExtensions(json.data?.extensions ?? []);
     } catch (err) {
@@ -281,7 +344,7 @@ export default function AdminStaffFileRequestPage() {
       setExtensionError(
         err instanceof Error
           ? err.message
-          : 'Unable to load extension requests.',
+          : t('feedback.loadExtensionsFailed'),
       );
     } finally {
       if (ticket === extensionTicket.current) {
@@ -289,12 +352,105 @@ export default function AdminStaffFileRequestPage() {
         setExtensionsLoaded(true);
       }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadRequests();
     void loadExtensions();
   }, [loadRequests, loadExtensions]);
+
+  /**
+   * Supabase Realtime keeps this queue live without a manual reload: new
+   * requests, approvals, rejections and allocations all push a refresh. The
+   * subscription uses the anon browser client only — RLS and admin auth stay on
+   * the API route — and every change is discarded by the server, never applied
+   * from the payload, so the table always reflects authoritative data.
+   */
+  useEffect(() => {
+    let refreshTimer: number | undefined;
+    let channel: any = null;
+    let handshakeDone = false;
+
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void loadRequests();
+        void loadExtensions();
+      }, REALTIME_REFRESH_DEBOUNCE_MS);
+    };
+
+    const announceNewRequest = (record: any) => {
+      if (!record || record.status !== 'PENDING') return;
+      const id = Number(record.id);
+      if (!Number.isSafeInteger(id) || announcedRequestIds.current.has(id)) return;
+      if (announcedRequestIds.current.size > 500) announcedRequestIds.current.clear();
+      announcedRequestIds.current.add(id);
+      showToast({
+        type: 'info',
+        title: t('feedback.newRequestTitle'),
+        message: t('feedback.newRequestMessage', {
+          name: attributedNameText(record.requester_name, {
+            deleted: record.requester_is_deleted,
+            label: t('common:deletedUser'),
+            fallback: t('feedback.anonymousStaff'),
+          }),
+          file: record.file_no || t('feedback.unnamedFile'),
+          priority: record.priority || 'NORMAL',
+        }),
+      });
+    };
+
+    const handleRequestEvent = (payload: any) => {
+      const record = payload?.new ?? payload?.record;
+      const eventType = payload?.eventType ?? payload?.event;
+      if (String(eventType).toUpperCase() === 'INSERT') announceNewRequest(record);
+      scheduleRefresh();
+    };
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      channel = supabase
+        .channel('admin-staff-file-requests-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'staff_file_requests' },
+          handleRequestEvent,
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'file_request_extensions' },
+          () => scheduleRefresh(),
+        )
+        .subscribe((status: string) => {
+          // The mount effect already fetched once, so only a reconnect needs a
+          // fresh pull — anything that changed while the socket was down is
+          // otherwise invisible until the admin reloads.
+          if (status === 'SUBSCRIBED') {
+            if (handshakeDone) {
+              void loadRequests();
+              void loadExtensions();
+            }
+            handshakeDone = true;
+          }
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Realtime subscription issue for staff file requests:', status);
+          }
+        });
+    } catch (err) {
+      console.warn('Realtime is unavailable; the queue still refreshes manually.', err);
+    }
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      if (channel) {
+        try {
+          getSupabaseBrowserClient().removeChannel(channel);
+        } catch (err) {
+          console.warn('Error removing realtime channel:', err);
+        }
+      }
+    };
+  }, [loadRequests, loadExtensions, showToast, t]);
 
   // Which tab a notification asked for, applied before the rows arrive.
   useEffect(() => {
@@ -303,6 +459,39 @@ export default function AdminStaffFileRequestPage() {
       setActiveTab(tab);
     }
   }, []);
+
+  // ?q=&priority=&group=1 restore the toolbar after a refresh or from a shared
+  // link. Defaults stay out of the address, so a plain queue has no params.
+  useEffect(() => {
+    const seededSearch = sanitizeRequestSearch(readQueryParam('q'));
+    if (seededSearch) {
+      setSearchInput(seededSearch);
+      setSearch(seededSearch);
+    }
+    setPriorityFilter(parsePriorityFilter(readQueryParam('priority')));
+    setGroupByFile(readQueryParam('group') === '1');
+  }, []);
+
+  // Debounce typing so one burst of keystrokes is one re-filter.
+  useEffect(() => {
+    const normalized = sanitizeRequestSearch(searchInput);
+    if (normalized === search) return;
+    const timer = setTimeout(() => setSearch(normalized), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
+
+  // The first run reflects the just-seeded defaults; after that every change is
+  // mirrored, so the address bar always describes what is on screen.
+  const filtersInUrlHandled = useRef(false);
+  useEffect(() => {
+    if (!filtersInUrlHandled.current) {
+      filtersInUrlHandled.current = true;
+      return;
+    }
+    setQueryParam('q', search || null);
+    setQueryParam('priority', priorityFilter === 'ALL' ? null : priorityFilter);
+    setQueryParam('group', groupByFile ? '1' : null);
+  }, [search, priorityFilter, groupByFile]);
 
   // ?request=<id> opens that request in the details dialog once loaded.
   useEffect(() => {
@@ -316,11 +505,9 @@ export default function AdminStaffFileRequestPage() {
       setSelectedDetailRequest(match);
       setHighlightRequestId(id);
     } else {
-      setDeepLinkNotice(
-        'That request no longer needs a decision here — it has been approved, rejected or withdrawn. The full list is shown instead.',
-      );
+      setDeepLinkNotice(t('feedback.deepLinkGone'));
     }
-  }, [loading, requests]);
+  }, [loading, requests, t]);
 
   // ?extension=<id> opens the extension queue and its decision dialog.
   useEffect(() => {
@@ -337,68 +524,31 @@ export default function AdminStaffFileRequestPage() {
     }
   }, [extensionsLoaded, extensions]);
 
-  // Group pending requests by file_no to identify competing requests & leaders
-  const competingInfoByFile = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        count: number;
-        leaderId: number;
-        requests: StaffRequest[];
-        isTie: boolean;
-      }
-    >();
+  // One ranking for the whole queue, shared with the staff views and the
+  // approve API: pending requests grouped per file, ranked by priority then by
+  // first submission. Recomputed whenever the rows change, including after a
+  // realtime refresh or an approve/reject decision.
+  const competingById = useMemo(() => getCompetingInfo(requests), [requests]);
 
-    const pendingRequests = requests.filter((r) => r.status === 'PENDING');
+  // The allocation notice walks the same group the approve API ranks, in the
+  // same order, so the admin sees who is genuinely first in line for the file.
+  const conflictGroup = useMemo(
+    () =>
+      conflictApproval ? getCompetingGroup(requests, conflictApproval.target) : [],
+    [conflictApproval, requests],
+  );
 
-    pendingRequests.forEach((req) => {
-      const existing = map.get(req.file_no);
-      if (!existing) {
-        map.set(req.file_no, {
-          count: 1,
-          leaderId: req.id,
-          requests: [req],
-          isTie: false,
-        });
-      } else {
-        existing.count += 1;
-        existing.requests.push(req);
-      }
-    });
-
-    // Sort competing groups:
-    // 1. Priority score descending (HIGH > NORMAL > LOW)
-    // 2. Tie-breaker: Earliest submission (created_at ascending, FIFO)
-    // 3. Immediate need: Earliest request_date ascending
-    map.forEach((group) => {
-      if (group.count > 1) {
-        group.requests.sort((a, b) => {
-          const pDiff = priorityWeight[b.priority] - priorityWeight[a.priority];
-          if (pDiff !== 0) return pDiff;
-
-          // Tie in priority: Earliest submission wins (FIFO)!
-          const timeA = new Date(a.created_at).getTime();
-          const timeB = new Date(b.created_at).getTime();
-          if (timeA !== timeB) return timeA - timeB;
-
-          return a.request_date.localeCompare(b.request_date);
-        });
-
-        group.leaderId = group.requests[0].id;
-        group.isTie =
-          group.requests.length >= 2 &&
-          group.requests[0].priority === group.requests[1].priority;
-      }
-    });
-
-    return map;
-  }, [requests]);
+  // Only rank 0 of the group can be approved — the API answers anything else with
+  // a 409 — so the notice disables the button instead of offering a refusal.
+  const conflictTargetIsLeader =
+    conflictGroup.length < 2 ||
+    conflictGroup[0]?.id === conflictApproval?.target.id;
 
   const review = async (
     request: StaffRequest,
     status: 'APPROVED' | 'REJECTED',
     adminNotes?: string,
-  ) => {
+  ): Promise<boolean> => {
     setBusyId(request.id);
     try {
       const response = await fetch(`/api/admin/file-requests/${request.id}`, {
@@ -407,12 +557,34 @@ export default function AdminStaffFileRequestPage() {
         body: JSON.stringify({ status, admin_notes: adminNotes }),
       });
       const json = await response.json();
-      if (!response.ok || !json.ok)
-        throw new Error(json.message || 'Unable to update this request.');
+      if (!response.ok || !json.ok) {
+        // Availability is enforced on the server, so this is the authoritative
+        // answer: show the red notice, resync the table, and change nothing.
+        if (json?.reason === 'file_currently_issued') {
+          setIssuedBlock({
+            issuance: json.issuance ?? null,
+            blockedFileNo: request.file_no,
+          });
+          void loadRequests();
+          return false;
+        }
+        // The queue moved underneath us — another admin decided on the request
+        // ahead of this one. Resync, then explain whose turn it is.
+        if (json?.reason === 'not_highest_priority') {
+          void loadRequests();
+          throw new Error(
+            json.message || t('feedback.notFirstInLine'),
+          );
+        }
+        throw new Error(json.message || t('feedback.updateFailed'));
+      }
 
       showToast({
         type: 'success',
-        title: `Request ${status.toLowerCase()}`,
+        title:
+          status === 'APPROVED'
+            ? t('feedback.requestApprovedTitle')
+            : t('feedback.requestRejectedTitle'),
         message: json.data?.message,
       });
 
@@ -421,7 +593,7 @@ export default function AdminStaffFileRequestPage() {
         status,
         admin_notes: adminNotes?.trim() || null,
         reviewed_at: new Date().toISOString(),
-        reviewer_name: json.data?.request?.reviewer_name || 'Administrator',
+        reviewer_name: json.data?.request?.reviewer_name || t('common:roles.ADMIN'),
         reviewer_email: json.data?.request?.reviewer_email || null,
       };
 
@@ -439,25 +611,27 @@ export default function AdminStaffFileRequestPage() {
       setRejectionRequest(null);
       setRejectionNote('');
       setRejectionError('');
+      return true;
     } catch (err) {
       showToast({
         type: 'error',
-        title: 'Request was not updated',
-        message: err instanceof Error ? err.message : 'Please try again.',
+        title: t('feedback.requestNotUpdatedTitle'),
+        message: err instanceof Error ? err.message : t('feedback.tryAgain'),
       });
+      return false;
     } finally {
       setBusyId(null);
     }
   };
 
   const handleApproveClick = (request: StaffRequest) => {
-    const compGroup = competingInfoByFile.get(request.file_no);
-    if (compGroup && compGroup.count > 1) {
-      // Competing requests exist for this physical file! Open conflict modal
-      const otherRequests = compGroup.requests.filter((r) => r.id !== request.id);
+    const group = getCompetingGroup(requests, request);
+    if (group.length > 1) {
+      // More than one staff member is waiting for this folder: the allocation
+      // notice lists the whole group in rank order.
       setConflictApproval({
         target: request,
-        competingRequests: otherRequests,
+        competingRequests: group.filter((row) => row.id !== request.id),
       });
     } else {
       // Single request: confirm before the file moves into the issued workflow
@@ -465,17 +639,23 @@ export default function AdminStaffFileRequestPage() {
     }
   };
 
-  const handleConfirmConflictApproval = async (autoRejectCompeting: boolean) => {
+  const handleConfirmConflictApproval = async () => {
     if (!conflictApproval) return;
     const { target, competingRequests } = conflictApproval;
     setApprovingWithConflict(true);
 
     try {
       // 1. Approve target request
-      await review(target, 'APPROVED');
+      const approved = await review(target, 'APPROVED');
+      // Availability outranks priority: if the server refused, every competing
+      // request for this file must stay pending and untouched.
+      if (!approved) {
+        setConflictApproval(null);
+        return;
+      }
 
-      // 2. If autoRejectCompeting is true, reject competing requests with allocation note
-      if (autoRejectCompeting && competingRequests.length > 0) {
+      // 2. Reject the competing requests for this same file
+      if (competingRequests.length > 0) {
         const rejectionNote = `Physical file allocated to competing request from ${target.requester_name} (${target.priority} Priority).`;
         for (const comp of competingRequests) {
           try {
@@ -505,8 +685,10 @@ export default function AdminStaffFileRequestPage() {
         }
         showToast({
           type: 'info',
-          title: 'Competing requests updated',
-          message: `${competingRequests.length} competing request(s) auto-rejected with allocation note.`,
+          title: t('feedback.competingUpdatedTitle'),
+          message: t('feedback.competingUpdatedMessage', {
+            count: competingRequests.length,
+          }),
         });
       }
       setConflictApproval(null);
@@ -519,7 +701,7 @@ export default function AdminStaffFileRequestPage() {
     event.preventDefault();
     const note = rejectionNote.trim();
     if (!note) {
-      setRejectionError('Enter an official reason for rejecting this request.');
+      setRejectionError(t('validation.rejectionReasonRequired'));
       return;
     }
     if (rejectionRequest) {
@@ -533,7 +715,7 @@ export default function AdminStaffFileRequestPage() {
     const { target, status } = extensionDecision;
     const note = extensionNote.trim();
     if (status === 'REJECTED' && !note) {
-      setExtensionNoteError('Enter the reason for rejecting this extension request.');
+      setExtensionNoteError(t('validation.extensionReasonRequired'));
       return;
     }
 
@@ -549,12 +731,15 @@ export default function AdminStaffFileRequestPage() {
       );
       const json = await response.json();
       if (!response.ok || !json.ok) {
-        throw new Error(json.message || 'Unable to update this extension request.');
+        throw new Error(json.message || t('feedback.extensionUpdateFailed'));
       }
 
       showToast({
         type: 'success',
-        title: status === 'APPROVED' ? 'Extension approved' : 'Extension rejected',
+        title:
+          status === 'APPROVED'
+            ? t('feedback.extensionApprovedTitle')
+            : t('feedback.extensionRejectedTitle'),
         message: json.data?.message,
       });
       setExtensionDecision(null);
@@ -566,8 +751,8 @@ export default function AdminStaffFileRequestPage() {
     } catch (err) {
       showToast({
         type: 'error',
-        title: 'Extension was not updated',
-        message: err instanceof Error ? err.message : 'Please try again.',
+        title: t('feedback.extensionNotUpdatedTitle'),
+        message: err instanceof Error ? err.message : t('feedback.tryAgain'),
       });
     } finally {
       setExtensionBusyId(null);
@@ -588,6 +773,44 @@ export default function AdminStaffFileRequestPage() {
     [requests],
   );
 
+  /**
+   * Which rows the queue shows. The ranking itself is deliberately untouched
+   * here: `competingById` above reads the full list, so filtering the leader out
+   * of sight still leaves every row behind it faded, badged and blocked exactly
+   * as it was. Grouping only reorders what is visible, using the shared
+   * comparator.
+   */
+  const applyFilters = useCallback(
+    (rows: StaffRequest[]) => {
+      const matched = rows.filter(
+        (request) =>
+          (priorityFilter === 'ALL' || request.priority === priorityFilter) &&
+          matchesRequestSearch(request, search),
+      );
+      return groupByFile ? sortByCompetingGroups(matched) : matched;
+    },
+    [priorityFilter, search, groupByFile],
+  );
+
+  const visiblePendingRequests = useMemo(
+    () => applyFilters(pendingRequests),
+    [applyFilters, pendingRequests],
+  );
+
+  const visibleRejectedRequests = useMemo(
+    () => applyFilters(rejectedRequests),
+    [applyFilters, rejectedRequests],
+  );
+
+  const isFiltered = search.length > 0 || priorityFilter !== 'ALL';
+
+  const clearFilters = () => {
+    setSearchInput('');
+    setSearch('');
+    setPriorityFilter('ALL');
+    setGroupByFile(false);
+  };
+
   const isExtensionSchemaMissing = /migration|0017|column|table/i.test(
     extensionError,
   );
@@ -598,25 +821,25 @@ export default function AdminStaffFileRequestPage() {
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <nav
-            aria-label="Breadcrumb"
+            aria-label={t('page.breadcrumbAria')}
             className="mb-2 block text-[11px] text-slate-400"
           >
-            Pages <span className="mx-1.5">/</span> Record Room{' '}
-            <span className="mx-1.5">/</span>{' '}
+            {t('page.pages')} <span className="mx-1.5">/</span>{' '}
+            {t('page.recordRoom')} <span className="mx-1.5">/</span>{' '}
             <span className="font-semibold text-slate-600 dark:text-slate-300">
-              Staff File Requests
+              {t('page.title')}
             </span>
           </nav>
           <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white">
-            Staff File Requests
+            {t('page.title')}
           </h1>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Review physical file checkout requests submitted by departmental staff. Competing requests for identical files are highlighted by priority.
+            {t('page.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="rounded-full bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
-            {pendingCount} awaiting review
+            {t('page.awaitingReview', { count: pendingCount })}
           </span>
           <button
             type="button"
@@ -630,7 +853,7 @@ export default function AdminStaffFileRequestPage() {
             <FiRefreshCw
               className={loading || refreshing ? 'animate-spin' : ''}
             />{' '}
-            Refresh
+            {t('common:buttons.refresh')}
           </button>
         </div>
       </div>
@@ -638,14 +861,14 @@ export default function AdminStaffFileRequestPage() {
       {/* Workflow tabs */}
       <div
         role="group"
-        aria-label="Staff file request views"
+        aria-label={t('page.viewsLabel')}
         className="mb-4 flex flex-wrap gap-1.5 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm dark:border-navy-700 dark:bg-navy-800"
       >
         {(
           [
-            { key: 'pending', label: 'Pending Requests', count: pendingRequests.length },
-            { key: 'rejected', label: 'Rejected Requests', count: rejectedRequests.length },
-            { key: 'extensions', label: 'Extension Requests', count: extensions.length },
+            { key: 'pending', label: 'tabs.pending', count: pendingRequests.length },
+            { key: 'rejected', label: 'tabs.rejected', count: rejectedRequests.length },
+            { key: 'extensions', label: 'tabs.extensions', count: extensions.length },
           ] as const
         ).map((tab) => (
           <button
@@ -659,7 +882,7 @@ export default function AdminStaffFileRequestPage() {
                 : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-navy-700'
             }`}
           >
-            {tab.label}
+            {t(tab.label)}
             <span
               className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${
                 activeTab === tab.key
@@ -672,6 +895,29 @@ export default function AdminStaffFileRequestPage() {
           </button>
         ))}
       </div>
+
+      {activeTab !== 'extensions' && (
+        <RequestFilterBar
+          search={searchInput}
+          onSearchChange={setSearchInput}
+          priority={priorityFilter}
+          onPriorityChange={setPriorityFilter}
+          grouped={groupByFile}
+          onGroupedChange={setGroupByFile}
+          isFiltered={isFiltered}
+          onClearFilters={clearFilters}
+          resultCount={
+            activeTab === 'rejected'
+              ? visibleRejectedRequests.length
+              : visiblePendingRequests.length
+          }
+          totalCount={
+            activeTab === 'rejected'
+              ? rejectedRequests.length
+              : pendingRequests.length
+          }
+        />
+      )}
 
       {deepLinkNotice && (
         <div
@@ -686,7 +932,7 @@ export default function AdminStaffFileRequestPage() {
       {/* Rows stay visible while a reload runs; the bar is the only new ink. */}
       <TableLoadingProgressBar
         active={refreshing}
-        label="Updating staff file requests"
+        label={t('page.updating')}
       />
 
       {error ? (
@@ -694,14 +940,14 @@ export default function AdminStaffFileRequestPage() {
           role="alert"
           className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
         >
-          <p className="font-bold">Could not load requests</p>
+          <p className="font-bold">{t('feedback.loadRequestsFailedTitle')}</p>
           <p className="mt-1 text-xs">{error}</p>
           <button
             type="button"
             onClick={() => void loadRequests()}
             className="mt-3 text-xs font-bold underline"
           >
-            Try again
+            {t('common:buttons.retry')}
           </button>
         </div>
       ) : loading ? (
@@ -712,7 +958,7 @@ export default function AdminStaffFileRequestPage() {
           <span className="inline-block animate-spin mr-2" aria-hidden="true">
             <FiRefreshCw />
           </span>
-          Loading staff file requests…
+          {t('feedback.loadingRequests')}
         </div>
       ) : activeTab === 'extensions' ? (
         extensionError ? (
@@ -720,13 +966,17 @@ export default function AdminStaffFileRequestPage() {
             role="alert"
             className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
           >
-            <p className="font-bold">Could not load extension requests</p>
+            <p className="font-bold">
+              {t('feedback.loadExtensionsFailedTitle')}
+            </p>
             <p className="mt-1 text-xs">{extensionError}</p>
             {isExtensionSchemaMissing && (
               <p className="mt-1 text-xs">
-                Return-date extensions need the{' '}
-                <code className="font-mono">0017</code> database migration applied in
-                Supabase.
+                <Trans
+                  t={t}
+                  i18nKey="page.extensionMigrationHint"
+                  components={{ code: <code className="font-mono" /> }}
+                />
               </p>
             )}
             <button
@@ -734,7 +984,7 @@ export default function AdminStaffFileRequestPage() {
               onClick={() => void loadExtensions()}
               className="mt-3 text-xs font-bold underline"
             >
-              Try again
+              {t('common:buttons.retry')}
             </button>
           </div>
         ) : extensionsLoading ? (
@@ -748,16 +998,16 @@ export default function AdminStaffFileRequestPage() {
             >
               <FiRefreshCw />
             </span>
-            Loading extension requests…
+            {t('feedback.loadingExtensions')}
           </div>
         ) : extensions.length === 0 ? (
           <div className="rounded-2xl border border-slate-100 bg-white px-5 py-16 text-center dark:border-navy-700 dark:bg-navy-800 shadow-sm">
             <FiCalendar className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-3 text-sm font-bold text-slate-700 dark:text-white">
-              No extension requests
+              {t('empty.extensionsTitle')}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Requests from staff to keep a file longer will appear here.
+              {t('empty.extensionsHint')}
             </p>
           </div>
         ) : (
@@ -766,9 +1016,9 @@ export default function AdminStaffFileRequestPage() {
               className="overflow-hidden rounded-2xl border border-slate-100 bg-white dark:border-navy-700 dark:bg-navy-800 shadow-sm"
             >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+              <table className="w-full min-w-[900px] text-left border-collapse table-auto">
                 <caption className="sr-only">
-                  Return-date extension requests awaiting a decision
+                  {t('table.captionExtensions')}
                 </caption>
                 <colgroup>
                   <col className="w-[5%]" />
@@ -783,15 +1033,15 @@ export default function AdminStaffFileRequestPage() {
                 </colgroup>
                 <thead className={TABLE_HEAD_CLASS}>
                   <tr>
-                    <th scope="col" className="px-2.5 py-3">Req ID</th>
-                    <th scope="col" className="px-2.5 py-3">Staff Member</th>
-                    <th scope="col" className="px-2.5 py-3">File</th>
-                    <th scope="col" className="px-2.5 py-3">Current Return</th>
-                    <th scope="col" className="px-2.5 py-3">Requested Return</th>
-                    <th scope="col" className="px-2.5 py-3">Requested On</th>
-                    <th scope="col" className="px-2.5 py-3">Staff Reason</th>
-                    <th scope="col" className="px-2.5 py-3">Status</th>
-                    <th scope="col" className="px-2.5 py-3 text-right">Action</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.reqId')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.staffMember')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.file')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.currentReturn')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.requestedReturn')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.requestedOn')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.staffReason')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('common:labels.status')}</th>
+                    <th scope="col" className="px-2.5 py-3 text-right">{t('common:labels.action')}</th>
                   </tr>
                 </thead>
                 <tbody className={TABLE_BODY_CLASS}>
@@ -802,19 +1052,28 @@ export default function AdminStaffFileRequestPage() {
                         highlightExtensionId === extension.id && TABLE_HIGHLIGHT_CLASS,
                       )}
                     >
-                      <td className="px-2.5 py-3 font-bold text-slate-500">
+                      <td className="px-2.5 py-3 font-bold text-muted">
                         #{extension.id}
                       </td>
                       <td className="px-2.5 py-3">
                         <p className="font-bold text-slate-800 dark:text-slate-100">
-                          {extension.requester_name || extension.requested_by_name}
+                          <AttributedUser
+                            name={
+                              extension.requester_name ||
+                              extension.requested_by_name
+                            }
+                            deleted={extension.requester_is_deleted}
+                          />
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          {extension.requester_section || 'No section listed'}
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          {extension.requester_section || t('detail.noSection')}
                         </p>
                       </td>
                       <td className="px-2.5 py-3">
-                        <p className="font-bold text-[#4318FF] dark:text-brand-300">
+                        <p
+                          className="break-words font-bold text-[#4318FF] dark:text-brand-300 [overflow-wrap:anywhere]"
+                          title={extension.file_no}
+                        >
                           {extension.file_no}
                         </p>
                         <p
@@ -862,7 +1121,7 @@ export default function AdminStaffFileRequestPage() {
                             }}
                             className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
                           >
-                            <FiCheck /> Approve
+                            <FiCheck /> {t('common:buttons.approve')}
                           </button>
                           <button
                             type="button"
@@ -874,13 +1133,13 @@ export default function AdminStaffFileRequestPage() {
                             }}
                             className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:hover:bg-rose-950/30 transition-all shadow-xs cursor-pointer"
                           >
-                            <FiX /> Reject
+                            <FiX /> {t('common:buttons.reject')}
                           </button>
                           <button
                             type="button"
                             onClick={() => setExtensionDetail(extension)}
-                            title="View full extension details"
-                            aria-label="View full extension details"
+                            title={t('table.viewExtensionDetails')}
+                            aria-label={t('table.viewExtensionDetails')}
                             className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700 transition-all shadow-xs cursor-pointer"
                           >
                             <FiEye className="h-3.5 w-3.5" />
@@ -902,11 +1161,29 @@ export default function AdminStaffFileRequestPage() {
           <div className="rounded-2xl border border-slate-100 bg-white px-5 py-16 text-center dark:border-navy-700 dark:bg-navy-800 shadow-sm">
             <FiXCircle className="mx-auto h-8 w-8 text-slate-300" />
             <p className="mt-3 text-sm font-bold text-slate-700 dark:text-white">
-              No rejected requests
+              {t('empty.rejectedTitle')}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Requests you reject with a reason will be listed here for review.
+              {t('empty.rejectedHint')}
             </p>
+          </div>
+        ) : visibleRejectedRequests.length === 0 ? (
+          <div className="rounded-2xl border border-slate-100 bg-white px-5 py-16 text-center dark:border-navy-700 dark:bg-navy-800 shadow-sm">
+            <FiXCircle className="mx-auto h-8 w-8 text-slate-300" />
+            <p className="mt-3 text-sm font-bold text-slate-700 dark:text-white">
+              {t('common:table.noRequestsMatch')}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {t('empty.filteredRejected', { count: rejectedRequests.length })}
+            </p>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-900 dark:text-slate-300 dark:hover:bg-navy-700"
+            >
+              <FiX className="h-3.5 w-3.5" />
+              {t('common:buttons.clearFilters')}
+            </button>
           </div>
         ) : (
           <div
@@ -914,9 +1191,9 @@ export default function AdminStaffFileRequestPage() {
               className="overflow-hidden rounded-2xl border border-slate-100 bg-white dark:border-navy-700 dark:bg-navy-800 shadow-sm"
             >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+              <table className="w-full min-w-[900px] text-left border-collapse table-auto">
                 <caption className="sr-only">
-                  Rejected staff file requests
+                  {t('table.captionRejected')}
                 </caption>
                 <colgroup>
                   <col className="w-[6%]" />
@@ -931,41 +1208,60 @@ export default function AdminStaffFileRequestPage() {
                 </colgroup>
                 <thead className={TABLE_HEAD_CLASS}>
                   <tr>
-                    <th scope="col" className="px-2.5 py-3">Request ID</th>
-                    <th scope="col" className="px-2.5 py-3">Staff Name</th>
-                    <th scope="col" className="px-2.5 py-3">Department / Section</th>
-                    <th scope="col" className="px-2.5 py-3">File Number</th>
-                    <th scope="col" className="px-2.5 py-3">File Name</th>
-                    <th scope="col" className="px-2.5 py-3">Request Date</th>
-                    <th scope="col" className="px-2.5 py-3">Rejection Date</th>
-                    <th scope="col" className="px-2.5 py-3">Rejected By</th>
-                    <th scope="col" className="px-2.5 py-3 text-right">Action</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.requestId')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.staffName')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.departmentSection')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.fileNumber')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.fileName')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.requestDate')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.rejectionDate')}</th>
+                    <th scope="col" className="px-2.5 py-3">{t('table.rejectedBy')}</th>
+                    <th scope="col" className="px-2.5 py-3 text-right">{t('common:labels.action')}</th>
                   </tr>
                 </thead>
                 <tbody className={TABLE_BODY_CLASS}>
-                  {rejectedRequests.map((request) => (
-                    <tr
-                      key={request.id}
-                      className={tableRowClass(
-                        highlightRequestId === request.id && TABLE_HIGHLIGHT_CLASS,
-                      )}
-                    >
-                      <td className="px-2.5 py-3 font-bold text-slate-500">
+                  {visibleRejectedRequests.map((request, index) => {
+                    const previous = visibleRejectedRequests[index - 1];
+
+                    return (
+                      <tr
+                        key={request.id}
+                        className={tableRowClass(
+                          highlightRequestId === request.id &&
+                            TABLE_HIGHLIGHT_CLASS,
+                          groupByFile &&
+                            index > 0 &&
+                            getCompetingGroupKey(previous) !==
+                              getCompetingGroupKey(request) &&
+                            TABLE_GROUP_BREAK_CLASS,
+                        )}
+                      >
+                      <td className="px-2.5 py-3 font-bold text-muted">
                         #{request.id}
                       </td>
                       <td className="px-2.5 py-3">
                         <p className="font-bold text-slate-800 dark:text-slate-100">
-                          {request.requester_name}
+                          <AttributedUser
+                            name={request.requester_name}
+                            deleted={request.requester_is_deleted}
+                          />
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          {request.requester_email}
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          {isReservedDeletedEmail(request.requester_email)
+                            ? null
+                            : request.requester_email}
                         </p>
                       </td>
                       <td className="px-2.5 py-3 text-slate-600 dark:text-slate-300">
-                        {request.requester_section || 'No section listed'}
+                        {request.requester_section || t('detail.noSection')}
                       </td>
                       <td className="px-2.5 py-3 font-bold text-[#4318FF] dark:text-brand-300">
-                        {request.file_no}
+                        <span
+                          className="break-words [overflow-wrap:anywhere]"
+                          title={request.file_no}
+                        >
+                          {request.file_no}
+                        </span>
                       </td>
                       <td className="px-2.5 py-3">
                         <p
@@ -974,7 +1270,7 @@ export default function AdminStaffFileRequestPage() {
                         >
                           {request.file_name}
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
+                        <p className="mt-0.5 text-[10px] text-muted">
                           {request.section_name}
                         </p>
                       </td>
@@ -987,21 +1283,26 @@ export default function AdminStaffFileRequestPage() {
                           : '—'}
                       </td>
                       <td className="px-2.5 py-3 text-slate-600 dark:text-slate-300">
-                        {request.reviewer_name || 'Administrator'}
+                        <AttributedUser
+                          name={request.reviewer_name}
+                          deleted={request.reviewer_is_deleted}
+                          fallback={t('common:roles.ADMIN')}
+                        />
                       </td>
                       <td className="px-2.5 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => setSelectedDetailRequest(request)}
-                          title="View full rejected request details"
+                          title={t('table.viewRejectedDetails')}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700 shadow-xs hover:border-[#4318FF] hover:bg-slate-50 hover:text-[#4318FF] dark:border-navy-600 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 transition-all cursor-pointer"
                         >
                           <FiEye className="h-3.5 w-3.5 text-[#4318FF] dark:text-brand-300" />
-                          <span>View</span>
+                          <span>{t('common:buttons.view')}</span>
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1011,11 +1312,29 @@ export default function AdminStaffFileRequestPage() {
         <div className="rounded-2xl border border-slate-100 bg-white px-5 py-16 text-center dark:border-navy-700 dark:bg-navy-800 shadow-sm">
           <FiClock className="mx-auto h-8 w-8 text-slate-300" />
           <p className="mt-3 text-sm font-bold text-slate-700 dark:text-white">
-            No pending staff file requests
+            {t('empty.pendingTitle')}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            New staff requests will appear here for administrative review.
+            {t('empty.pendingHint')}
           </p>
+        </div>
+      ) : visiblePendingRequests.length === 0 ? (
+        <div className="rounded-2xl border border-slate-100 bg-white px-5 py-16 text-center dark:border-navy-700 dark:bg-navy-800 shadow-sm">
+          <FiXCircle className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-sm font-bold text-slate-700 dark:text-white">
+            {t('common:table.noRequestsMatch')}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {t('empty.filteredPending', { count: pendingRequests.length })}
+          </p>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-900 dark:text-slate-300 dark:hover:bg-navy-700"
+          >
+            <FiX className="h-3.5 w-3.5" />
+            {t('common:buttons.clearFilters')}
+          </button>
         </div>
       ) : (
         <div
@@ -1023,9 +1342,9 @@ export default function AdminStaffFileRequestPage() {
               className="overflow-hidden rounded-2xl border border-slate-100 bg-white dark:border-navy-700 dark:bg-navy-800 shadow-sm"
             >
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+            <table className="w-full min-w-[900px] text-left border-collapse table-auto">
               <caption className="sr-only">
-                Pending staff file requests awaiting a decision
+                {t('table.captionPending')}
               </caption>
               <colgroup>
                 <col className="w-[5%]" />
@@ -1040,88 +1359,100 @@ export default function AdminStaffFileRequestPage() {
               </colgroup>
               <thead className={TABLE_HEAD_CLASS}>
                 <tr>
-                  <th scope="col" className="px-2.5 py-3">Request ID</th>
-                  <th scope="col" className="px-2.5 py-3">File</th>
-                  <th scope="col" className="px-2.5 py-3">Staff Member</th>
-                  <th scope="col" className="px-2.5 py-3">Location</th>
-                  <th scope="col" className="px-2.5 py-3">Request Date</th>
-                  <th scope="col" className="px-2.5 py-3">Duration</th>
-                  <th scope="col" className="px-2.5 py-3">Priority</th>
-                  <th scope="col" className="px-2.5 py-3">Status</th>
-                  <th scope="col" className="px-2.5 py-3 text-right">Action</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.requestId')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.file')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.staffMember')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.location')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.requestDate')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('table.duration')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('common:labels.priority')}</th>
+                  <th scope="col" className="px-2.5 py-3">{t('common:labels.status')}</th>
+                  <th scope="col" className="px-2.5 py-3 text-right">{t('common:labels.action')}</th>
                 </tr>
               </thead>
               <tbody className={TABLE_BODY_CLASS}>
-                {pendingRequests.map((request) => {
-                  const compGroup = competingInfoByFile.get(request.file_no);
-                  const isCompeting = compGroup && compGroup.count > 1;
-                  const isLeader = isCompeting && compGroup.leaderId === request.id;
-                  const isLowerOrLater = isCompeting && !isLeader;
+                {visiblePendingRequests.map((request, index) => {
+                  const competing = competingById.get(request.id);
+                  const previous = visiblePendingRequests[index - 1];
+                  const approveBlockedByRank = Boolean(
+                    competing?.isCompeting && !competing.isLeader,
+                  );
 
                   return (
                     <tr
                       key={request.id}
+                      data-state={getCompetingRowState(competing)}
                       className={tableRowClass(
-                        isLeader &&
-                          'border-l-4 border-l-rose-500 bg-rose-50/25 dark:bg-rose-950/20',
-                        isLowerOrLater &&
-                          'border-l-4 border-l-slate-300 bg-slate-50/30 opacity-65 hover:opacity-100 dark:border-l-slate-600 dark:bg-navy-900/20',
+                        // Shading only ever communicates rank inside a
+                        // competing group; a lone request keeps the plain row.
+                        getCompetingRowClasses(competing),
                         highlightRequestId === request.id && TABLE_HIGHLIGHT_CLASS,
+                        // Marks where a new file group starts.
+                        groupByFile &&
+                          index > 0 &&
+                          getCompetingGroupKey(previous) !==
+                            getCompetingGroupKey(request) &&
+                          TABLE_GROUP_BREAK_CLASS,
                       )}
                     >
                       {/* REQUEST ID column */}
-                      <td className="px-2.5 py-3 font-bold text-slate-500">
+                      <td className="min-w-0 px-2.5 py-3 font-bold row-text-secondary">
                         #{request.id}
                       </td>
 
                       {/* FILE column */}
-                      <td className="px-2.5 py-3">
-                        <p className="font-bold text-[#4318FF] dark:text-brand-300">
+                      <td className="min-w-0 px-2.5 py-3">
+                        <p
+                          className="break-words font-bold text-indigo-700 dark:text-brand-300 [overflow-wrap:anywhere]"
+                          title={request.file_no}
+                        >
                           {request.file_no}
                         </p>
                         <p
-                          className="mt-1 break-words text-slate-600 dark:text-slate-300 font-medium"
+                          className="mt-1 break-words font-medium row-text-primary"
                           title={request.file_name}
                         >
                           {request.file_name}
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
+                        <p className="mt-0.5 break-words text-[10px] text-muted">
                           {request.section_name}
                         </p>
-                        {isCompeting && (
-                          <div className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[9px] font-extrabold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
-                            <FiAlertCircle className="h-3 w-3 shrink-0" />
-                            <span>
-                              Competing: {compGroup.count} requests for this file
-                            </span>
+                        {competing && (
+                          <div className="mt-1.5">
+                            <CompetingBadge info={competing} variant="count" />
                           </div>
                         )}
                       </td>
 
                       {/* STAFF MEMBER column */}
-                      <td className="px-2.5 py-3">
-                        <p className="font-bold text-slate-800 dark:text-slate-100">
-                          {request.requester_name}
+                      <td className="min-w-0 px-2.5 py-3">
+                        <p className="break-words font-bold row-text-primary">
+                          <AttributedUser
+                            name={request.requester_name}
+                            deleted={request.requester_is_deleted}
+                          />
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                          {request.requester_email}
+                        <p className="mt-0.5 break-words text-[10px] row-text-secondary">
+                          {isReservedDeletedEmail(request.requester_email)
+                            ? null
+                            : request.requester_email}
                         </p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
-                          {request.requester_section || 'No section listed'}
+                        <p className="mt-0.5 break-words text-[10px] text-muted">
+                          {request.requester_section || t('detail.noSection')}
                         </p>
                       </td>
 
                       {/* LOCATION column */}
-                      <td className="px-2.5 py-3 text-slate-600 dark:text-slate-300">
+                      <td className="min-w-0 px-2.5 py-3 row-text-secondary">
                         <div
-                          className="flex max-w-[220px] flex-wrap items-center gap-x-1 text-[10px] text-slate-500 dark:text-slate-400"
+                          className="flex max-w-[220px] flex-wrap items-center gap-x-1 break-words text-[10px] row-text-secondary"
                           title={request.storage_location}
                         >
                           {getLocationParts(request.storage_location).map(
                             (part, index) => (
                               <React.Fragment key={`${part}-${index}`}>
                                 {index > 0 && (
-                                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
+                                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-500">
                                     •
                                   </span>
                                 )}
@@ -1133,72 +1464,47 @@ export default function AdminStaffFileRequestPage() {
                       </td>
 
                       {/* REQUEST DATE column */}
-                      <td className="px-2.5 py-3 text-slate-600 dark:text-slate-300">
-                        <span className="font-semibold">
+                      <td className="min-w-0 px-2.5 py-3 row-text-secondary">
+                        <span className="whitespace-nowrap font-semibold">
                           {formatSriLankaDate(`${request.request_date}T00:00:00Z`)}
                         </span>
-                        <p className="mt-1 text-[10px] text-slate-400">
-                          Submitted {formatSriLankaDate(request.created_at)}
+                        <p className="mt-1 break-words text-[10px] text-muted">
+                          {t('table.submitted', {
+                            date: formatSriLankaDate(request.created_at),
+                          })}
                         </p>
                       </td>
 
                       {/* DURATION column */}
-                      <td className="px-2.5 py-3 text-slate-600 dark:text-slate-300 font-semibold">
+                      <td className="min-w-0 px-2.5 py-3 whitespace-nowrap font-semibold row-text-secondary">
                         {request.duration_days}{' '}
-                        {request.duration_days === 1 ? 'day' : 'days'}
+                        {request.duration_days === 1
+                          ? t('table.day')
+                          : t('table.days')}
                       </td>
 
                       {/* PRIORITY column */}
-                      <td className="px-2.5 py-3">
-                        <div className="flex flex-col gap-1 items-start">
+                      <td className="min-w-0 px-2.5 py-3">
+                        <div className="flex min-w-0 flex-col items-start gap-1">
                           <span
-                            className={`inline-flex items-center gap-1.5 font-bold ${
+                            className={`inline-flex max-w-full items-center gap-1.5 whitespace-normal break-words font-bold ${
                               priorityStyle[request.priority].className
                             }`}
                           >
-                            <FiFlag aria-hidden="true" />
-                            {priorityStyle[request.priority].label}
+                            <FiFlag aria-hidden="true" className="shrink-0" />
+                            {t(priorityStyle[request.priority].label)}
                           </span>
 
-                          {/* Priority competition badge */}
-                          {isLeader && (
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black ${
-                                compGroup.isTie
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300'
-                                  : 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-200 border border-rose-300'
-                              }`}
-                              title={
-                                compGroup.isTie
-                                  ? 'Equal priority, granted precedence because it was submitted earlier (FIFO)'
-                                  : 'Highest priority among competing requests'
-                              }
-                            >
-                              {compGroup.isTie ? '★ Tie Leader (FIFO)' : '⚡ Highest Priority'}
-                            </span>
-                          )}
-
-                          {isLowerOrLater && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-600 dark:bg-navy-700 dark:text-slate-300 border border-slate-200 dark:border-navy-600"
-                              title={
-                                compGroup.isTie
-                                  ? 'Same priority as leader, but submitted later'
-                                  : 'A competing request exists with higher priority'
-                              }
-                            >
-                              {compGroup.isTie
-                                ? '⚠️ Same Priority (Later)'
-                                : '⚠️ Lower Priority'}
-                            </span>
-                          )}
+                          {/* Rank inside the competing group, same words as the
+                              staff views read from the shared helper. */}
+                          <CompetingBadge info={competing} />
                         </div>
                       </td>
 
                       {/* STATUS column */}
-                      <td className="px-2.5 py-3">
+                      <td className="min-w-0 px-2.5 py-3">
                         <span
-                          className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold shadow-2xs ${
+                          className={`inline-flex max-w-full items-center whitespace-normal break-words rounded-full px-2.5 py-1 text-[10px] font-extrabold leading-snug ${
                             statusClass[request.status]
                           }`}
                         >
@@ -1207,34 +1513,45 @@ export default function AdminStaffFileRequestPage() {
                       </td>
 
                       {/* ACTION column */}
-                      <td className="px-2.5 py-3 text-right">
+                      <td className="min-w-0 px-2.5 py-3 text-right">
                         <div className={TABLE_ACTIONS_CLASS}>
                             <button
                               type="button"
-                              disabled={busyId !== null}
+                              disabled={busyId !== null || approveBlockedByRank}
+                              aria-disabled={busyId !== null || approveBlockedByRank}
+                              title={
+                                approveBlockedByRank
+                                  ? t('table.approveBlocked')
+                                  : undefined
+                              }
                               onClick={() => handleApproveClick(request)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-xs cursor-pointer"
+                              className={`inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition-all shadow-xs ${
+                                approveBlockedByRank
+                                  ? 'cursor-not-allowed border border-slate-300 bg-slate-200 text-slate-500 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-300'
+                                  : 'cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700'
+                              } disabled:cursor-not-allowed`}
                             >
-                              <FiCheck /> Approve
+                              <FiCheck /> {t('common:buttons.approve')}
                             </button>
                             <button
                               type="button"
                               disabled={busyId !== null}
+                              aria-disabled={busyId !== null}
                               onClick={() => {
                                 setRejectionRequest(request);
                                 setRejectionNote('');
                                 setRejectionError('');
                               }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2 py-1.5 text-[10px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:hover:bg-rose-950/30 transition-all shadow-xs cursor-pointer"
+                              className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-800 dark:bg-navy-800 dark:text-rose-300 dark:hover:bg-rose-950/30 transition-all shadow-xs cursor-pointer"
                             >
-                              <FiX /> Reject
+                              <FiX /> {t('common:buttons.reject')}
                             </button>
                             <button
                               type="button"
                               onClick={() => setSelectedDetailRequest(request)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700 transition-all shadow-xs cursor-pointer"
-                              title="View full request details"
-                              aria-label="View full request details"
+                              className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-700 hover:border-[#4318FF] hover:text-[#4318FF] hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-800 dark:text-slate-200 dark:hover:bg-navy-700 transition-all shadow-xs cursor-pointer"
+                              title={t('table.viewRequestDetails')}
+                              aria-label={t('table.viewRequestDetails')}
                             >
                               <FiEye className="h-3.5 w-3.5" />
                             </button>
@@ -1284,7 +1601,7 @@ export default function AdminStaffFileRequestPage() {
                     id="reject-request-title"
                     className="text-base font-extrabold text-slate-800 dark:text-white"
                   >
-                    Reject File Request
+                    {t('modals.rejection.title')}
                   </h2>
                 </div>
                 <button
@@ -1294,7 +1611,7 @@ export default function AdminStaffFileRequestPage() {
                     setRejectionError('');
                   }}
                   disabled={busyId !== null}
-                  aria-label="Close rejection dialog"
+                  aria-label={t('modals.rejection.closeLabel')}
                   className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white transition cursor-pointer"
                 >
                   <FiX className="h-4 w-4" />
@@ -1302,18 +1619,33 @@ export default function AdminStaffFileRequestPage() {
               </div>
 
               <p className="mt-3 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Add an official review note explaining why{' '}
-                <strong className="text-slate-800 dark:text-white font-bold">
-                  {rejectionRequest.file_no} — {rejectionRequest.file_name}
-                </strong>{' '}
-                cannot be checked out. The requester ({rejectionRequest.requester_name}) will see this note in their portal.
+                <Trans
+                  t={t}
+                  i18nKey="modals.rejection.intro"
+                  values={{
+                    file: `${rejectionRequest.file_no} — ${rejectionRequest.file_name}`,
+                    requester: attributedNameText(
+                      rejectionRequest.requester_name,
+                      {
+                        deleted: rejectionRequest.requester_is_deleted,
+                        label: t('common:deletedUser'),
+                      },
+                    ),
+                  }}
+                  components={{
+                    strong: (
+                      <strong className="text-slate-800 dark:text-white font-bold" />
+                    ),
+                  }}
+                />
               </p>
 
               <label
                 htmlFor="rejection-note"
                 className="mb-1.5 mt-4 block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300"
               >
-                Rejection Reason / Review Note <span className="text-rose-500">*</span>
+                {t('modals.rejection.reasonLabel')}{' '}
+                <span className="text-rose-500">*</span>
               </label>
               <textarea
                 id="rejection-note"
@@ -1327,7 +1659,7 @@ export default function AdminStaffFileRequestPage() {
                 required
                 autoFocus
                 className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 outline-none transition focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10 dark:border-navy-600 dark:bg-navy-900 dark:text-white"
-                placeholder="E.g., File is currently restricted for audit review / Physical file temporarily relocated / Competing request prioritized..."
+                placeholder={t('modals.rejection.reasonPlaceholder')}
               />
               <div className="mt-1 flex justify-between text-[10px]">
                 {rejectionError ? (
@@ -1350,7 +1682,7 @@ export default function AdminStaffFileRequestPage() {
                   }}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:text-slate-300 dark:hover:bg-navy-700 cursor-pointer"
                 >
-                  Cancel
+                  {t('common:buttons.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -1360,7 +1692,7 @@ export default function AdminStaffFileRequestPage() {
                   {busyId === rejectionRequest.id && (
                     <FiRefreshCw className="animate-spin" />
                   )}
-                  Confirm Rejection
+                  {t('modals.rejection.confirm')}
                 </button>
               </div>
             </form>
@@ -1394,43 +1726,84 @@ export default function AdminStaffFileRequestPage() {
                   id="conflict-approval-title"
                   className="text-base font-extrabold text-slate-800 dark:text-white"
                 >
-                  Competing Request Allocation Notice
+                  {t('modals.conflict.title')}
                 </h2>
               </div>
 
               <div className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                 <p>
-                  You are approving the physical file checkout for{' '}
-                  <strong className="text-slate-900 dark:text-white font-bold">
-                    {conflictApproval.target.file_no} — {conflictApproval.target.file_name}
-                  </strong>
-                  .
+                  <Trans
+                    t={t}
+                    i18nKey="modals.conflict.intro"
+                    values={{
+                      file: `${conflictApproval.target.file_no} — ${conflictApproval.target.file_name}`,
+                    }}
+                    components={{
+                      strong: (
+                        <strong className="text-slate-900 dark:text-white font-bold" />
+                      ),
+                    }}
+                  />
                 </p>
 
                 {/* Target requester card */}
                 <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-800/40 dark:bg-emerald-950/30">
                   <p className="text-[10px] font-black uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                    Selected for Checkout
+                    {t('modals.conflict.selectedForCheckout')}
                   </p>
                   <div className="mt-1 flex items-center justify-between">
                     <div>
                       <p className="font-bold text-slate-800 dark:text-white">
-                        {conflictApproval.target.requester_name}
+                        <AttributedUser
+                          name={conflictApproval.target.requester_name}
+                          deleted={conflictApproval.target.requester_is_deleted}
+                        />
                       </p>
                       <p className="text-[10px] text-slate-500">
-                        {conflictApproval.target.requester_section || 'Staff'} • Needed {formatSriLankaDate(conflictApproval.target.request_date)}
+                        {conflictApproval.target.requester_section ||
+                          t('detail.staffFallback')}{' '}
+                        •{' '}
+                        {t('detail.needed', {
+                          date: formatSriLankaDate(
+                            conflictApproval.target.request_date,
+                          ),
+                        })}
                       </p>
                     </div>
-                    <span className="rounded-full bg-emerald-200/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
-                      {conflictApproval.target.priority} Priority
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="rounded-full bg-emerald-200/80 px-2.5 py-0.5 text-[10px] font-black text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
+                        {t('detail.priorityLabel', {
+                          priority: conflictApproval.target.priority,
+                        })}
+                      </span>
+                      <CompetingBadge
+                        info={competingById.get(conflictApproval.target.id)}
+                      />
+                    </div>
                   </div>
                 </div>
+
+                {/* The approve API refuses a request that is not first in line. */}
+                {!conflictTargetIsLeader && (
+                    <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-[11px] font-bold leading-relaxed text-rose-800 dark:border-rose-800/50 dark:bg-rose-950/35 dark:text-rose-200">
+                      {t('modals.conflict.notLeader', {
+                        name: attributedNameText(
+                          conflictGroup[0]?.requester_name,
+                          {
+                            deleted: conflictGroup[0]?.requester_is_deleted,
+                            label: t('common:deletedUser'),
+                          },
+                        ),
+                      })}
+                    </p>
+                  )}
 
                 {/* Competing request(s) */}
                 <div className="mt-3">
                   <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                    Competing Pending Request(s) ({conflictApproval.competingRequests.length}):
+                    {t('modals.conflict.competingPending', {
+                      count: conflictApproval.competingRequests.length,
+                    })}
                   </p>
                   <div className="mt-1.5 space-y-2">
                     {conflictApproval.competingRequests.map((comp) => (
@@ -1440,15 +1813,29 @@ export default function AdminStaffFileRequestPage() {
                       >
                         <div>
                           <p className="font-bold text-slate-700 dark:text-slate-200">
-                            {comp.requester_name} ({comp.requester_section || 'Staff'})
+                            <AttributedUser
+                              name={comp.requester_name}
+                              deleted={comp.requester_is_deleted}
+                            />{' '}
+                            (
+                            {comp.requester_section ||
+                              t('detail.staffFallback')})
                           </p>
                           <p className="text-[10px] text-slate-400">
-                            Submitted {formatSriLankaDate(comp.created_at)} • Needed on {formatSriLankaDate(comp.request_date)}
+                            {t('modals.conflict.submittedNeeded', {
+                              submitted: formatSriLankaDate(comp.created_at),
+                              needed: formatSriLankaDate(comp.request_date),
+                            })}
                           </p>
                         </div>
-                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-navy-700 dark:text-slate-300">
-                          {comp.priority} Priority
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-navy-700 dark:text-slate-300">
+                            {t('detail.priorityLabel', {
+                              priority: comp.priority,
+                            })}
+                          </span>
+                          <CompetingBadge info={competingById.get(comp.id)} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1462,30 +1849,29 @@ export default function AdminStaffFileRequestPage() {
                   onClick={() => setConflictApproval(null)}
                   className="rounded-xl border border-slate-200 px-3.5 py-2 font-bold text-slate-600 hover:bg-slate-50 dark:border-navy-600 dark:text-slate-300 dark:hover:bg-navy-700 cursor-pointer"
                 >
-                  Cancel
+                  {t('common:buttons.cancel')}
                 </button>
                 <button
                   type="button"
-                  disabled={approvingWithConflict}
-                  onClick={() => void handleConfirmConflictApproval(false)}
-                  className="rounded-xl border border-emerald-300 bg-white px-3.5 py-2 font-bold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:bg-navy-800 dark:text-emerald-300 cursor-pointer"
-                  title="Approve this request and leave other requests pending"
-                >
-                  Approve This Only
-                </button>
-                <button
-                  type="button"
-                  disabled={approvingWithConflict}
-                  onClick={() => void handleConfirmConflictApproval(true)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/20 cursor-pointer"
-                  title="Approve this request and automatically reject competing requests with allocation note"
+                  disabled={approvingWithConflict || !conflictTargetIsLeader}
+                  onClick={() => void handleConfirmConflictApproval()}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 font-bold shadow-md ${
+                    conflictTargetIsLeader
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20 cursor-pointer'
+                      : 'bg-slate-200 text-slate-400 shadow-none dark:bg-navy-700 dark:text-slate-500 cursor-not-allowed'
+                  }`}
+                  title={
+                    conflictTargetIsLeader
+                      ? t('modals.conflict.approveTooltip')
+                      : t('modals.conflict.approveBlockedTooltip')
+                  }
                 >
                   {approvingWithConflict ? (
                     <FiRefreshCw className="animate-spin" />
                   ) : (
                     <FiCheck />
                   )}
-                  Approve &amp; Auto-Reject Competing
+                  {t('modals.conflict.approveAndReject')}
                 </button>
               </div>
             </div>
@@ -1522,7 +1908,8 @@ export default function AdminStaffFileRequestPage() {
                     <div className="flex items-center gap-2">
                       <h2
                         id="request-detail-title"
-                        className="text-lg font-black text-slate-800 dark:text-white"
+                        className="break-words text-lg font-black text-slate-800 dark:text-white [overflow-wrap:anywhere]"
+                        title={selectedDetailRequest.file_no}
                       >
                         {selectedDetailRequest.file_no}
                       </h2>
@@ -1536,7 +1923,8 @@ export default function AdminStaffFileRequestPage() {
                     </div>
                     <p
                       id="request-detail-file"
-                      className="text-xs font-semibold text-slate-500 dark:text-slate-400"
+                      className="break-words text-xs font-semibold text-slate-500 dark:text-slate-400 [overflow-wrap:anywhere]"
+                      title={selectedDetailRequest.file_name}
                     >
                       {selectedDetailRequest.file_name}
                     </p>
@@ -1546,7 +1934,7 @@ export default function AdminStaffFileRequestPage() {
                   type="button"
                   onClick={() => setSelectedDetailRequest(null)}
                   className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white transition cursor-pointer"
-                  aria-label="Close details"
+                  aria-label={t('detail.closeLabel')}
                 >
                   <FiX className="h-5 w-5" />
                 </button>
@@ -1558,17 +1946,17 @@ export default function AdminStaffFileRequestPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                   <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <FiMapPin className="text-[#4318FF] dark:text-brand-300" />
-                    <span>Physical Archive Location</span>
+                    <span>{t('detail.physicalLocation')}</span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-2">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">File Section</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.fileSection')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
                         {selectedDetailRequest.section_name}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Storage Coordinates</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.storageCoordinates')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
                         {selectedDetailRequest.storage_location}
                       </p>
@@ -1580,25 +1968,30 @@ export default function AdminStaffFileRequestPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                   <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <FiUser className="text-[#4318FF] dark:text-brand-300" />
-                    <span>Staff Requester</span>
+                    <span>{t('detail.staffRequester')}</span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-3">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Staff Name</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('table.staffName')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
-                        {selectedDetailRequest.requester_name}
+                        <AttributedUser
+                          name={selectedDetailRequest.requester_name}
+                          deleted={selectedDetailRequest.requester_is_deleted}
+                        />
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Staff Email</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('table.staffEmail')}</p>
                       <p className="font-medium text-slate-600 dark:text-slate-300 mt-0.5">
-                        {selectedDetailRequest.requester_email}
+                        {isReservedDeletedEmail(selectedDetailRequest.requester_email)
+                          ? null
+                          : selectedDetailRequest.requester_email}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Staff Section</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.staffSection')}</p>
                       <p className="font-medium text-slate-600 dark:text-slate-300 mt-0.5">
-                        {selectedDetailRequest.requester_section || 'No department listed'}
+                        {selectedDetailRequest.requester_section || t('detail.noDepartment')}
                       </p>
                     </div>
                   </div>
@@ -1608,35 +2001,52 @@ export default function AdminStaffFileRequestPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                   <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <FiCalendar className="text-[#4318FF] dark:text-brand-300" />
-                    <span>Scheduling &amp; Priority</span>
+                    <span>{t('detail.scheduling')}</span>
                   </div>
                   <div className="mt-2 grid gap-3 sm:grid-cols-4">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Access Needed Date</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.accessNeededDate')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
                         {formatSriLankaDate(`${selectedDetailRequest.request_date}T00:00:00Z`)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Duration</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('table.duration')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
                         {selectedDetailRequest.duration_days}{' '}
-                        {selectedDetailRequest.duration_days === 1 ? 'day' : 'days'}
+                        {selectedDetailRequest.duration_days === 1
+                          ? t('table.day')
+                          : t('table.days')}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Priority Level</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.priorityLevel')}</p>
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold mt-0.5 ${
                           priorityStyle[selectedDetailRequest.priority].badgeClass
                         }`}
                       >
                         <FiFlag className="h-3 w-3" />
-                        {priorityStyle[selectedDetailRequest.priority].label} Priority
+                        {t('detail.priorityLabel', {
+                          priority: t(
+                            priorityStyle[selectedDetailRequest.priority].label,
+                          ),
+                        })}
                       </span>
+                      {competingById.get(selectedDetailRequest.id) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <CompetingBadge
+                            info={competingById.get(selectedDetailRequest.id)}
+                          />
+                          <CompetingBadge
+                            info={competingById.get(selectedDetailRequest.id)}
+                            variant="count"
+                          />
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400">Submitted Timestamp (SLST)</p>
+                      <p className="text-[10px] font-bold text-slate-400">{t('detail.submittedTimestamp')}</p>
                       <p className="font-medium text-slate-600 dark:text-slate-300 mt-0.5 text-[11px]">
                         {formatSriLankaDateTime(selectedDetailRequest.created_at)}
                       </p>
@@ -1649,24 +2059,30 @@ export default function AdminStaffFileRequestPage() {
                   <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4 dark:border-rose-900 dark:bg-rose-950/40">
                     <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-rose-700 dark:text-rose-300">
                       <FiXCircle className="h-4 w-4" />
-                      <span>Rejection Decision &amp; Official Review Note</span>
+                      <span>{t('detail.rejectionDecision')}</span>
                     </div>
                     <div className="mt-2.5 rounded-xl bg-white p-3.5 dark:bg-navy-900/90 border border-rose-200/60 dark:border-navy-700">
                       <p className="text-[10px] font-black uppercase tracking-wider text-rose-500">
-                        Reason for Rejection:
+                        {t('detail.reasonForRejection')}
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-800 dark:text-white leading-relaxed">
-                        {selectedDetailRequest.admin_notes || 'No specific rejection reason recorded.'}
+                        {selectedDetailRequest.admin_notes || t('detail.noRejectionReason')}
                       </p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-rose-800 dark:text-rose-300">
                       <span>
-                        <strong>Reviewed By:</strong>{' '}
-                        {selectedDetailRequest.reviewer_name || 'Administrator'}
-                        {selectedDetailRequest.reviewer_email && ` (${selectedDetailRequest.reviewer_email})`}
+                        <strong>{t('detail.reviewedBy')}</strong>{' '}
+                        <AttributedUser
+                          name={selectedDetailRequest.reviewer_name}
+                          deleted={selectedDetailRequest.reviewer_is_deleted}
+                          fallback={t('common:roles.ADMIN')}
+                        />
+                        {selectedDetailRequest.reviewer_email &&
+                          !isReservedDeletedEmail(selectedDetailRequest.reviewer_email) &&
+                          ` (${selectedDetailRequest.reviewer_email})`}
                       </span>
                       <span>
-                        <strong>Reviewed At (SLST):</strong>{' '}
+                        <strong>{t('detail.reviewedAt')}</strong>{' '}
                         {formatSriLankaDateTime(selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at)}
                       </span>
                     </div>
@@ -1675,24 +2091,30 @@ export default function AdminStaffFileRequestPage() {
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
                     <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
                       <FiCheckCircle className="h-4 w-4" />
-                      <span>Approval Decision &amp; Fulfillment Record</span>
+                      <span>{t('detail.approvalDecision')}</span>
                     </div>
                     <div className="mt-2.5 rounded-xl bg-white p-3.5 dark:bg-navy-900/90 border border-emerald-200/60 dark:border-navy-700">
                       <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
-                        Approval Remarks:
+                        {t('detail.approvalRemarks')}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-800 dark:text-white leading-relaxed">
-                        {selectedDetailRequest.admin_notes || 'Approved for physical archive retrieval without special restrictions.'}
+                        {selectedDetailRequest.admin_notes || t('detail.defaultApprovalRemarks')}
                       </p>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-emerald-800 dark:text-emerald-300">
                       <span>
-                        <strong>Approved By:</strong>{' '}
-                        {selectedDetailRequest.reviewer_name || 'Administrator'}
-                        {selectedDetailRequest.reviewer_email && ` (${selectedDetailRequest.reviewer_email})`}
+                        <strong>{t('detail.approvedBy')}</strong>{' '}
+                        <AttributedUser
+                          name={selectedDetailRequest.reviewer_name}
+                          deleted={selectedDetailRequest.reviewer_is_deleted}
+                          fallback={t('common:roles.ADMIN')}
+                        />
+                        {selectedDetailRequest.reviewer_email &&
+                          !isReservedDeletedEmail(selectedDetailRequest.reviewer_email) &&
+                          ` (${selectedDetailRequest.reviewer_email})`}
                       </span>
                       <span>
-                        <strong>Approved At (SLST):</strong>{' '}
+                        <strong>{t('detail.approvedAt')}</strong>{' '}
                         {formatSriLankaDateTime(selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at)}
                       </span>
                     </div>
@@ -1702,28 +2124,27 @@ export default function AdminStaffFileRequestPage() {
                     <p className="text-[11px] font-extrabold text-slate-600 dark:text-slate-300">
                       {selectedDetailRequest.cancellation_reason ===
                       'Replaced by higher-priority request'
-                        ? 'Request Replaced by a Higher-Priority Request'
+                        ? t('detail.cancelledReplaced')
                         : selectedDetailRequest.cancellation_reason ===
                           'Duplicate pending request consolidated'
-                        ? 'Duplicate Pending Request Consolidated'
-                        : 'Request Cancelled by Staff'}
+                        ? t('detail.cancelledDuplicate')
+                        : t('detail.cancelledByStaff')}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                       {selectedDetailRequest.cancellation_reason ||
-                        'This request was cancelled by the staff member before administrative review.'}
+                        t('detail.cancelledReasonFallback')}
                     </p>
                     <p className="mt-2 text-[10px] font-semibold text-slate-400">
-                      Cancelled requests cannot be approved. The request history
-                      is preserved.
+                      {t('detail.cancelledNote')}
                     </p>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/30">
                     <p className="text-[11px] font-extrabold text-amber-800 dark:text-amber-300">
-                      Pending Administrative Review
+                      {t('detail.pendingReview')}
                     </p>
                     <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                      This request is currently waiting for an administrator to approve or reject.
+                      {t('detail.pendingReviewHint')}
                     </p>
                   </div>
                 )}
@@ -1736,7 +2157,7 @@ export default function AdminStaffFileRequestPage() {
                   onClick={() => setSelectedDetailRequest(null)}
                   className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-200 cursor-pointer shadow-xs"
                 >
-                  Close
+                  {t('common:buttons.close')}
                 </button>
               </div>
             </div>
@@ -1770,41 +2191,46 @@ export default function AdminStaffFileRequestPage() {
                   id="approve-request-title"
                   className="text-base font-extrabold text-slate-800 dark:text-white"
                 >
-                  Accept File Request
+                  {t('modals.approval.title')}
                 </h2>
               </div>
 
               <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                Confirm that{' '}
-                <strong className="font-bold text-slate-800 dark:text-white">
-                  {approvalTarget.file_no} — {approvalTarget.file_name}
-                </strong>{' '}
-                can be handed over to{' '}
-                <strong className="font-bold text-slate-800 dark:text-white">
-                  {approvalTarget.requester_name}
-                </strong>
-                . The request moves into the issued-file workflow with an expected
-                return date, and the staff member is notified.
+                <Trans
+                  t={t}
+                  i18nKey="modals.approval.intro"
+                  values={{
+                    file: `${approvalTarget.file_no} — ${approvalTarget.file_name}`,
+                    name: approvalTarget.requester_name,
+                  }}
+                  components={{
+                    strong: (
+                      <strong className="font-bold text-slate-800 dark:text-white" />
+                    ),
+                  }}
+                />
               </p>
 
               <div className="mt-4 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-[11px] dark:border-navy-700 dark:bg-navy-900/50 sm:grid-cols-3">
                 <div>
-                  <p className="font-bold uppercase tracking-wider text-slate-400">Section</p>
+                  <p className="font-bold uppercase tracking-wider text-slate-400">{t('common:labels.section')}</p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {approvalTarget.section_name}
                   </p>
                 </div>
                 <div>
-                  <p className="font-bold uppercase tracking-wider text-slate-400">Needed On</p>
+                  <p className="font-bold uppercase tracking-wider text-slate-400">{t('modals.approval.neededOn')}</p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {formatSriLankaDate(`${approvalTarget.request_date}T00:00:00Z`)}
                   </p>
                 </div>
                 <div>
-                  <p className="font-bold uppercase tracking-wider text-slate-400">Duration</p>
+                  <p className="font-bold uppercase tracking-wider text-slate-400">{t('table.duration')}</p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {approvalTarget.duration_days}{' '}
-                    {approvalTarget.duration_days === 1 ? 'day' : 'days'}
+                    {approvalTarget.duration_days === 1
+                      ? t('table.day')
+                      : t('table.days')}
                   </p>
                 </div>
               </div>
@@ -1816,7 +2242,7 @@ export default function AdminStaffFileRequestPage() {
                   onClick={() => setApprovalTarget(null)}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:text-slate-300 dark:hover:bg-navy-700 cursor-pointer"
                 >
-                  Cancel
+                  {t('common:buttons.cancel')}
                 </button>
                 <button
                   type="button"
@@ -1829,7 +2255,99 @@ export default function AdminStaffFileRequestPage() {
                   className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50 shadow-md shadow-emerald-600/20 cursor-pointer"
                 >
                   <FiCheck />
-                  Confirm Acceptance
+                  {t('modals.approval.confirm')}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MODAL 4b: FILE CURRENTLY ISSUED (server-side availability block)
+         ═══════════════════════════════════════════════════════════════════════ */}
+      {issuedBlock && mounted &&
+        ReactDOM.createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[6px] animate-fadeIn"
+            onClick={() => setIssuedBlock(null)}
+          >
+            <div
+              ref={issuedBlockPanelRef}
+              tabIndex={-1}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="issued-block-title"
+              className="w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl dark:border-rose-900/60 dark:bg-navy-800 animate-scaleUp"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 border-b border-rose-100 pb-3 dark:border-rose-900/50">
+                <FiAlertCircle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+                <h2
+                  id="issued-block-title"
+                  className="text-base font-extrabold text-rose-700 dark:text-rose-300"
+                >
+                  {t('modals.issuedBlock.title')}
+                </h2>
+              </div>
+
+              <p className="mt-3 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
+                {t('modals.issuedBlock.intro')}
+              </p>
+
+              <div className="mt-4 grid gap-3 rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-[11px] dark:border-rose-900/40 dark:bg-rose-950/25 sm:grid-cols-2">
+                <div>
+                  <p className="font-bold uppercase tracking-wider text-rose-400">
+                    {t('table.fileNumber')}
+                  </p>
+                  <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                    {issuedBlock.issuance?.file_no || issuedBlock.blockedFileNo}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold uppercase tracking-wider text-rose-400">
+                    {t('modals.issuedBlock.issuedTo')}
+                  </p>
+                  <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                    {issuedBlock.issuance?.holder_name || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold uppercase tracking-wider text-rose-400">
+                    {t('modals.issuedBlock.issuedDate')}
+                  </p>
+                  <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                    {issuedBlock.issuance?.issued_at
+                      ? formatSriLankaDateTime(issuedBlock.issuance.issued_at)
+                      : t('modals.issuedBlock.missingIssuedAt')}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-bold uppercase tracking-wider text-rose-400">
+                    {t('modals.issuedBlock.expectedReturn')}
+                  </p>
+                  <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
+                    {issuedBlock.issuance?.expected_return_date
+                      ? formatSriLankaDate(
+                          `${String(issuedBlock.issuance.expected_return_date).slice(0, 10)}T00:00:00Z`,
+                        )
+                      : t('modals.issuedBlock.missingExpectedReturn')}
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-3 text-[11px] font-semibold leading-relaxed text-slate-500 dark:text-slate-400">
+                {t('modals.issuedBlock.hint')}
+              </p>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIssuedBlock(null)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700 shadow-md shadow-rose-600/20 cursor-pointer"
+                >
+                  <FiX />
+                  {t('common:buttons.close')}
                 </button>
               </div>
             </div>
@@ -1878,8 +2396,8 @@ export default function AdminStaffFileRequestPage() {
                     className="text-base font-extrabold text-slate-800 dark:text-white"
                   >
                     {extensionDecision.status === 'APPROVED'
-                      ? 'Approve Extension Request'
-                      : 'Reject Extension Request'}
+                      ? t('modals.extension.approveTitle')
+                      : t('modals.extension.rejectTitle')}
                   </h2>
                 </div>
                 <button
@@ -1897,18 +2415,29 @@ export default function AdminStaffFileRequestPage() {
 
               <div className="mt-3 space-y-2 text-xs text-slate-600 dark:text-slate-300">
                 <p>
-                  <strong className="text-slate-800 dark:text-white">
-                    {extensionDecision.target.file_no} — {extensionDecision.target.file_name}
-                  </strong>{' '}
-                  requested by{' '}
-                  <strong className="text-slate-800 dark:text-white">
-                    {extensionDecision.target.requester_name ||
-                      extensionDecision.target.requested_by_name}
-                  </strong>
+                  <Trans
+                    t={t}
+                    i18nKey="modals.extension.intro"
+                    values={{
+                      file: `${extensionDecision.target.file_no} — ${extensionDecision.target.file_name}`,
+                      name: attributedNameText(
+                        extensionDecision.target.requester_name ||
+                          extensionDecision.target.requested_by_name,
+                        {
+                          deleted:
+                            extensionDecision.target.requester_is_deleted,
+                          label: t('common:deletedUser'),
+                        },
+                      ),
+                    }}
+                    components={{ strong: <strong className="text-slate-800 dark:text-white" /> }}
+                  />
                 </p>
                 <div className="flex flex-wrap gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-navy-700 dark:bg-navy-900/50">
                   <span className="text-[11px]">
-                    <span className="font-bold text-slate-400">Current return:</span>{' '}
+                    <span className="font-bold text-slate-400">
+                      {t('modals.extension.currentReturn')}
+                    </span>{' '}
                     <span className="font-bold text-slate-800 dark:text-white">
                       {formatSriLankaDate(
                         `${extensionDecision.target.previous_return_date}T00:00:00Z`,
@@ -1916,7 +2445,9 @@ export default function AdminStaffFileRequestPage() {
                     </span>
                   </span>
                   <span className="text-[11px]">
-                    <span className="font-bold text-slate-400">Requested:</span>{' '}
+                    <span className="font-bold text-slate-400">
+                      {t('modals.extension.requested')}
+                    </span>{' '}
                     <span className="font-black text-rose-600 dark:text-rose-300">
                       {formatSriLankaDate(
                         `${extensionDecision.target.new_return_date}T00:00:00Z`,
@@ -1926,7 +2457,7 @@ export default function AdminStaffFileRequestPage() {
                 </div>
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-navy-700 dark:bg-navy-900/50">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Staff reason
+                    {t('modals.extension.staffReason')}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed">
                     {extensionDecision.target.reason}
@@ -1940,7 +2471,8 @@ export default function AdminStaffFileRequestPage() {
                     htmlFor="extension-reason"
                     className="mb-1.5 mt-4 block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300"
                   >
-                    Rejection Reason <span className="text-rose-500">*</span>
+                    {t('modals.extension.rejectionReasonLabel')}{' '}
+                    <span className="text-rose-500">*</span>
                   </label>
                   <textarea
                     id="extension-reason"
@@ -1954,7 +2486,7 @@ export default function AdminStaffFileRequestPage() {
                     required
                     autoFocus
                     className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 outline-none transition focus:border-rose-400 focus:ring-4 focus:ring-rose-500/10 dark:border-navy-600 dark:bg-navy-900 dark:text-white"
-                    placeholder="Explain why the return date stays unchanged. The staff member sees this reason."
+                    placeholder={t('modals.extension.rejectionReasonPlaceholder')}
                   />
                   {extensionNoteError && (
                     <p role="alert" className="mt-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
@@ -1967,7 +2499,7 @@ export default function AdminStaffFileRequestPage() {
               {extensionDecision.status === 'APPROVED' && (
                 <label className="mt-4 block">
                   <span className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                    Note for the staff member (optional)
+                    {t('modals.extension.approvalNoteLabel')}
                   </span>
                   <textarea
                     value={extensionNote}
@@ -1975,7 +2507,7 @@ export default function AdminStaffFileRequestPage() {
                     maxLength={500}
                     rows={3}
                     className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 dark:border-navy-600 dark:bg-navy-900 dark:text-white"
-                    placeholder="E.g., Approved — please return the file on the new date."
+                    placeholder={t('modals.extension.approvalNotePlaceholder')}
                   />
                 </label>
               )}
@@ -1990,7 +2522,7 @@ export default function AdminStaffFileRequestPage() {
                   }}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-navy-600 dark:text-slate-300 dark:hover:bg-navy-700 cursor-pointer"
                 >
-                  Cancel
+                  {t('common:buttons.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -2008,8 +2540,8 @@ export default function AdminStaffFileRequestPage() {
                     <FiRefreshCw className="animate-spin" />
                   )}
                   {extensionDecision.status === 'APPROVED'
-                    ? 'Confirm Extension'
-                    : 'Confirm Rejection'}
+                    ? t('modals.extension.confirmApprove')
+                    : t('modals.extension.confirmReject')}
                 </button>
               </div>
             </form>
@@ -2044,13 +2576,15 @@ export default function AdminStaffFileRequestPage() {
                   <div>
                     <h2
                       id="extension-detail-title"
-                      className="text-lg font-black text-slate-800 dark:text-white"
+                      className="break-words text-lg font-black text-slate-800 dark:text-white [overflow-wrap:anywhere]"
+                      title={extensionDetail.file_no}
                     >
                       {extensionDetail.file_no}
                     </h2>
                     <p
                       id="extension-detail-file"
-                      className="text-xs font-semibold text-slate-500 dark:text-slate-400"
+                      className="break-words text-xs font-semibold text-slate-500 dark:text-slate-400 [overflow-wrap:anywhere]"
+                      title={extensionDetail.file_name}
                     >
                       {extensionDetail.file_name}
                     </p>
@@ -2059,7 +2593,7 @@ export default function AdminStaffFileRequestPage() {
                 <button
                   type="button"
                   onClick={() => setExtensionDetail(null)}
-                  aria-label="Close details"
+                  aria-label={t('detail.closeLabel')}
                   className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-navy-700 dark:hover:text-white transition cursor-pointer"
                 >
                   <FiX className="h-5 w-5" />
@@ -2068,21 +2602,28 @@ export default function AdminStaffFileRequestPage() {
 
               <div className="mt-4 grid gap-3 text-[11px] sm:grid-cols-2">
                 {[
-                  ['Extension ID', `#${extensionDetail.id}`],
-                  ['File request', `#${extensionDetail.request_id}`],
+                  [t('modals.extensionDetail.extensionId'), `#${extensionDetail.id}`],
+                  [t('modals.extensionDetail.fileRequest'), `#${extensionDetail.request_id}`],
                   [
-                    'Staff member',
-                    `${extensionDetail.requester_name || extensionDetail.requested_by_name}${
+                    t('modals.extensionDetail.staffMember'),
+                    `${attributedNameText(
+                      extensionDetail.requester_name ||
+                        extensionDetail.requested_by_name,
+                      {
+                        deleted: extensionDetail.requester_is_deleted,
+                        label: t('common:deletedUser'),
+                      },
+                    )}${
                       extensionDetail.requester_section ? ` • ${extensionDetail.requester_section}` : ''
                     }`,
                   ],
-                  ['Submitted', formatSriLankaDateTime(extensionDetail.created_at)],
+                  [t('modals.extensionDetail.submitted'), formatSriLankaDateTime(extensionDetail.created_at)],
                   [
-                    'Current return date',
+                    t('modals.extensionDetail.currentReturnDate'),
                     formatSriLankaDate(`${extensionDetail.previous_return_date}T00:00:00Z`),
                   ],
                   [
-                    'Requested return date',
+                    t('modals.extensionDetail.requestedReturnDate'),
                     formatSriLankaDate(`${extensionDetail.new_return_date}T00:00:00Z`),
                   ],
                 ].map(([label, value]) => (
@@ -2098,10 +2639,10 @@ export default function AdminStaffFileRequestPage() {
 
               <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-navy-700 dark:bg-navy-900/50">
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                  Reason from staff
+                  {t('modals.extensionDetail.reasonFromStaff')}
                 </p>
                 <p className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-slate-700 dark:text-slate-200">
-                  {extensionDetail.reason || 'No reason recorded.'}
+                  {extensionDetail.reason || t('modals.extensionDetail.noReason')}
                 </p>
               </div>
 
@@ -2111,7 +2652,7 @@ export default function AdminStaffFileRequestPage() {
                   onClick={() => setExtensionDetail(null)}
                   className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-navy-600 dark:bg-navy-700 dark:text-slate-200 cursor-pointer shadow-xs"
                 >
-                  Close
+                  {t('common:buttons.close')}
                 </button>
               </div>
             </div>

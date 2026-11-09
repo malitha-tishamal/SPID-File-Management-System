@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_ROW_CLASS } from 'lib/tableStyles';
+import { FILE_FIELD_MAX_LENGTH } from 'lib/constants';
 import Link from 'next/link';
 import { formatSriLankaDateTimeCompact } from 'lib/datetime';
 import {
@@ -31,6 +33,9 @@ import ConfirmDeleteModal from 'components/admin/files/ConfirmDeleteModal';
 import ConfirmApproveModal from 'components/admin/files/ConfirmApproveModal';
 import ConfirmRejectModal from 'components/admin/files/ConfirmRejectModal';
 import Spinner from 'components/ui/Spinner';
+import AttributedUser from 'components/ui/AttributedUser';
+import { attributedNameText } from 'utils/userDisplay';
+import { useLocalizedFields } from 'lib/useLocalizedFields';
 import type { FileRecordRow, FileCountsSummary } from 'models/FileRepository';
 import { fetchClientSections } from 'lib/sectionsClient';
 
@@ -149,6 +154,13 @@ const FileTableRow = memo(function FileTableRow({
   onApprove: (f: DashboardFileItem) => void;
   onReject: (f: DashboardFileItem) => void;
 }) {
+  const { t } = useTranslation();
+  const deletedLabel = t('common:deletedUser');
+  const [localizedName, localizedSection] = useLocalizedFields([
+    file.file_name,
+    file.section_name,
+  ]);
+
   const [addedDate, addedTime] = useMemo(() => {
     const [date, ...rest] = formatDisplayDateTime(file.created_at).split(' ');
     return [date, rest.join(' ')] as const;
@@ -163,15 +175,34 @@ const FileTableRow = memo(function FileTableRow({
   const isApproved = file.status === 'APPROVED' || file.status === 'active' || file.admin_action_type === 'approved';
   const isRejected = file.status === 'REJECTED' || file.admin_action_type === 'rejected';
 
+  // rejected_by_name is snapshot-only (no id, no deleted flag); when it is
+  // absent the label falls back to the approver's name, which does carry one.
+  const rejectedByName = attributedNameText(
+    file.rejected_by_name || file.approved_by_name,
+    {
+      deleted:
+        !file.rejected_by_name &&
+        !!file.approved_by_name &&
+        file.approver_is_deleted === true,
+      label: deletedLabel,
+      fallback: t('dashboard:roles.admin'),
+    }
+  );
+  const approvedByName = attributedNameText(file.approved_by_name, {
+    deleted: file.approver_is_deleted,
+    label: deletedLabel,
+    fallback: t('dashboard:roles.admin'),
+  });
+
   return (
     <tr className={`${TABLE_ROW_CLASS} group`}>
       {/* NO */}
-      <td className="w-10 py-3 pl-3 pr-1 text-center align-middle text-[11px] font-bold tabular-nums text-slate-400 dark:text-slate-500">
+      <td className="min-w-0 py-3 pl-3 pr-1 text-center align-middle text-[11px] font-bold tabular-nums text-muted">
         {rowNo}
       </td>
 
       {/* FILE NUMBER */}
-      <td className="break-words px-2 py-3 align-middle">
+      <td className="min-w-0 break-words px-3 py-3 align-middle">
         <button
           type="button"
           onClick={() => onView(file)}
@@ -183,163 +214,204 @@ const FileTableRow = memo(function FileTableRow({
       </td>
 
       {/* FILE NAME */}
-      <td className="break-words px-2 py-3 align-middle" title={file.file_name}>
-        <span className="line-clamp-2 max-w-full break-words text-[12px] font-bold leading-snug text-[#1B2559] dark:text-white">
-          {file.file_name}
+      <td
+        className="min-w-0 break-words px-3 py-3 align-middle"
+        title={localizedName || file.file_name}
+      >
+        <span className="line-clamp-2 max-w-full break-words text-[12px] font-bold leading-snug text-[#1B2559] dark:text-white [overflow-wrap:anywhere]">
+          {localizedName || file.file_name}
         </span>
       </td>
 
       {/* SECTION */}
-      <td className="px-2 py-3 align-middle">
+      <td className="min-w-0 px-3 py-3 align-middle">
         <span
-          className={`inline-block max-w-full truncate rounded-md px-2 py-[3px] text-[10px] font-bold leading-tight ${getSectionBadge(
+          className={`inline-block max-w-full whitespace-normal break-words rounded-md px-2 py-[3px] text-[10px] font-bold leading-snug ${getSectionBadge(
             file.section_name,
           )}`}
-          title={file.section_name || 'General Record'}
+          title={localizedSection || file.section_name || t('dashboard:rows.generalRecord')}
         >
-          {file.section_name || 'General Record'}
+          {localizedSection || file.section_name || t('dashboard:rows.generalRecord')}
         </span>
       </td>
 
       {/* FILE LOCATION */}
-      <td className="w-[180px] px-2 py-3 align-middle">
+      <td className="min-w-0 px-3 py-3 align-middle">
         <LocationDetailsButton
           file={file}
-          className="inline-flex w-full min-w-0 items-start gap-1.5 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-snug text-slate-600 dark:border-navy-700 dark:bg-navy-900/70 dark:text-slate-200"
+          className="inline-flex w-full min-w-0 items-start gap-1.5 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-snug text-slate-700 dark:border-navy-700 dark:bg-navy-900/70 dark:text-slate-200"
         />
       </td>
 
       {/* ADDED BY */}
-      <td className="px-2 py-3 align-middle">
+      <td className="min-w-0 px-3 py-3 align-middle">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[9px] font-bold text-slate-600 ring-1 ring-slate-200/70 dark:bg-navy-900 dark:text-slate-300 dark:ring-navy-700">
-            {getInitials(file.registrar_name)}
+          <div
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ring-1 ${
+              file.registrar_is_deleted
+                ? 'bg-slate-100 text-slate-400 ring-slate-200/70 dark:bg-navy-900 dark:text-slate-500 dark:ring-navy-700'
+                : 'bg-slate-100 text-slate-600 ring-slate-200/70 dark:bg-navy-900 dark:text-slate-300 dark:ring-navy-700'
+            }`}
+          >
+            {file.registrar_is_deleted && !file.registrar_name
+              ? '—'
+              : getInitials(file.registrar_name)}
           </div>
           <span
-            className="max-w-[110px] truncate text-[11px] font-semibold leading-tight text-slate-700 dark:text-slate-200"
-            title={file.registrar_name || 'Staff Member'}
+            className="min-w-0 max-w-full break-words text-[11px] font-semibold leading-snug text-slate-700 dark:text-slate-200"
+            title={attributedNameText(file.registrar_name, {
+              deleted: file.registrar_is_deleted,
+              label: deletedLabel,
+              fallback: t('common:roles.STAFF'),
+            })}
           >
-            {file.registrar_name || 'Staff Member'}
+            <AttributedUser
+              name={file.registrar_name}
+              deleted={file.registrar_is_deleted}
+              fallback={t('common:roles.STAFF')}
+            />
           </span>
         </div>
       </td>
 
       {/* ROLE */}
-      <td className="whitespace-nowrap px-2 py-3 text-center align-middle">
+      <td className="min-w-0 px-2 py-3 text-center align-middle">
         {isAdmin ? (
-          <span className="inline-block rounded-full border border-[#FED7D7] bg-[#FEECEB] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#FF4757] dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400">
-            Admin
+          <span className="inline-flex max-w-full items-center justify-center whitespace-normal break-words rounded-full border border-[#FED7D7] bg-[#FEECEB] px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wide text-[#B42318] dark:border-rose-800 dark:bg-rose-900 dark:text-rose-50">
+            {t('dashboard:roles.admin')}
           </span>
         ) : (
-          <span className="inline-block rounded-full border border-[#C6F6D5] bg-[#E6F9F0] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#05CD99] dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400">
-            Staff
+          <span className="inline-flex max-w-full items-center justify-center whitespace-normal break-words rounded-full border border-[#C6F6D5] bg-[#E6F9F0] px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wide text-[#027A48] dark:border-emerald-800 dark:bg-emerald-900 dark:text-emerald-50">
+            {t('dashboard:roles.staff')}
           </span>
         )}
       </td>
 
       {/* ADDED DATE & TIME */}
-      <td className="whitespace-nowrap px-2 py-3 align-middle text-[11px] leading-tight">
-        <span className="block font-semibold tabular-nums text-slate-600 dark:text-slate-300">
+      <td className="min-w-0 px-2 py-3 align-middle text-[11px] leading-tight">
+        <span className="block whitespace-nowrap font-semibold tabular-nums text-slate-700 dark:text-slate-200">
           {addedDate}
         </span>
-        <span className="mt-0.5 block font-medium tabular-nums text-slate-400 dark:text-slate-500">
+        <span className="mt-0.5 block whitespace-nowrap font-medium tabular-nums text-muted">
           {addedTime || '—'}
         </span>
       </td>
 
       {/* REQUEST STATUS */}
-      <td className="px-2 py-3 text-center align-middle">
+      <td className="min-w-0 px-2 py-3 text-center align-middle">
         {isAdmin ? (
-          <div className="flex flex-col items-center justify-center gap-1">
-            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold leading-tight text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+          <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+            <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold leading-snug text-blue-800 dark:border-blue-800 dark:bg-blue-900 dark:text-blue-50">
               <FiCheckCircle className="h-3 w-3 shrink-0 stroke-[2.5]" />
-              <span className="truncate">System Verified</span>
+              <span className="min-w-0">{t('dashboard:rows.systemVerified')}</span>
             </span>
             <span
-              className="max-w-full truncate text-[10px] font-semibold leading-tight text-slate-500 dark:text-slate-400"
-              title={`Admin Added (${file.registrar_name || 'Admin'})`}
+              className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-muted"
+              title={t('dashboard:rows.adminAdded', {
+                name: attributedNameText(file.registrar_name, {
+                  deleted: file.registrar_is_deleted,
+                  label: deletedLabel,
+                  fallback: t('dashboard:roles.admin'),
+                }),
+              })}
             >
-              Admin Added ({file.registrar_name || 'Admin'})
+              {t('dashboard:rows.adminAdded', {
+                name: attributedNameText(file.registrar_name, {
+                  deleted: file.registrar_is_deleted,
+                  label: deletedLabel,
+                  fallback: t('dashboard:roles.admin'),
+                }),
+              })}
             </span>
           </div>
         ) : isPending ? (
-          <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#FDE68A] bg-[#FFFBEB] px-2 py-0.5 text-[10px] font-bold leading-tight text-[#D97706] dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-1 text-[10px] font-bold leading-snug text-[#B45309] dark:border-amber-700 dark:bg-amber-900 dark:text-amber-50">
             <FiClock className="h-3 w-3 shrink-0 stroke-[2.5]" />
-            <span className="truncate">Pending Review</span>
+            <span className="min-w-0">{t('dashboard:rows.pendingReview')}</span>
           </span>
         ) : isRejected ? (
-          <div className="flex flex-col items-center justify-center gap-1">
-            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold leading-tight text-rose-600 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400">
+          <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+            <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-[10px] font-bold leading-snug text-rose-800 dark:border-rose-800 dark:bg-rose-900 dark:text-rose-50">
               <FiX className="h-3 w-3 shrink-0 stroke-[3]" />
-              <span className="truncate">Rejected</span>
+              <span className="min-w-0">{t('common:status.rejected')}</span>
             </span>
             <span
-              className="max-w-full truncate text-[10px] font-semibold leading-tight text-rose-500 dark:text-rose-400"
-              title={`By ${file.rejected_by_name || file.approved_by_name || 'Admin'} (Admin)`}
+              className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-rose-700 dark:text-rose-300"
+              title={t('dashboard:rows.rejectedBy', {
+                name: rejectedByName,
+                role: t('dashboard:roles.admin'),
+              })}
             >
-              By {file.rejected_by_name || file.approved_by_name || 'Admin'} (Admin)
+              {t('dashboard:rows.rejectedBy', {
+                name: rejectedByName,
+                role: t('dashboard:roles.admin'),
+              })}
             </span>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center gap-1">
-            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-[#C6F6D5] bg-[#E6F9F0] px-2 py-0.5 text-[10px] font-bold leading-tight text-[#05CD99] dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400">
+          <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+            <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border border-[#A7F3D0] bg-[#E6F9F0] px-2.5 py-1 text-[10px] font-bold leading-snug text-[#027A48] dark:border-emerald-800 dark:bg-emerald-900 dark:text-emerald-50">
               <FiCheck className="h-3 w-3 shrink-0 stroke-[3]" />
-              <span className="truncate">Approved</span>
+              <span className="min-w-0">{t('common:status.approved')}</span>
             </span>
             <span
-              className="max-w-full truncate text-[10px] font-semibold leading-tight text-slate-500 dark:text-slate-400"
+              className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-muted"
               title={
                 file.approved_by_name?.toLowerCase().includes('auto') ||
                 (!file.approved_by && !file.approved_by_name && !isAdmin)
-                  ? '(Reason: Auto approval on)'
-                  : `Admin (${file.approved_by_name || 'Admin'})`
+                  ? t('dashboard:rows.autoApprovalReason')
+                  : t('dashboard:rows.approvedByAdmin', {
+                      name: approvedByName,
+                    })
               }
             >
               {file.approved_by_name?.toLowerCase().includes('auto') || (!file.approved_by && !file.approved_by_name && !isAdmin)
-                ? '(Reason: Auto approval on)'
-                : `Admin (${file.approved_by_name || 'Admin'})`}
+                ? t('dashboard:rows.autoApprovalReason')
+                : t('dashboard:rows.approvedByAdmin', {
+                    name: approvedByName,
+                  })}
             </span>
           </div>
         )}
       </td>
 
       {/* ADMIN ACTIONS */}
-      <td className="w-[170px] px-2 py-3 text-center align-middle">
-        <div className="flex flex-col items-center gap-1.5">
+      <td className="min-w-0 px-2 py-3 text-center align-middle">
+        <div className="flex min-w-0 flex-col items-center gap-1.5">
           {/* Approve & Reject — only for pending staff files */}
           {!isAdmin && isPending && (
-            <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
               <button
                 type="button"
                 onClick={() => onApprove(file)}
-                aria-label={`Approve file ${file.file_no}`}
-                className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg bg-[#05CD99] px-2 text-[10px] font-bold text-white shadow-xs transition-all hover:bg-[#04B787] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#05CD99]/50"
-                title="Approve File"
+                aria-label={t('dashboard:actions.approveAria', { fileNo: file.file_no })}
+                className="inline-flex min-w-fit cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg bg-[#05CD99] px-2.5 py-1.5 text-[10px] font-bold text-white shadow-xs transition-all hover:bg-[#04B787] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#05CD99]/50"
+                title={t('dashboard:actions.approveTitle')}
               >
-                <FiCheck className="h-3 w-3 stroke-[3]" />
-                <span>Approve</span>
+                <FiCheck className="h-3 w-3 shrink-0 stroke-[3]" />
+                <span>{t('common:buttons.approve')}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => onReject(file)}
-                aria-label={`Reject file ${file.file_no}`}
-                className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-rose-200 bg-white px-2 text-[10px] font-bold text-rose-600 shadow-xs transition-all hover:bg-rose-50 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 dark:border-rose-900/40 dark:bg-navy-900 dark:hover:bg-rose-950/30"
-                title="Reject File"
+                aria-label={t('dashboard:actions.rejectAria', { fileNo: file.file_no })}
+                className="inline-flex min-w-fit cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-rose-700 shadow-xs transition-all hover:bg-rose-50 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 dark:border-rose-900/40 dark:bg-navy-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                title={t('dashboard:actions.rejectTitle')}
               >
-                <FiX className="h-3 w-3 stroke-[3]" />
-                <span>Reject</span>
+                <FiX className="h-3 w-3 shrink-0 stroke-[3]" />
+                <span>{t('common:buttons.reject')}</span>
               </button>
             </div>
           )}
 
-          <div className="flex items-center justify-center gap-0.5">
+          <div className="flex flex-wrap items-center justify-center gap-0.5">
             <button
               type="button"
               onClick={() => onView(file)}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-[#F4F2FF] hover:text-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 dark:hover:bg-navy-700 dark:hover:text-brand-300"
-              title="View Details"
-              aria-label={`View details for ${file.file_no}`}
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-[#F4F2FF] hover:text-[#4318FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/40 dark:text-slate-300 dark:hover:bg-navy-700 dark:hover:text-brand-300"
+              title={t('common:buttons.viewDetails')}
+              aria-label={t('dashboard:actions.viewAria', { fileNo: file.file_no })}
             >
               <FiEye className="h-3.5 w-3.5" />
             </button>
@@ -347,9 +419,9 @@ const FileTableRow = memo(function FileTableRow({
             <button
               type="button"
               onClick={() => onEdit(file)}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 dark:hover:bg-navy-700"
-              title="Edit File"
-              aria-label={`Edit ${file.file_no}`}
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 dark:text-slate-300 dark:hover:bg-navy-700"
+              title={t('dashboard:actions.editTitle')}
+              aria-label={t('dashboard:actions.editAria', { fileNo: file.file_no })}
             >
               <FiEdit2 className="h-3.5 w-3.5" />
             </button>
@@ -357,9 +429,9 @@ const FileTableRow = memo(function FileTableRow({
             <button
               type="button"
               onClick={() => onDelete(file)}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 dark:hover:bg-rose-950/40"
-              title="Delete File"
-              aria-label={`Delete ${file.file_no}`}
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 dark:text-slate-300 dark:hover:bg-rose-950/40"
+              title={t('dashboard:actions.deleteTitle')}
+              aria-label={t('dashboard:actions.deleteAria', { fileNo: file.file_no })}
             >
               <FiTrash2 className="h-3.5 w-3.5" />
             </button>
@@ -371,6 +443,7 @@ const FileTableRow = memo(function FileTableRow({
 });
 
 export default function AdminDashboardView() {
+  const { t } = useTranslation();
   const { showToast } = useToast();
 
   const [files, setFiles] = useState<DashboardFileItem[]>([]);
@@ -523,7 +596,7 @@ export default function AdminDashboardView() {
         if (metaApplied) {
           hasOverviewRef.current = true;
         } else if (!hasOverviewRef.current) {
-          setOverviewError('Overview statistics could not be loaded.');
+          setOverviewError(t('dashboard:states.overviewError'));
         }
         markOverviewResolved();
       } catch {
@@ -532,7 +605,7 @@ export default function AdminDashboardView() {
         }
         overviewMetaResolvedRef.current = true;
         if (!hasOverviewRef.current) {
-          setOverviewError('Overview statistics could not be loaded.');
+          setOverviewError(t('dashboard:states.overviewError'));
         }
         markOverviewResolved();
       }
@@ -550,7 +623,7 @@ export default function AdminDashboardView() {
         const listJson = await listRes.json().catch(() => null);
         if (!listRes.ok || !listJson?.ok) {
           throw new Error(
-            readApiError(listJson, 'Unable to load dashboard records.'),
+            readApiError(listJson, t('dashboard:states.loadRecordsError')),
           );
         }
 
@@ -570,7 +643,7 @@ export default function AdminDashboardView() {
         const message =
           error instanceof Error && error.message
             ? error.message
-            : 'Unable to load dashboard data.';
+            : t('dashboard:states.loadDataError');
         complete(() => {
           setLoadError(message);
           setIsRecentFilesLoading(false);
@@ -696,28 +769,32 @@ export default function AdminDashboardView() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'File Approved',
-          message: json.data?.message || `File ${approvingFile.file_name} has been approved.`,
+          title: t('dashboard:feedback.approveSuccessTitle'),
+          message:
+            json.data?.message ||
+            t('dashboard:feedback.approveSuccessMessage', {
+              fileName: approvingFile.file_name,
+            }),
         });
         setApprovingFile(null);
         refresh();
       } else {
         showToast({
           type: 'error',
-          title: 'Approval Failed',
-          message: readApiError(json, 'Could not approve submission.'),
+          title: t('dashboard:feedback.approveFailedTitle'),
+          message: readApiError(json, t('dashboard:feedback.approveFailedMessage')),
         });
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server.',
+        title: t('dashboard:feedback.connectionErrorTitle'),
+        message: t('dashboard:feedback.connectionErrorMessage'),
       });
     } finally {
       setIsApproving(false);
     }
-  }, [approvingFile, isApproving, refresh, showToast]);
+  }, [approvingFile, isApproving, refresh, showToast, t]);
 
   // Reject file action
   const handleRejectConfirm = useCallback(async (reason?: string) => {
@@ -738,8 +815,10 @@ export default function AdminDashboardView() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'info',
-          title: 'Submission Declined',
-          message: json.data?.message || `File request ${rejectingFile.file_no} has been rejected.`,
+          title: t('dashboard:feedback.rejectSuccessTitle'),
+          message:
+            json.data?.message ||
+            t('dashboard:feedback.rejectSuccessMessage', { fileNo: rejectingFile.file_no }),
         });
         setRejectingFile(null);
         refresh();
@@ -748,28 +827,28 @@ export default function AdminDashboardView() {
         if (json?.code === 'VALIDATION_ERROR') {
           showToast({
             type: 'error',
-            title: 'Validation Error',
-            message: readApiError(json, 'Could not reject submission.'),
+            title: t('dashboard:feedback.validationErrorTitle'),
+            message: readApiError(json, t('dashboard:feedback.rejectFailedMessage')),
           });
         } else {
           // For other errors, also keep modal open but show error
           showToast({
             type: 'error',
-            title: 'Rejection Failed',
-            message: readApiError(json, 'Could not reject submission.'),
+            title: t('dashboard:feedback.rejectFailedTitle'),
+            message: readApiError(json, t('dashboard:feedback.rejectFailedMessage')),
           });
         }
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server.',
+        title: t('dashboard:feedback.connectionErrorTitle'),
+        message: t('dashboard:feedback.connectionErrorMessage'),
       });
     } finally {
       setIsRejecting(false);
     }
-  }, [rejectingFile, isRejecting, refresh, showToast]);
+  }, [rejectingFile, isRejecting, refresh, showToast, t]);
 
   // Edit file save
   const handleEditSave = useCallback(async (payload: Partial<FileRecordRow>) => {
@@ -785,23 +864,30 @@ export default function AdminDashboardView() {
           body: JSON.stringify(payload),
         },
       );
+      const json = await res.json().catch(() => null);
 
       if (res.ok) {
         showToast({
           type: 'success',
-          title: 'File Updated',
-          message: `Record ${payload.file_name || editingFile.file_name} has been updated.`,
+          title: t('dashboard:feedback.fileUpdatedTitle'),
+          message: t('dashboard:feedback.fileUpdatedMessage', {
+            fileName: payload.file_name || editingFile.file_name,
+          }),
         });
         setEditingFile(null);
         refresh();
+      } else if (json?.code === 'FIELD_TOO_LONG') {
+        return t('files:validation.fileNameMax', {
+          max: Number(json.max) || FILE_FIELD_MAX_LENGTH,
+        });
       } else {
         setFiles((prev) =>
           prev.map((item) => (item.id === editingFile.id ? { ...item, ...payload } : item)),
         );
         showToast({
           type: 'success',
-          title: 'File Updated',
-          message: 'Changes saved successfully.',
+          title: t('dashboard:feedback.fileUpdatedTitle'),
+          message: t('dashboard:feedback.changesSaved'),
         });
         setEditingFile(null);
       }
@@ -811,14 +897,15 @@ export default function AdminDashboardView() {
       );
       showToast({
         type: 'info',
-        title: 'File Updated',
-        message: 'Updated record.',
+        title: t('dashboard:feedback.fileUpdatedTitle'),
+        message: t('dashboard:feedback.updatedRecord'),
       });
       setEditingFile(null);
     } finally {
       setIsSavingEdit(false);
     }
-  }, [editingFile, refresh, showToast]);
+    return null;
+  }, [editingFile, refresh, showToast, t]);
 
   // Delete file confirm
   const handleDeleteConfirm = useCallback(async () => {
@@ -834,14 +921,14 @@ export default function AdminDashboardView() {
       if (res.ok) {
         showToast({
           type: 'success',
-          title: 'File Deleted',
-          message: `File record ${deletingFile.file_no} has been removed.`,
+          title: t('dashboard:feedback.fileDeletedTitle'),
+          message: t('dashboard:feedback.fileDeletedMessage', { fileNo: deletingFile.file_no }),
         });
       } else {
         showToast({
           type: 'info',
-          title: 'Removed from View',
-          message: `Record ${deletingFile.file_no} removed.`,
+          title: t('dashboard:feedback.removedFromViewTitle'),
+          message: t('dashboard:feedback.removedFromViewMessage', { fileNo: deletingFile.file_no }),
         });
       }
       setFiles((prev) => prev.filter((item) => item.id !== deletingFile.id));
@@ -852,7 +939,7 @@ export default function AdminDashboardView() {
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingFile, showToast]);
+  }, [deletingFile, showToast, t]);
 
   return (
     <div className="w-full space-y-6 pb-12 font-dm">
@@ -860,11 +947,11 @@ export default function AdminDashboardView() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-[#1B2559] dark:text-white">
-            Overview of Record Room
+            {t('dashboard:headings.overview')}
           </h2>
         </div>
         <div className="text-xs font-medium text-slate-400">
-          Maximize workflow capacity and storage status
+          {t('dashboard:headings.overviewSubtitle')}
         </div>
       </div>
 
@@ -877,7 +964,7 @@ export default function AdminDashboardView() {
           <div role="status" className="flex flex-col items-center gap-2.5">
             <Spinner size="xl" tone="brand" />
             <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-              Loading record room overview...
+              {t('dashboard:states.loadingOverview')}
             </span>
           </div>
         </div>
@@ -890,7 +977,7 @@ export default function AdminDashboardView() {
             <FiAlertCircle className="h-5 w-5" />
           </span>
           <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
-            Record room overview unavailable
+            {t('dashboard:states.overviewUnavailable')}
           </p>
           <p className="text-xs text-slate-400">{overviewError}</p>
           <button
@@ -899,7 +986,7 @@ export default function AdminDashboardView() {
             className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-md shadow-brand-500/20 transition-colors hover:bg-[#3311DB] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-navy-800"
           >
             <FiRefreshCw className="h-3.5 w-3.5" />
-            Retry
+            {t('dashboard:buttons.retry')}
           </button>
         </div>
       ) : (
@@ -909,7 +996,7 @@ export default function AdminDashboardView() {
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#EEF2FF] text-[#4318FF] dark:bg-brand-950/40 dark:text-brand-300">
               <FiFolder className="h-6 w-6" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <div className="flex items-center gap-2">
                 <span className="text-2xl md:text-3xl font-extrabold text-[#1B2559] dark:text-white tracking-tight">
                   {stats.totalActive}
@@ -917,12 +1004,12 @@ export default function AdminDashboardView() {
                 {todayCount !== null && (
                   <span className="inline-flex items-center gap-0.5 rounded-full bg-[#E6F9F0] px-2 py-0.5 text-[11px] font-bold text-[#05CD99] dark:bg-emerald-950/40 dark:text-emerald-300">
                     <FiTrendingUp className="h-3 w-3" />
-                    +{todayCount} today
+                    {t('dashboard:stats.todayDelta', { count: todayCount })}
                   </span>
                 )}
               </div>
-              <span className="mt-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Total Active Files
+              <span className="mt-1 text-[11px] font-bold uppercase leading-snug tracking-wider text-muted">
+                {t('dashboard:stats.totalActiveFiles')}
               </span>
             </div>
           </div>
@@ -932,12 +1019,12 @@ export default function AdminDashboardView() {
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#FAF5FF] text-[#8B5CF6] dark:bg-purple-950/40 dark:text-purple-300">
               <FiGrid className="h-6 w-6" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <span className="text-2xl md:text-3xl font-extrabold text-[#1B2559] dark:text-white tracking-tight">
                 {stats.sections}
               </span>
-              <span className="mt-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Sections
+              <span className="mt-1 text-[11px] font-bold uppercase leading-snug tracking-wider text-muted">
+                {t('dashboard:stats.sections')}
               </span>
             </div>
           </div>
@@ -947,12 +1034,12 @@ export default function AdminDashboardView() {
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#F0F7FF] text-[#3B82F6] dark:bg-blue-950/40 dark:text-blue-300">
               <FiFileText className="h-6 w-6" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex min-w-0 flex-col">
               <span className="text-2xl md:text-3xl font-extrabold text-[#1B2559] dark:text-white tracking-tight">
                 {stats.totalPages}
               </span>
-              <span className="mt-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Total Pages
+              <span className="mt-1 text-[11px] font-bold uppercase leading-snug tracking-wider text-muted">
+                {t('dashboard:stats.totalPages')}
               </span>
             </div>
           </div>
@@ -966,14 +1053,14 @@ export default function AdminDashboardView() {
           <div>
             <div className="flex items-center gap-2.5">
               <h3 className="text-lg font-bold text-[#1B2559] dark:text-white">
-                Recently Added Files
+                {t('dashboard:headings.recentlyAdded')}
               </h3>
               <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-[11px] font-bold text-[#4318FF] dark:bg-brand-950/40 dark:text-brand-300">
-                Latest 10 Files
+                {t('dashboard:headings.latestBadge')}
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400">
-              Showing latest 10 file records updated in real-time repository systems.
+              {t('dashboard:headings.recentlyAddedHint')}
             </p>
           </div>
 
@@ -986,8 +1073,8 @@ export default function AdminDashboardView() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by File ID, File Name..."
-                aria-label="Search recently added files"
+                placeholder={t('dashboard:cards.searchPlaceholder')}
+                aria-label={t('dashboard:cards.searchAria')}
                 className="ml-2 w-full bg-transparent text-xs outline-none placeholder:text-slate-400"
               />
             </div>
@@ -996,27 +1083,27 @@ export default function AdminDashboardView() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter recently added files by status"
+              aria-label={t('dashboard:cards.filterStatusAria')}
               className="h-9 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-700 dark:bg-navy-900 dark:text-white border border-slate-200 dark:border-navy-700 outline-none cursor-pointer"
             >
-              <option value="all" className="dark:bg-navy-800">All Status</option>
-              <option value="approved" className="dark:bg-navy-800">Approved</option>
-              <option value="pending" className="dark:bg-navy-800">Pending</option>
-              <option value="rejected" className="dark:bg-navy-800">Rejected</option>
-              <option value="archived" className="dark:bg-navy-800">Archived</option>
+              <option value="all" className="dark:bg-navy-800">{t('dashboard:filters.allStatus')}</option>
+              <option value="approved" className="dark:bg-navy-800">{t('common:status.approved')}</option>
+              <option value="pending" className="dark:bg-navy-800">{t('common:status.pending')}</option>
+              <option value="rejected" className="dark:bg-navy-800">{t('common:status.rejected')}</option>
+              <option value="archived" className="dark:bg-navy-800">{t('dashboard:filters.archived')}</option>
             </select>
 
             {/* Sort Dropdown */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              aria-label="Sort recently added files"
+              aria-label={t('dashboard:cards.sortAria')}
               className="h-9 rounded-xl bg-slate-50 px-3 text-xs font-semibold text-slate-700 dark:bg-navy-900 dark:text-white border border-slate-200 dark:border-navy-700 outline-none cursor-pointer"
             >
-              <option value="newest" className="dark:bg-navy-800">Newest added</option>
-              <option value="oldest" className="dark:bg-navy-800">Oldest added</option>
-              <option value="file_no" className="dark:bg-navy-800">File Number</option>
-              <option value="file_name" className="dark:bg-navy-800">File Name</option>
+              <option value="newest" className="dark:bg-navy-800">{t('dashboard:filters.newest')}</option>
+              <option value="oldest" className="dark:bg-navy-800">{t('dashboard:filters.oldest')}</option>
+              <option value="file_no" className="dark:bg-navy-800">{t('dashboard:filters.fileNumber')}</option>
+              <option value="file_name" className="dark:bg-navy-800">{t('dashboard:filters.fileName')}</option>
             </select>
 
             {/* View All Files Link */}
@@ -1024,7 +1111,7 @@ export default function AdminDashboardView() {
               href="/admin/manage-system-files"
               className="flex items-center gap-1 text-xs font-bold text-[#4318FF] hover:underline dark:text-brand-300 transition-colors ml-1"
             >
-              View &amp; Search All Files
+              {t('dashboard:cards.viewAllFiles')}
               <FiArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -1037,23 +1124,23 @@ export default function AdminDashboardView() {
         >
           <table
             key={isRecentFilesLoading ? 'loading' : 'ready'}
-            aria-label="Recently added files"
-            className={`w-full min-w-[1280px] table-fixed border-collapse text-left ${
+            aria-label={t('dashboard:cards.tableAria')}
+            className={`w-full min-w-[1280px] table-auto border-collapse text-left ${
               isRecentFilesLoading ? '' : 'animate-fadeIn'
             }`}
           >
             <thead>
               <tr className={TABLE_HEAD_ROW_CLASS}>
-                <th scope="col" className="w-10 py-2.5 pl-3 pr-1 text-center">NO</th>
-                <th scope="col" className="w-[180px] px-2 py-2.5">FILE NUMBER</th>
-                <th scope="col" className="w-[220px] px-2 py-2.5">FILE NAME</th>
-                <th scope="col" className="w-[125px] px-2 py-2.5">SECTION</th>
-                <th scope="col" className="w-[180px] px-2 py-2.5">FILE LOCATION</th>
-                <th scope="col" className="w-[140px] px-2 py-2.5">ADDED BY</th>
-                <th scope="col" className="w-[72px] px-2 py-2.5 text-center">ROLE</th>
-                <th scope="col" className="w-[105px] px-2 py-2.5">ADDED DATE &amp; TIME</th>
-                <th scope="col" className="w-[145px] px-2 py-2.5 text-center">REQUEST STATUS</th>
-                <th scope="col" className="w-[160px] px-2 py-2.5 text-center">ADMIN ACTIONS</th>
+                <th scope="col" className="w-10 py-2.5 pl-3 pr-1 text-center">{t('dashboard:columns.no')}</th>
+                <th scope="col" className="min-w-[150px] px-3 py-2.5">{t('dashboard:columns.fileNumber')}</th>
+                <th scope="col" className="min-w-[200px] px-3 py-2.5">{t('dashboard:columns.fileName')}</th>
+                <th scope="col" className="min-w-[130px] px-3 py-2.5">{t('dashboard:columns.section')}</th>
+                <th scope="col" className="min-w-[150px] px-3 py-2.5">{t('dashboard:columns.fileLocation')}</th>
+                <th scope="col" className="min-w-[130px] px-3 py-2.5">{t('dashboard:columns.addedBy')}</th>
+                <th scope="col" className="min-w-[90px] px-3 py-2.5 text-center">{t('dashboard:columns.role')}</th>
+                <th scope="col" className="min-w-[120px] px-3 py-2.5">{t('dashboard:columns.addedDateTime')}</th>
+                <th scope="col" className="min-w-[140px] px-3 py-2.5 text-center">{t('dashboard:columns.requestStatus')}</th>
+                <th scope="col" className="min-w-[150px] px-3 py-2.5 text-center">{t('dashboard:columns.adminActions')}</th>
               </tr>
             </thead>
             <tbody className={TABLE_BODY_CLASS}>
@@ -1066,7 +1153,7 @@ export default function AdminDashboardView() {
                       >
                         <Spinner size="xl" tone="brand" />
                         <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                          Loading recent files...
+                          {t('dashboard:states.loadingRecentFiles')}
                         </span>
                       </div>
                     </td>
@@ -1083,7 +1170,7 @@ export default function AdminDashboardView() {
                         </span>
                         <div>
                           <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                            Dashboard data unavailable
+                            {t('dashboard:states.dataUnavailable')}
                           </p>
                           <p className="mt-1 text-xs text-slate-400">
                             {loadError}
@@ -1095,7 +1182,7 @@ export default function AdminDashboardView() {
                           className="inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-md shadow-brand-500/20 transition-colors hover:bg-[#3311DB] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-navy-800"
                         >
                           <FiRefreshCw className="h-3.5 w-3.5" />
-                          Retry
+                          {t('dashboard:buttons.retry')}
                         </button>
                       </div>
                     </td>
@@ -1104,10 +1191,10 @@ export default function AdminDashboardView() {
                   <tr>
                     <td colSpan={10} className="py-16 text-center">
                       <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                        No records found
+                        {t('dashboard:states.noRecords')}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                        No file matches your filter or search criteria.
+                        {t('dashboard:states.noRecordsHint')}
                       </p>
                     </td>
                   </tr>

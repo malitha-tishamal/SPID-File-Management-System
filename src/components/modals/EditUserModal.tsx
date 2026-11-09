@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FiX,
   FiUser,
@@ -28,12 +29,12 @@ function statusDotClass(status: AccountStatus): string {
   return 'bg-white';
 }
 
-function statusLabel(status: AccountStatus): string {
-  if (status === 'approved') return 'Active Account';
-  if (status === 'disabled') return 'Suspended';
-  if (status === 'pending') return 'Pending Verification';
-  if (status === 'rejected') return 'Rejected';
-  return 'Locked';
+function statusLabel(status: AccountStatus, t: (key: string) => string): string {
+  if (status === 'approved') return t('modals.edit.status.activeAccount');
+  if (status === 'disabled') return t('modals.edit.status.suspended');
+  if (status === 'pending') return t('modals.edit.status.pendingVerification');
+  if (status === 'rejected') return t('common:status.rejected');
+  return t('status.locked');
 }
 
 export default function EditUserModal({
@@ -61,6 +62,7 @@ export default function EditUserModal({
     status?: AccountStatus;
   }) => void;
 }) {
+  const { t } = useTranslation('accounts');
   const [fullName, setFullName] = useState(user.full_name);
   const [sectionId, setSectionId] = useState<number | null>(user.section_id);
   const [role, setRole] = useState<UserRole>(user.role);
@@ -129,14 +131,14 @@ export default function EditUserModal({
               <MdAdminPanelSettings className="h-6 w-6" />
             </div>
             <h3 className="text-base font-bold text-navy-700 dark:text-white">
-              {isAdminVariant ? 'Edit Admin Profile' : 'Edit Staff User Profile'}
+              {t(isAdminVariant ? 'modals.edit.titleAdmin' : 'modals.edit.titleStaff')}
             </h3>
           </div>
           <button
             onClick={onClose}
             disabled={saving}
             className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-navy-600"
-            aria-label="Close"
+            aria-label={t('common:buttons.close')}
           >
             <FiX className="h-4 w-4" />
           </button>
@@ -153,7 +155,7 @@ export default function EditUserModal({
                 {user.full_name}
                 {isProtected && (
                   <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-purple-100 px-1 py-0.5 text-[8px] font-bold text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                    <FiLock className="h-2.5 w-2.5" /> PROTECTED
+                    <FiLock className="h-2.5 w-2.5" /> {t('table.protected')}
                   </span>
                 )}
               </p>
@@ -162,7 +164,7 @@ export default function EditUserModal({
           </div>
           <span className={`shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold ${statusBadgeClass(user.account_status)}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass(user.account_status)}`} />
-            {statusLabel(user.account_status)}
+            {statusLabel(user.account_status, t)}
           </span>
         </div>
 
@@ -171,7 +173,7 @@ export default function EditUserModal({
           {/* Full Name */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
-              <FiUser className="h-3.5 w-3.5 text-[#4318FF]" /> Full Name
+              <FiUser className="h-3.5 w-3.5 text-[#4318FF]" /> {t('modals.edit.fullName')}
             </label>
             <div className="relative">
               <input
@@ -179,20 +181,20 @@ export default function EditUserModal({
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className={`${inputBase} pr-9 ${nameError ? 'border-red-400' : ''}`}
-                placeholder="Enter full name"
+                placeholder={t('modals.edit.fullNamePlaceholder')}
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500">
                 <FiCheckCircle className="h-4 w-4" />
               </span>
             </div>
-            {nameError && <p className="mt-1 text-[10px] text-red-500">Name must be at least 3 characters.</p>}
+            {nameError && <p className="mt-1 text-[10px] text-red-500">{t('validation.nameMin', { count: 3 })}</p>}
           </div>
 
           {/* Official Email */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
               <FiMail className="h-3.5 w-3.5 text-[#4318FF]" />
-              {isAdminVariant ? 'Official Government Email' : 'Official Staff Email'}
+              {t(isAdminVariant ? 'modals.edit.emailAdmin' : 'modals.edit.emailStaff')}
             </label>
             <div className="relative">
               <input
@@ -210,7 +212,7 @@ export default function EditUserModal({
           {/* Mobile Phone Number */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
-              <FiPhone className="h-3.5 w-3.5 text-[#4318FF]" /> Mobile Phone Number
+              <FiPhone className="h-3.5 w-3.5 text-[#4318FF]" /> {t('modals.edit.mobile')}
             </label>
             <div
               className={`flex items-center rounded-xl border ${
@@ -235,7 +237,7 @@ export default function EditUserModal({
             </div>
             {phoneError && (
               <p className="mt-1 text-[10px] text-red-500">
-                Please enter a valid 9-digit mobile number.
+                {t('validation.phoneDigits', { count: 9 })}
               </p>
             )}
           </div>
@@ -243,14 +245,14 @@ export default function EditUserModal({
           {/* Departmental Allocation */}
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
-              <FiShield className="h-3.5 w-3.5 text-[#4318FF]" /> Departmental Allocation
+              <FiShield className="h-3.5 w-3.5 text-[#4318FF]" /> {t('modals.edit.section')}
             </label>
             <select
               value={sectionId ?? ''}
               onChange={(e) => setSectionId(e.target.value === '' ? null : Number(e.target.value))}
               className={`${inputBase} cursor-pointer`}
             >
-              <option value="">— Select Department —</option>
+              <option value="">{t('modals.edit.selectDepartment')}</option>
               {sections.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -263,7 +265,7 @@ export default function EditUserModal({
           <div className="sm:col-span-2">
             <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-navy-700 dark:text-gray-300">
               <FiShield className="h-3.5 w-3.5 text-[#4318FF]" />
-              {isAdminVariant ? 'Admin Security Role / Clearance' : 'User Access Role & Permissions'}
+              {t(isAdminVariant ? 'modals.edit.roleAdmin' : 'modals.edit.roleStaff')}
             </label>
             <div className="relative">
               <select
@@ -272,8 +274,8 @@ export default function EditUserModal({
                 disabled={!canChangePrivileged}
                 className={`${inputBase} pr-9 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-50`}
               >
-                <option value="Administrator">Administrator (Super-Tier)</option>
-                <option value="Staff">Staff Member (Operational)</option>
+                <option value="Administrator">{t('modals.edit.optionAdmin')}</option>
+                <option value="Staff">{t('modals.edit.optionStaff')}</option>
               </select>
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                 <FiShield className="h-3.5 w-3.5" />
@@ -281,9 +283,7 @@ export default function EditUserModal({
             </div>
             {!canChangePrivileged && (
               <p className="mt-1 text-[10px] text-gray-400">
-                {isSelf
-                  ? 'You cannot change your own role.'
-                  : 'The primary administrator role is protected.'}
+                {t(isSelf ? 'modals.edit.selfRoleNote' : 'modals.edit.protectedRoleNote')}
               </p>
             )}
           </div>
@@ -298,7 +298,7 @@ export default function EditUserModal({
             onClick={onClose}
             disabled={saving}
           >
-            Cancel
+            {t('common:buttons.cancel')}
           </Button>
           <button
             onClick={handleSave}
@@ -308,12 +308,12 @@ export default function EditUserModal({
             {saving ? (
               <>
                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                Saving...
+                {t('modals.saving')}
               </>
             ) : (
               <>
                 <MdSave className="h-4 w-4" />
-                {isAdminVariant ? 'Save Admin Changes' : 'Save User Changes'}
+                {t(isAdminVariant ? 'modals.edit.saveAdmin' : 'modals.edit.saveStaff')}
               </>
             )}
           </button>

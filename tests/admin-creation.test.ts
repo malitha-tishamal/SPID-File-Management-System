@@ -73,6 +73,12 @@ vi.mock('models/ProfileRepository', () => {
       findByEmail(email: string) {
         return mockAdminProfilesFindByEmail(email);
       }
+      emailExistsIncludingDeleted(email: string) {
+        return mockAdminProfilesFindByEmail(email);
+      }
+      findActiveByMobilePhone() {
+        return Promise.resolve(null);
+      }
       findById(id: string) {
         return Promise.resolve(null);
       }
@@ -111,6 +117,13 @@ vi.mock('services/LockoutService', () => ({
     check: vi.fn().mockResolvedValue({ locked: false }),
     recordFailedAttempt: vi.fn().mockResolvedValue({ locked: false }),
     resetOnSuccess: vi.fn().mockResolvedValue(undefined),
+    checkIpRateLimit: vi
+      .fn()
+      .mockResolvedValue({ limited: false, failed_in_window: 0, retry_after_seconds: 0 }),
+    logAttempt: vi.fn().mockResolvedValue(0),
+    isPermanent: vi.fn().mockReturnValue(false),
+    isLocked: vi.fn().mockReturnValue(false),
+    reasonForState: vi.fn().mockReturnValue('LOCKED_TEMP'),
   },
 }));
 
@@ -158,6 +171,7 @@ describe('Admin Creation and Email Verification Bypass', () => {
         email: 'newadmin@spid.gov.lk',
         password: 'SecureAdminPass!99',
         role: 'Administrator',
+        mobile_phone: '0771234567',
       }),
     });
 
@@ -178,7 +192,7 @@ describe('Admin Creation and Email Verification Bypass', () => {
         full_name: 'Deputy Director Perera',
         requested_role: 'Administrator',
         section_id: null,
-        mobile_phone: null,
+        mobile_phone: expect.any(String),
       },
     });
 
@@ -251,12 +265,15 @@ describe('Admin Creation and Email Verification Bypass', () => {
         full_name: 'Duplicate Admin',
         email: 'existing@spid.gov.lk',
         password: 'Password123!',
+        role: 'Administrator',
+        mobile_phone: '0771234567',
       }),
     });
 
-    await expect(AdminController.createUser(req)).rejects.toThrow(
-      new ApiError(409, 'USER_EXISTS', 'An account with this email address already exists.')
-    );
+    await expect(AdminController.createUser(req)).rejects.toMatchObject({
+      status: 409,
+      code: 'EMAIL_TAKEN',
+    });
 
     expect(mockAdminAuthCreateUser).not.toHaveBeenCalled();
   });
@@ -297,9 +314,14 @@ describe('Admin Creation and Email Verification Bypass', () => {
         full_name: 'Valid Name',
         email: 'valid@spid.gov.lk',
         password: 'short',
+        role: 'Staff',
+        mobile_phone: '0771234567',
       }),
     });
-    await expect(AdminController.createUser(req1)).rejects.toThrow('Password must be at least 8 characters.');
+    await expect(AdminController.createUser(req1)).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_ERROR',
+    });
 
     // Short name
     const req2 = new Request('http://localhost:3000/api/admin/users/create', {
@@ -308,9 +330,14 @@ describe('Admin Creation and Email Verification Bypass', () => {
         full_name: 'A',
         email: 'valid@spid.gov.lk',
         password: 'ValidPassword123',
+        role: 'Staff',
+        mobile_phone: '0771234567',
       }),
     });
-    await expect(AdminController.createUser(req2)).rejects.toThrow('Full name must be at least 3 characters.');
+    await expect(AdminController.createUser(req2)).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_ERROR',
+    });
 
     // Invalid email
     const req3 = new Request('http://localhost:3000/api/admin/users/create', {
@@ -319,9 +346,14 @@ describe('Admin Creation and Email Verification Bypass', () => {
         full_name: 'Valid Name',
         email: 'not-an-email',
         password: 'ValidPassword123',
+        role: 'Staff',
+        mobile_phone: '0771234567',
       }),
     });
-    await expect(AdminController.createUser(req3)).rejects.toThrow('A valid email address is required.');
+    await expect(AdminController.createUser(req3)).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_ERROR',
+    });
   });
 
   it('enforces email confirmation on normal public users when unconfirmed', async () => {

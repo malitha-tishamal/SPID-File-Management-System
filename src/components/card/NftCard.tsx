@@ -1,5 +1,6 @@
 import { IoHeart, IoHeartOutline } from 'react-icons/io5';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Card from 'components/card';
 import Image from 'next/image';
 
@@ -13,6 +14,7 @@ const NftCard = (props: {
   extra?: string;
 }) => {
   const { title, author, price, image, bidders, extra } = props;
+  const { t } = useTranslation();
   const [heart, setHeart] = useState(true);
   return (
     <Card
@@ -55,7 +57,7 @@ const NftCard = (props: {
               {title}{' '}
             </p>
             <p className="mt-1 text-sm font-medium text-gray-600 md:mt-2">
-              By {author}{' '}
+              {t('shell:card.by', { author })}{' '}
             </p>
           </div>
 
@@ -83,11 +85,11 @@ const NftCard = (props: {
         <div className="flex items-center justify-between md:flex-col md:items-start lg:flex-row lg:justify-between xl:flex-col 2xl:items-start 3xl:flex-row 3xl:items-center 3xl:justify-between">
           <div className="flex">
             <p className="mb-2 text-sm font-bold text-brand-500 dark:text-white">
-              Current Bid: {price} <span>ETH</span>
+              {t('shell:card.currentBid', { price })} <span>ETH</span>
             </p>
           </div>
           <button className="linear rounded-[20px] bg-brand-900 px-4 py-2 text-base font-medium text-white transition duration-200 hover:bg-brand-800 active:bg-brand-700 dark:bg-brand-400 dark:hover:bg-brand-300 dark:active:opacity-90">
-            Place Bid
+            {t('shell:buttons.placeBid')}
           </button>
         </div>
       </div>

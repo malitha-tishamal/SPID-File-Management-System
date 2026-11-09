@@ -11,6 +11,7 @@ import {
   SECTION_NAME_MIN_LENGTH,
 } from 'lib/sectionName';
 import { useSectionNameCheck } from 'lib/useSectionNameCheck';
+import { useTranslation } from 'react-i18next';
 import Modal from 'components/ui/Modal';
 import Button from 'components/ui/Button';
 import SpellCheckedNameInput from 'components/ui/SpellCheckedNameInput';
@@ -29,6 +30,7 @@ export default function AddSectionModal({
   onClose,
   onCreated,
 }: AddSectionModalProps) {
+  const { t } = useTranslation('accounts');
   const [name, setName] = useState('');
   const [sectionLead, setSectionLead] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -86,12 +88,12 @@ export default function AddSectionModal({
       : undefined;
 
     if (!normalizedName || normalizedName.length < SECTION_NAME_MIN_LENGTH) {
-      setError(`Section name must be at least ${SECTION_NAME_MIN_LENGTH} characters.`);
+      setError(t('validation.sectionNameMin', { count: SECTION_NAME_MIN_LENGTH }));
       return;
     }
 
     if (normalizedName.length > SECTION_NAME_MAX_LENGTH) {
-      setError(`Section name must be ${SECTION_NAME_MAX_LENGTH} characters or fewer.`);
+      setError(t('validation.sectionNameMax', { count: SECTION_NAME_MAX_LENGTH }));
       return;
     }
 
@@ -127,12 +129,12 @@ export default function AddSectionModal({
         setError(
           json?.message ||
             (res.status === 409
-              ? `Section '${normalizedName}' already exists.`
-              : 'Failed to create section. Please check requirements and try again.'),
+              ? t('validation.sectionExists', { name: normalizedName })
+              : t('modals.addSection.createFailed')),
         );
       }
     } catch {
-      setError('Network connection failed. Please try again.');
+      setError(t('modals.addSection.networkError'));
     } finally {
       setSaving(false);
     }
@@ -152,14 +154,14 @@ export default function AddSectionModal({
             id="add-section-title"
             className="text-lg font-bold text-navy-800 dark:text-white"
           >
-            Add New Section
+            {t('sections.form.addTitle')}
           </h3>
           <button
             type="button"
             disabled={saving}
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-navy-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
-            aria-label="Close"
+            aria-label={t('common:buttons.close')}
           >
             <FiX className="h-4 w-4" />
           </button>
@@ -184,7 +186,7 @@ export default function AddSectionModal({
               htmlFor="add-section-name"
               className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
             >
-              Section Name <span className="text-red-500">*</span>
+              {t('sections.form.nameLabel')} <span className="text-red-500">*</span>
             </label>
             <SpellCheckedNameInput
               id="add-section-name"
@@ -192,7 +194,7 @@ export default function AddSectionModal({
               onChange={handleNameChange}
               sections={allSections}
               extraDictionaryText={sectionLead}
-              placeholder="e.g. Engineering Central Registry"
+              placeholder={t('sections.form.namePlaceholder')}
               disabled={saving}
               autoFocus
               maxLength={SECTION_NAME_MAX_LENGTH}
@@ -209,7 +211,8 @@ export default function AddSectionModal({
               }`}
               aria-live="polite"
             >
-              {duplicateMessage ?? 'At least 3 characters. Spelling suggestions never block creation.'}
+              {duplicateMessage ??
+                t('sections.form.nameHintCreate', { count: SECTION_NAME_MIN_LENGTH })}
             </p>
           </div>
 
@@ -219,14 +222,14 @@ export default function AddSectionModal({
               htmlFor="add-section-lead"
               className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-200"
             >
-              Section Lead (Optional)
+              {t('sections.form.leadLabelOptional')}
             </label>
             <input
               id="add-section-lead"
               type="text"
               value={sectionLead}
               onChange={(e) => setSectionLead(e.target.value)}
-              placeholder="e.g. Dr. J. Philips"
+              placeholder={t('sections.form.leadPlaceholderAlt')}
               spellCheck={false}
               autoCorrect="off"
               className="w-full rounded-xl bg-[#F4F7FE] dark:bg-navy-900 py-2.5 px-3.5 text-xs font-medium text-slate-800 dark:text-white border border-transparent focus:border-[#4318FF] focus:outline-none transition-colors placeholder:text-slate-400"
@@ -243,17 +246,17 @@ export default function AddSectionModal({
               disabled={saving}
               className="flex-1"
             >
-              Cancel
+              {t('common:buttons.cancel')}
             </Button>
             <Button
               type="submit"
               variant="primary"
               loading={saving}
-              loadingText="Creating..."
+              loadingText={t('modals.creating')}
               disabled={!name.trim() || Boolean(duplicateMessage)}
               className="flex-1"
             >
-              Create Section
+              {t('sections.form.create')}
             </Button>
           </div>
         </form>

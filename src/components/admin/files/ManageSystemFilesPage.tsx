@@ -17,10 +17,14 @@ import {
   FiXCircle,
   FiX,
   FiAlertCircle,
+  FiBell,
 } from 'react-icons/fi';
+import { useTranslation } from 'react-i18next';
 import { useToast } from 'components/toast/ToastContext';
 import { exportToCsv, formatDateTimeForCsv } from 'lib/csvExport';
 import { fetchClientSections } from 'lib/sectionsClient';
+import { FILE_FIELD_MAX_LENGTH } from 'lib/constants';
+import { getSupabaseBrowserClient } from 'config/supabase/client';
 import {
   formatSriLankaDate,
   isValidYmd,
@@ -35,6 +39,8 @@ import ConfirmRejectModal from './ConfirmRejectModal';
 import EditFileModal from './EditFileModal';
 import ConfirmDeleteModal from './ConfirmDeleteModal';
 import TableLoadingProgressBar from './TableLoadingProgressBar';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
+import { attributedNameText } from 'utils/userDisplay';
 import type { FileRecordRow, FileCountsSummary } from 'models/FileRepository';
 
 interface SectionItem {
@@ -47,6 +53,7 @@ type SortKey = 'newest' | 'oldest' | 'file_no' | 'file_name';
 
 const DEFAULT_LIMIT = 15;
 const SEARCH_DEBOUNCE_MS = 300;
+const REALTIME_REFRESH_DEBOUNCE_MS = 1000;
 
 const EMPTY_COUNTS: FileCountsSummary = {
   totalArchives: 0,
@@ -58,11 +65,9 @@ const EMPTY_COUNTS: FileCountsSummary = {
 
 export default function ManageSystemFilesPage() {
   const { showToast } = useToast();
+  const { t } = useTranslation('files');
 
   const [activeTab, setActiveTab] = useState<TabKey>('requests');
-
-  const [autoApproval, setAutoApproval] = useState<boolean>(false);
-  const [isTogglingApproval, setIsTogglingApproval] = useState<boolean>(false);
 
   const [files, setFiles] = useState<FileRecordRow[]>([]);
   const [counts, setCounts] = useState<FileCountsSummary>(EMPTY_COUNTS);
@@ -89,6 +94,7 @@ export default function ManageSystemFilesPage() {
   const [sortBy, setSortBy] = useState<SortKey>('newest');
 
   const [sectionsList, setSectionsList] = useState<SectionItem[]>([]);
+  useLocalizedFields(sectionsList.map((section) => section.name));
 
   const [viewingFile, setViewingFile] = useState<FileRecordRow | null>(null);
   const [approvingFile, setApprovingFile] = useState<FileRecordRow | null>(null);
@@ -99,6 +105,13 @@ export default function ManageSystemFilesPage() {
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [deletingFile, setDeletingFile] = useState<FileRecordRow | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Realtime notification state
+  const [newFileNotification, setNewFileNotification] = useState<{
+    fileNo: string;
+    fileName: string;
+    timestamp: number;
+  } | null>(null);
 
   // Reference data is cached and de-duplicated by the shared client helper.
   useEffect(() => {
@@ -120,13 +133,13 @@ export default function ManageSystemFilesPage() {
 
   const dateRangeError = useMemo(() => {
     if ((startDate && !isValidYmd(startDate)) || (endDate && !isValidYmd(endDate))) {
-      return 'Select valid start and end dates.';
+      return t('filters.invalidDates');
     }
     if (startDate && endDate && startDate > endDate) {
-      return 'Start date cannot be later than the end date.';
+      return t('filters.invalidRange');
     }
     return null;
-  }, [startDate, endDate]);
+  }, [startDate, endDate, t]);
 
   const buildFilterParams = useCallback(
     (overrideLimit?: number, overridePage?: number, overrideSearch?: string) => {
@@ -174,11 +187,6 @@ export default function ManageSystemFilesPage() {
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) return;
       if (json.data?.counts) setCounts(json.data.counts);
-      if (typeof json.data?.auto_approval === 'boolean') {
-        setAutoApproval(json.data.auto_approval);
-      } else if (typeof json.data?.requireApproval === 'boolean') {
-        setAutoApproval(!json.data.requireApproval);
-      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return;
     }
@@ -212,32 +220,32 @@ export default function ManageSystemFilesPage() {
           setHasLoadedTableOnce(true);
           setLoadError(null);
         } else {
-          const message = json?.message || 'Failed to fetch files from server.';
+          const message = json?.message || t('feedback.loadFailedMessage');
           setLoadError(message);
           setLoadedTab(activeTab);
           setHasLoadedTableOnce(true);
           showToast({
             type: 'error',
-            title: 'Error loading files',
+            title: t('feedback.errorLoadingTitle'),
             message,
           });
         }
       } catch (error) {
         if (signal.aborted || requestId !== requestIdRef.current) return;
-        const message = 'Could not connect to the server to load file records.';
+        const message = t('feedback.connectionLoadMessage');
         setLoadError(message);
         setLoadedTab(activeTab);
         setHasLoadedTableOnce(true);
         showToast({
           type: 'error',
-          title: 'Connection Error',
+          title: t('feedback.connectionErrorTitle'),
           message,
         });
       } finally {
         if (requestId === requestIdRef.current) setIsTableLoading(false);
       }
     },
-    [activeTab, buildFilterParams, showToast],
+    [activeTab, buildFilterParams, showToast, t],
   );
 
   useEffect(() => {
@@ -254,6 +262,76 @@ export default function ManageSystemFilesPage() {
 
     return () => controller.abort();
   }, [loadFiles, dateRangeError, reloadKey]);
+
+  // ── Realtime Subscription for Files Table ───────────────────────────────────
+  useEffect(() => {
+    let refreshTimer: number | undefined;
+    let channel: any = null;
+
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        setReloadKey((key) => key + 1);
+        void loadMeta();
+      }, REALTIME_REFRESH_DEBOUNCE_MS);
+    };
+
+    const handleFileChange = (payload: any) => {
+      const { eventType, new: newRecord, old: oldRecord } = payload;
+
+      // Show notification for new file insertions
+      if (eventType === 'INSERT' && newRecord) {
+        const isStaffSubmission = newRecord.registrar_role !== 'Administrator' &&
+                                newRecord.registrar_role !== 'Admin';
+        
+        if (isStaffSubmission) {
+          setNewFileNotification({
+            fileNo: newRecord.file_no,
+            fileName: newRecord.file_name,
+            timestamp: Date.now(),
+          });
+
+          // Auto-dismiss notification after 5 seconds
+          window.setTimeout(() => {
+            setNewFileNotification(null);
+          }, 5000);
+        }
+      }
+
+      // Always refresh on any change to keep UI in sync
+      scheduleRefresh();
+    };
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      channel = supabase
+        .channel('manage-system-files-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'files' },
+          handleFileChange,
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('Realtime subscription error for files table:', status);
+          }
+        });
+    } catch (error) {
+      console.error('Failed to setup realtime subscription:', error);
+      // Realtime is optional; keep the manual refresh fallback
+    }
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      if (channel) {
+        try {
+          getSupabaseBrowserClient().removeChannel(channel);
+        } catch (error) {
+          console.error('Error removing realtime channel:', error);
+        }
+      }
+    };
+  }, [loadMeta]);
 
   const refreshFilesView = useCallback(() => {
     setReloadKey((value) => value + 1);
@@ -324,7 +402,7 @@ export default function ManageSystemFilesPage() {
     if (dateRangeError) {
       showToast({
         type: 'error',
-        title: 'Invalid Date Range',
+        title: t('feedback.invalidDateRangeTitle'),
         message: dateRangeError,
       });
       return;
@@ -343,8 +421,8 @@ export default function ManageSystemFilesPage() {
       if (!res.ok || !json?.ok) {
         showToast({
           type: 'error',
-          title: 'Export Failed',
-          message: json?.message || 'Could not retrieve records for export.',
+          title: t('feedback.exportFailedTitle'),
+          message: json?.message || t('feedback.exportFetchFailed'),
         });
         return;
       }
@@ -354,14 +432,14 @@ export default function ManageSystemFilesPage() {
       if (exportFiles.length === 0) {
         showToast({
           type: 'info',
-          title: 'No Records to Export',
-          message:
-            'No matching records to export. Try adjusting your search or filters.',
+          title: t('feedback.noRecordsToExportTitle'),
+          message: t('feedback.noRecordsToExportMessage'),
         });
         return;
       }
 
       const today = sriLankaTodayInput();
+      const deletedLabel = t('common:deletedUser');
 
       if (activeTab === 'requests') {
         // ── File Requests CSV ──────────────────────────────────────────────
@@ -390,7 +468,10 @@ export default function ManageSystemFilesPage() {
             f.file_name,
             f.section_name,
             location,
-            f.registrar_name || '',
+            attributedNameText(f.registrar_name, {
+              deleted: f.registrar_is_deleted,
+              label: deletedLabel,
+            }),
             f.registrar_role === 'Administrator' ? 'Admin' : 'Staff',
             formatDateTimeForCsv(f.created_at),
             f.status || 'PENDING',
@@ -427,15 +508,21 @@ export default function ManageSystemFilesPage() {
               ? f.approved_by
               : null);
 
+          // adminName resolves the approved_by actor, which carries the deleted flag.
+          const adminNameText = attributedNameText(adminName, {
+            deleted: f.approver_is_deleted,
+            label: deletedLabel,
+          });
+
           let adminAction = 'System Verified';
           if (f.status === 'PENDING') {
             adminAction = 'Pending Review';
           } else if (f.status === 'disabled' || f.status === 'disposed') {
-            adminAction = adminName ? `Disabled by ${adminName}` : 'Disabled';
+            adminAction = adminName ? `Disabled by ${adminNameText}` : 'Disabled';
           } else if (f.status === 'REJECTED') {
-            adminAction = adminName ? `Rejected by ${adminName}` : 'Rejected';
+            adminAction = adminName ? `Rejected by ${adminNameText}` : 'Rejected';
           } else if (adminName) {
-            adminAction = `Approved by ${adminName}`;
+            adminAction = `Approved by ${adminNameText}`;
           } else if (f.registrar_role === 'Administrator' || !f.approved_by) {
             adminAction = 'Approved (Auto-Logged)';
           } else if (f.approved_by || f.approved_at) {
@@ -447,7 +534,10 @@ export default function ManageSystemFilesPage() {
             f.file_name,
             f.section_name,
             location,
-            f.registrar_name || '',
+            attributedNameText(f.registrar_name, {
+              deleted: f.registrar_is_deleted,
+              label: deletedLabel,
+            }),
             f.registrar_role === 'Administrator' ? 'Admin' : 'Staff',
             formatDateTimeForCsv(f.created_at),
             f.status || '',
@@ -459,109 +549,62 @@ export default function ManageSystemFilesPage() {
 
       showToast({
         type: 'success',
-        title: 'Export Complete',
-        message: `Exported ${exportFiles.length} record${
-          exportFiles.length !== 1 ? 's' : ''
-        } to CSV.`,
+        title: t('feedback.exportCompleteTitle'),
+        message: t('feedback.exportCompleteMessage', {
+          count: exportFiles.length,
+        }),
       });
     } catch {
       showToast({
         type: 'error',
-        title: 'Export Error',
-        message:
-          'An unexpected error occurred while generating the CSV export.',
+        title: t('feedback.exportErrorTitle'),
+        message: t('feedback.exportErrorMessage'),
       });
     } finally {
       setIsExporting(false);
     }
   };
 
-  // ── Approval Setting Toggle ────────────────────────────────────────────────
-  const handleToggleApprovalSetting = async () => {
-    if (isTogglingApproval) return;
-    const previous = autoApproval;
-    const next = !previous;
-
-    setAutoApproval(next);
-    setIsTogglingApproval(true);
-
-    try {
-      const res = await fetch('/api/admin/files/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto_approval: next, require_approval: !next }),
-      });
-      const json = await res.json().catch(() => null);
-
-      if (res.ok && json?.ok) {
-        const serverAuto =
-          typeof json.data?.auto_approval === 'boolean'
-            ? json.data.auto_approval
-            : typeof json.data?.require_approval === 'boolean'
-              ? !json.data.require_approval
-              : next;
-        setAutoApproval(serverAuto);
-        showToast({
-          type: 'success',
-          title: 'System Setting Updated',
-          message: serverAuto
-            ? 'Auto approval enabled. Staff file submissions will be approved automatically.'
-            : 'Auto approval disabled. Staff file submissions now require administrator review.',
-        });
-      } else {
-        setAutoApproval(previous);
-        showToast({
-          type: 'error',
-          title: 'Failed to Update Setting',
-          message: json?.message || 'Server rejected the setting update.',
-        });
-      }
-    } catch {
-      setAutoApproval(previous);
-      showToast({
-        type: 'error',
-        title: 'Network Error',
-        message: 'Could not update system setting due to network error.',
-      });
-    } finally {
-      setIsTogglingApproval(false);
-    }
-  };
-
   // ── Approve File Action ────────────────────────────────────────────────────
-  const handleApproveConfirm = async () => {
+  const handleApproveConfirm = async (storageData: { locker_no: string | null; shelf_name: string | null; shelf_position: string | null }) => {
     if (!approvingFile || isApproving) return;
     setIsApproving(true);
 
     try {
       const res = await fetch(
         `/api/admin/files/${encodeURIComponent(approvingFile.file_no)}/approve`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(storageData),
+        },
       );
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'Submission Approved',
+          title: t('feedback.approveSuccessTitle'),
           message:
             json.data?.message ||
-            `File ${approvingFile.file_name} has been approved.`,
+            t('feedback.approveSuccessMessage', {
+              fileName: approvingFile.file_name,
+            }),
         });
         setApprovingFile(null);
         refreshFilesView();
       } else {
         showToast({
           type: 'error',
-          title: 'Approval Failed',
-          message: json?.message || 'Could not approve submission.',
+          title: t('feedback.approvalFailedTitle'),
+          message: json?.message || t('feedback.couldNotApprove'),
         });
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server to approve request.',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.approveConnectionMessage'),
       });
     } finally {
       setIsApproving(false);
@@ -587,10 +630,12 @@ export default function ManageSystemFilesPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'info',
-          title: 'Submission Declined',
+          title: t('feedback.rejectSuccessTitle'),
           message:
             json.data?.message ||
-            `File request ${rejectingFile.file_no} has been rejected.`,
+            t('feedback.rejectSuccessMessage', {
+              fileNo: rejectingFile.file_no,
+            }),
         });
         setRejectingFile(null);
         refreshFilesView();
@@ -599,23 +644,23 @@ export default function ManageSystemFilesPage() {
         if (json?.code === 'VALIDATION_ERROR') {
           showToast({
             type: 'error',
-            title: 'Validation Error',
-            message: json?.message || 'Could not reject submission.',
+            title: t('feedback.validationErrorTitle'),
+            message: json?.message || t('feedback.couldNotReject'),
           });
         } else {
           // For other errors, also keep modal open but show error
           showToast({
             type: 'error',
-            title: 'Rejection Failed',
-            message: json?.message || 'Could not reject submission.',
+            title: t('feedback.rejectionFailedTitle'),
+            message: json?.message || t('feedback.couldNotReject'),
           });
         }
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server to reject request.',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.rejectConnectionMessage'),
       });
     } finally {
       setIsRejecting(false);
@@ -641,27 +686,33 @@ export default function ManageSystemFilesPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'File Updated',
-          message: 'File details were updated successfully.',
+          title: t('feedback.updatedTitle'),
+          message: t('feedback.updatedMessage'),
         });
         setEditingFile(null);
         refreshFilesView();
+      } else if (json?.code === 'FIELD_TOO_LONG') {
+        // Surface the server's verdict on the field itself, not as a toast.
+        return t('validation.fileNameMax', {
+          max: Number(json.max) || FILE_FIELD_MAX_LENGTH,
+        });
       } else {
         showToast({
           type: 'error',
-          title: 'Update Failed',
-          message: json?.message || 'Could not update file record.',
+          title: t('feedback.updateFailedTitle'),
+          message: json?.message || t('feedback.couldNotUpdate'),
         });
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server to update file.',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.updateConnectionMessage'),
       });
     } finally {
       setIsSavingEdit(false);
     }
+    return null;
   };
 
   // ── Delete File Action ─────────────────────────────────────────────────────
@@ -679,23 +730,23 @@ export default function ManageSystemFilesPage() {
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: 'File Deleted',
-          message: 'File record has been permanently removed.',
+          title: t('feedback.deletedTitle'),
+          message: t('feedback.deletedMessage'),
         });
         setDeletingFile(null);
         refreshFilesView();
       } else {
         showToast({
           type: 'error',
-          title: 'Delete Failed',
-          message: json?.message || 'Could not delete file record.',
+          title: t('feedback.deleteFailedTitle'),
+          message: json?.message || t('feedback.couldNotDelete'),
         });
       }
     } catch {
       showToast({
         type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to communicate with server to delete file.',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.deleteConnectionMessage'),
       });
     } finally {
       setIsDeleting(false);
@@ -731,13 +782,15 @@ export default function ManageSystemFilesPage() {
             href="/admin/dashboard"
             className="transition-colors hover:text-slate-600 dark:hover:text-white"
           >
-            Pages
+            {t('page.breadcrumbPages')}
           </Link>
           <span>/</span>
-          <span className="text-slate-500 dark:text-gray-300">Record Room</span>
+          <span className="text-slate-500 dark:text-gray-300">
+            {t('page.breadcrumbRecordRoom')}
+          </span>
           <span>/</span>
           <span className="font-bold text-[#1B254B] dark:text-white">
-            All Files
+            {t('page.breadcrumbAllFiles')}
           </span>
         </nav>
 
@@ -746,7 +799,7 @@ export default function ManageSystemFilesPage() {
           className="inline-flex items-center gap-1.5 text-xs font-bold text-[#4318FF] hover:underline dark:text-brand-300"
         >
           <FiArrowLeft className="h-3.5 w-3.5" />
-          <span>Back to Recordroom Dashboard</span>
+          <span>{t('page.backToDashboard')}</span>
         </Link>
       </div>
 
@@ -754,13 +807,37 @@ export default function ManageSystemFilesPage() {
       <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-[#1B254B] dark:text-white sm:text-3xl">
-            All Files
+            {t('page.title')}
           </h1>
           <p className="mt-0.5 text-xs text-slate-400 dark:text-gray-400">
-            All files in the Recordroom as of {todayLabel}. Review incoming
-            submissions and manage administrative approvals.
+            {t('page.subtitle', { date: todayLabel })}
           </p>
         </div>
+
+        {/* ── NEW FILE NOTIFICATION BANNER ── */}
+        {newFileNotification && (
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800/40 dark:bg-emerald-950/30 animate-in slide-in-from-top fade-in duration-300">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400">
+              <FiBell className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                {t('page.newFileRequest')}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                {newFileNotification.fileNo} - {newFileNotification.fileName}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNewFileNotification(null)}
+              className="shrink-0 rounded-lg p-1 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-400 dark:hover:bg-emerald-900/50 transition-colors"
+              aria-label={t('page.dismissNotification')}
+            >
+              <FiX className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
           <div className="shadow-xs flex min-w-[170px] items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 dark:border-navy-700 dark:bg-navy-800 sm:px-4 sm:py-3">
@@ -769,18 +846,18 @@ export default function ManageSystemFilesPage() {
             </div>
             <div>
               <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                SYSTEM TOTAL FILE COUNT
+                {t('page.statTotalLabel')}
               </span>
               <div className="flex items-baseline gap-1.5">
                 <span className="font-mono text-base font-black text-[#1B254B] dark:text-white">
                   {format4Digit(counts.totalArchives)}
                 </span>
                 <span className="text-[11px] font-bold text-slate-400">
-                  Files
+                  {t('page.statUnit')}
                 </span>
               </div>
               <span className="inline-block text-[10px] font-semibold text-slate-400">
-                Total Archives
+                {t('page.statTotalHint')}
               </span>
             </div>
           </div>
@@ -791,18 +868,18 @@ export default function ManageSystemFilesPage() {
             </div>
             <div>
               <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                TODAY ADDED FILE COUNT
+                {t('page.statTodayLabel')}
               </span>
               <div className="flex items-baseline gap-1.5">
                 <span className="font-mono text-base font-black text-[#1B254B] dark:text-white">
                   {format4Digit(counts.todayCount)}
                 </span>
                 <span className="text-[11px] font-bold text-slate-400">
-                  Files
+                  {t('page.statUnit')}
                 </span>
               </div>
               <span className="inline-block text-[10px] font-semibold text-slate-400">
-                Today&apos;s Intake
+                {t('page.statTodayHint')}
               </span>
             </div>
           </div>
@@ -813,14 +890,14 @@ export default function ManageSystemFilesPage() {
             </div>
             <div>
               <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                ALL FILES
+                {t('page.statAllLabel')}
               </span>
               <div className="flex items-baseline gap-1.5">
                 <span className="font-mono text-base font-black text-[#1B254B] dark:text-white">
                   {counts.allFilesCount}
                 </span>
                 <span className="text-[11px] font-bold text-slate-400">
-                  Files added
+                  {t('page.statAllUnit')}
                 </span>
               </div>
             </div>
@@ -837,8 +914,8 @@ export default function ManageSystemFilesPage() {
               type="text"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search by file number, file name, or officer..."
-              aria-label="Search files"
+              placeholder={t('filters.searchPlaceholder')}
+              aria-label={t('filters.searchAria')}
               className="h-9 w-full rounded-xl border border-transparent bg-slate-50/70 pl-9 pr-3 text-xs text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/15 dark:bg-navy-900/70 dark:text-white"
             />
           </div>
@@ -849,15 +926,17 @@ export default function ManageSystemFilesPage() {
               onChange={(event) =>
                 applyFilter(() => setSelectedSection(event.target.value))
               }
-              aria-label="Filter by section"
+              aria-label={t('filters.sectionAria')}
               className="h-9 w-full cursor-pointer appearance-none rounded-xl border border-transparent bg-slate-50/70 px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/15 dark:bg-navy-900/70 dark:text-slate-200"
             >
               <option value="all">
-                All Sections ({sectionsList.length || 12})
+                {t('filters.allSections', {
+                  count: sectionsList.length || 12,
+                })}
               </option>
               {sectionsList.map((section, index) => (
                 <option key={section.id ?? index} value={section.name}>
-                  {section.name}
+                  {localizeField(section.name)}
                 </option>
               ))}
             </select>
@@ -870,15 +949,19 @@ export default function ManageSystemFilesPage() {
               onChange={(event) =>
                 applyFilter(() => setSelectedStorage(event.target.value))
               }
-              aria-label="Filter by storage unit"
+              aria-label={t('filters.storageAria')}
               className="h-9 w-full cursor-pointer appearance-none rounded-xl border border-transparent bg-slate-50/70 px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/15 dark:bg-navy-900/70 dark:text-slate-200"
             >
-              <option value="all">All Storage Units</option>
-              <option value="Rack A">Rack A-04</option>
-              <option value="Vault B">Vault B</option>
-              <option value="Wing C">Wing C</option>
-              <option value="Archive Room 2">Archive Room 2</option>
-              <option value="Locker L-102">Locker L-102</option>
+              <option value="all">{t('filters.allStorage')}</option>
+              <option value="Rack A">{t('filters.storageRackA')}</option>
+              <option value="Vault B">{t('filters.storageVaultB')}</option>
+              <option value="Wing C">{t('filters.storageWingC')}</option>
+              <option value="Archive Room 2">
+                {t('filters.storageArchiveRoom2')}
+              </option>
+              <option value="Locker L-102">
+                {t('filters.storageLockerL102')}
+              </option>
             </select>
             <FiChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           </div>
@@ -893,8 +976,8 @@ export default function ManageSystemFilesPage() {
                 onChange={(event) =>
                   applyFilter(() => setStartDate(event.target.value))
                 }
-                aria-label="Start date"
-                title="Start date"
+                aria-label={t('filters.startDate')}
+                title={t('filters.startDate')}
                 aria-invalid={Boolean(dateRangeError)}
                 className={`h-9 w-[148px] cursor-pointer rounded-xl border bg-slate-50/70 pl-8 pr-2 text-xs font-semibold text-slate-700 outline-none focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/15 dark:bg-navy-900/70 dark:text-slate-200 ${
                   dateRangeError
@@ -903,7 +986,9 @@ export default function ManageSystemFilesPage() {
                 }`}
               />
             </div>
-            <span className="text-[10px] font-bold uppercase text-slate-400">to</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400">
+              {t('filters.rangeTo')}
+            </span>
             <div className="relative">
               <FiCalendar className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
@@ -913,8 +998,8 @@ export default function ManageSystemFilesPage() {
                 onChange={(event) =>
                   applyFilter(() => setEndDate(event.target.value))
                 }
-                aria-label="End date"
-                title="End date"
+                aria-label={t('filters.endDate')}
+                title={t('filters.endDate')}
                 aria-invalid={Boolean(dateRangeError)}
                 className={`h-9 w-[148px] cursor-pointer rounded-xl border bg-slate-50/70 pl-8 pr-2 text-xs font-semibold text-slate-700 outline-none focus:border-[#4318FF] focus:ring-2 focus:ring-[#4318FF]/15 dark:bg-navy-900/70 dark:text-slate-200 ${
                   dateRangeError
@@ -927,8 +1012,8 @@ export default function ManageSystemFilesPage() {
               <button
                 type="button"
                 onClick={handleClearDates}
-                aria-label="Clear date range"
-                title="Clear date range"
+                aria-label={t('filters.clearDates')}
+                title={t('filters.clearDates')}
                 className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300"
               >
                 <FiX className="h-3.5 w-3.5" />
@@ -942,7 +1027,7 @@ export default function ManageSystemFilesPage() {
             className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300"
           >
             <FiRefreshCw className="h-3.5 w-3.5" />
-            <span>Reset Filters</span>
+            <span>{t('filters.reset')}</span>
           </button>
 
           <button
@@ -954,16 +1039,21 @@ export default function ManageSystemFilesPage() {
                 ? 'cursor-not-allowed bg-[#4318FF]/60 text-white'
                 : 'shadow-xs bg-[#4318FF] text-white shadow-[#4318FF]/30 hover:bg-[#3311CC]'
             }`}
-            title={`Export ${
-              activeTab === 'requests' ? 'File Requests' : 'All Files'
-            } as CSV`}
+            title={t('filters.exportTooltip', {
+              target:
+                activeTab === 'requests'
+                  ? t('page.tabRequests')
+                  : t('page.tabAll'),
+            })}
           >
             {isExporting ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
             ) : (
               <FiDownload className="h-3.5 w-3.5" />
             )}
-            <span>{isExporting ? 'Exporting…' : 'Export CSV'}</span>
+            <span>
+              {isExporting ? t('filters.exporting') : t('filters.exportCsv')}
+            </span>
           </button>
         </div>
 
@@ -982,17 +1072,17 @@ export default function ManageSystemFilesPage() {
       <div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200/50 bg-[#F4F7FE] px-4 py-2 dark:border-navy-700 dark:bg-navy-900/80">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
           <FiShield className="h-4 w-4 text-[#4318FF] dark:text-brand-300" />
-          <span>Secure repository • Access managed for your administrator</span>
+          <span>{t('page.secureRepository')}</span>
         </div>
         <div className="flex items-center gap-1.5 rounded-full bg-[#EBF3FE] px-2.5 py-0.5 text-[10px] font-bold text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4318FF] dark:bg-brand-300" />
-          <span>ACTIVE</span>
+          <span>{t('page.activeBadge')}</span>
         </div>
       </div>
 
       {/* ── TABS BAR & ADMIN APPROVAL TOGGLE SWITCH ── */}
       <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-        <div role="tablist" aria-label="File categories" className="flex flex-wrap items-center gap-2">
+        <div role="tablist" aria-label={t('page.tabsAria')} className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             role="tab"
@@ -1007,7 +1097,7 @@ export default function ManageSystemFilesPage() {
             }`}
           >
             <FiClock className="h-3.5 w-3.5" />
-            <span>File Requests</span>
+            <span>{t('page.tabRequests')}</span>
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                 activeTab === 'requests'
@@ -1015,7 +1105,7 @@ export default function ManageSystemFilesPage() {
                   : 'dark:bg-amber-950/60 bg-amber-100 text-amber-800 dark:text-amber-300'
               }`}
             >
-              {counts.pendingCount} Pending
+              {t('page.tabRequestsCount', { count: counts.pendingCount })}
             </span>
           </button>
 
@@ -1033,7 +1123,7 @@ export default function ManageSystemFilesPage() {
             }`}
           >
             <FiFolder className="h-3.5 w-3.5" />
-            <span>All Files</span>
+            <span>{t('page.tabAll')}</span>
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                 activeTab === 'all'
@@ -1041,7 +1131,7 @@ export default function ManageSystemFilesPage() {
                   : 'bg-slate-100 text-slate-600 dark:bg-navy-700 dark:text-slate-300'
               }`}
             >
-              {counts.allFilesCount} files
+              {t('page.tabAllCount', { count: counts.allFilesCount })}
             </span>
           </button>
 
@@ -1059,7 +1149,7 @@ export default function ManageSystemFilesPage() {
             }`}
           >
             <FiXCircle className="h-3.5 w-3.5" />
-            <span>Rejected Files</span>
+            <span>{t('page.tabRejected')}</span>
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                 activeTab === 'rejected'
@@ -1071,49 +1161,6 @@ export default function ManageSystemFilesPage() {
             </span>
           </button>
         </div>
-
-        <div className="shadow-xs flex items-center gap-3 self-end rounded-2xl border border-slate-100 bg-white px-4 py-2 dark:border-navy-700 dark:bg-navy-800 md:self-auto">
-          <div className="text-right">
-            <div className="flex items-center justify-end gap-1.5">
-              <span className="text-xs font-bold text-slate-800 dark:text-white">
-                Auto Approval for Staff File Submissions
-              </span>
-              <span
-                className={`py-0.2 rounded px-1.5 text-[9px] font-black tracking-wide ${
-                  autoApproval
-                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                    : 'border border-slate-200 bg-slate-100 text-slate-500 dark:bg-navy-900 dark:text-slate-400'
-                }`}
-              >
-                {autoApproval ? 'AUTO APPROVAL ON' : 'AUTO APPROVAL OFF'}
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-400">
-              {autoApproval
-                ? 'Staff file requests are automatically approved upon submission.'
-                : 'Staff submissions require administrator review and approval.'}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoApproval}
-            aria-label="Toggle auto approval for staff file submissions"
-            disabled={isTogglingApproval}
-            onClick={handleToggleApprovalSetting}
-            className={`border-transparent relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#05CD99] focus-visible:ring-offset-2 ${
-              autoApproval ? 'bg-[#05CD99]' : 'bg-slate-300 dark:bg-navy-600'
-            } ${isTogglingApproval ? 'cursor-not-allowed opacity-60' : ''}`}
-            title={autoApproval ? 'Auto approval is ON' : 'Auto approval is OFF'}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                autoApproval ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
       </div>
 
       {/* ── SECTION HEADER BELOW TABS ── */}
@@ -1121,40 +1168,42 @@ export default function ManageSystemFilesPage() {
         <div className="mb-3 flex items-center justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-              PENDING STAFF FILE SUBMISSIONS (AWAITING APPROVAL)
+              {t('page.pendingHeading')}
             </h2>
             <span className="dark:bg-amber-950/40 rounded-full border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-0.5 text-[10px] font-bold text-[#D97706] dark:text-amber-300">
-              {counts.pendingCount} submissions pending review
+              {t('page.pendingBadge', { count: counts.pendingCount })}
             </span>
           </div>
           <span className="hidden text-[11px] italic text-slate-400 sm:inline">
-            Actions taken here immediately update the system ledger.
+            {t('page.pendingHint')}
           </span>
         </div>
       ) : activeTab === 'rejected' ? (
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-              REJECTED FILE SUBMISSIONS
+              {t('page.rejectedHeading')}
             </h2>
             <span className="rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 px-2.5 py-0.5 text-[10px] font-bold">
-              {counts.rejectedCount ?? 0} rejected submissions
+              {t('page.rejectedBadge', { count: counts.rejectedCount ?? 0 })}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span className="font-semibold text-slate-400">Sorted by:</span>
+            <span className="font-semibold text-slate-400">
+              {t('page.sortedBy')}
+            </span>
             <div className="relative">
               <select
                 value={sortBy}
                 onChange={(event) => handleSortChange(event.target.value as SortKey)}
-                aria-label="Sort rejected submissions"
+                aria-label={t('page.sortAriaRejected')}
                 className="appearance-none rounded-lg bg-white dark:bg-navy-800 border border-slate-200 dark:border-navy-700 px-2.5 py-1 pr-6 font-bold text-slate-700 dark:text-white outline-none cursor-pointer text-xs"
               >
-                <option value="newest">Newest added</option>
-                <option value="oldest">Oldest added</option>
-                <option value="file_no">File Number</option>
-                <option value="file_name">File Name</option>
+                <option value="newest">{t('sort.newest')}</option>
+                <option value="oldest">{t('sort.oldest')}</option>
+                <option value="file_no">{t('sort.fileNumber')}</option>
+                <option value="file_name">{t('sort.fileName')}</option>
               </select>
               <FiChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 h-3 w-3" />
             </div>
@@ -1164,26 +1213,28 @@ export default function ManageSystemFilesPage() {
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
-              TOTAL TODAY ADDED FILES
+              {t('page.allHeading')}
             </h2>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-navy-700 dark:text-slate-300">
-              {counts.allFilesCount} files
+              {t('page.allBadge', { count: counts.allFilesCount })}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span className="font-semibold text-slate-400">Sorted by:</span>
+            <span className="font-semibold text-slate-400">
+              {t('page.sortedBy')}
+            </span>
             <div className="relative">
               <select
                 value={sortBy}
                 onChange={(event) => handleSortChange(event.target.value as SortKey)}
-                aria-label="Sort files"
+                aria-label={t('page.sortAriaAll')}
                 className="cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white px-2.5 py-1 pr-6 text-xs font-bold text-slate-700 outline-none dark:border-navy-700 dark:bg-navy-800 dark:text-white"
               >
-                <option value="newest">Newest added</option>
-                <option value="oldest">Oldest added</option>
-                <option value="file_no">File Number</option>
-                <option value="file_name">File Name</option>
+                <option value="newest">{t('sort.newest')}</option>
+                <option value="oldest">{t('sort.oldest')}</option>
+                <option value="file_no">{t('sort.fileNumber')}</option>
+                <option value="file_name">{t('sort.fileName')}</option>
               </select>
               <FiChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
             </div>
@@ -1201,10 +1252,10 @@ export default function ManageSystemFilesPage() {
         active={showRefresh}
         label={
           activeTab === 'requests'
-            ? 'Refreshing file requests'
+            ? t('page.refreshRequests')
             : activeTab === 'rejected'
-              ? 'Refreshing rejected files'
-              : 'Refreshing all files'
+              ? t('page.refreshRejected')
+              : t('page.refreshAll')
         }
       />
 
@@ -1222,7 +1273,7 @@ export default function ManageSystemFilesPage() {
             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 font-bold text-rose-700 transition-colors hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-900/40"
           >
             <FiRefreshCw className="h-3 w-3" />
-            Retry
+            {t('page.retry')}
           </button>
         </div>
       )}

@@ -46,6 +46,9 @@ export interface FileRecordRow {
   rejected_at?: string | null;
   /** Display name of the admin who rejected the submission */
   rejected_by_name?: string | null;
+  /** The registrar/approver account was soft-deleted; their name is kept. */
+  registrar_is_deleted?: boolean;
+  approver_is_deleted?: boolean;
   archive_repository?: string;
   status?: FileStatus;
   created_at?: string;
@@ -117,6 +120,44 @@ export class FileRepository {
     this.client = client;
   }
 
+  /** Service-role enrichment: mark rows whose author was soft-deleted. */
+  private async markDeletedAuthors(files: FileRecordRow[]): Promise<FileRecordRow[]> {
+    if (files.length === 0) return files;
+    const ids = new Set<string>();
+    for (const file of files) {
+      for (const id of [file.registered_by, file.created_by, file.approved_by]) {
+        if (id) ids.add(id);
+      }
+    }
+    if (ids.size === 0) return files;
+
+    let deleted = new Set<string>();
+    try {
+      const { data, error } = await this.client
+        .from('profiles')
+        .select('id, is_deleted')
+        .in('id', Array.from(ids));
+      if (!error) {
+        deleted = new Set(
+          (data ?? [])
+            .filter((row: { is_deleted?: boolean | null }) => row.is_deleted === true)
+            .map((row: { id: string }) => row.id),
+        );
+      }
+    } catch {
+      // Migration 0027 not applied yet — records remain unmarked.
+    }
+
+    if (deleted.size === 0) return files;
+    for (const file of files) {
+      file.registrar_is_deleted =
+        (!!file.registered_by && deleted.has(file.registered_by)) ||
+        (!!file.created_by && deleted.has(file.created_by));
+      file.approver_is_deleted = !!file.approved_by && deleted.has(file.approved_by);
+    }
+    return files;
+  }
+
   /** Look up a file by its primary key id */
   async findById(id: number): Promise<FileRecordRow | null> {
     const { data, error } = await this.client
@@ -129,7 +170,9 @@ export class FileRepository {
       console.error('FileRepository.findById error:', error);
       return null;
     }
-    return (data as FileRecordRow) ?? null;
+    if (!data) return null;
+    const [file] = await this.markDeletedAuthors([data as FileRecordRow]);
+    return file ?? null;
   }
 
   /** Every row sharing this file number, case-insensitive. */
@@ -390,8 +433,8 @@ export class FileRepository {
 
     const total = count ?? (data?.length || 0);
     const totalPages = Math.max(1, Math.ceil(total / safeLimit));
-    const files: FileRecordRow[] = ((data as FileRecordRow[]) ?? []).map(
-      (f) => ({ ...f }),
+    const files: FileRecordRow[] = await this.markDeletedAuthors(
+      ((data as FileRecordRow[]) ?? []).map((f) => ({ ...f })),
     );
 
     // Resolve approver display names from profiles table for any records where approved_by_name is missing
@@ -477,17 +520,27 @@ export class FileRepository {
     id: number,
     actorId: string,
     approverName: string,
+    storageData?: { locker_no?: string | null; shelf_name?: string | null; shelf_position?: string | null },
   ): Promise<FileRecordRow> {
     const now = new Date().toISOString();
+    const updateData: Record<string, unknown> = {
+      status: 'APPROVED',
+      approved_by: actorId,
+      approved_by_name: approverName,
+      approved_at: now,
+      updated_at: now,
+    };
+
+    // Include storage location data if provided
+    if (storageData) {
+      if (storageData.locker_no !== undefined) updateData.locker_no = storageData.locker_no;
+      if (storageData.shelf_name !== undefined) updateData.shelf_name = storageData.shelf_name;
+      if (storageData.shelf_position !== undefined) updateData.shelf_position = storageData.shelf_position;
+    }
+
     const { data, error } = await this.client
       .from('files')
-      .update({
-        status: 'APPROVED',
-        approved_by: actorId,
-        approved_by_name: approverName,
-        approved_at: now,
-        updated_at: now,
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();

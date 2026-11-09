@@ -5,7 +5,7 @@
  */
 
 export const TABLE_HEAD_CLASS =
-  'text-[9px] font-black uppercase leading-tight tracking-wide text-slate-400 bg-slate-50/70 dark:bg-navy-900/40';
+  'text-[9px] font-black uppercase leading-tight tracking-wide text-slate-600 bg-slate-50/70 dark:bg-navy-900/40 dark:text-slate-300';
 
 export const TABLE_HEAD_ROW_CLASS = `${TABLE_HEAD_CLASS} border-b border-slate-300 dark:border-navy-600`;
 
@@ -45,6 +45,14 @@ export const TABLE_PAGER_PAGE_ACTIVE_CLASS = 'bg-[#4318FF] text-white shadow-xs'
 /** Centered message row used when a table has nothing to show. */
 export const TABLE_EMPTY_CELL_CLASS =
   'px-4 py-12 text-center text-xs font-semibold text-slate-500 dark:text-slate-400';
+
+/**
+ * Marks the row that opens a new group when rows are grouped per file. A
+ * thicker top border would lose to the `divide-y` rule on the tbody (that
+ * selector is more specific), so the separator is an inset band instead.
+ */
+export const TABLE_GROUP_BREAK_CLASS =
+  'shadow-[inset_0_3px_0_0_rgb(148_163_184/0.55)] dark:shadow-[inset_0_3px_0_0_rgb(71_85_105/0.7)]';
 
 /**
  * Row action group. Wrapping is what keeps the buttons inside the cell: a

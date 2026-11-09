@@ -1,11 +1,10 @@
 import { ApiError } from 'lib/apiResponse';
 import { getSupabaseAdminClient, getSupabaseServerClient } from 'config/supabase/server';
+import { UploadSecurityService, UPLOAD_POLICIES } from 'services/UploadSecurityService';
 
 const PROFILE_IMAGE_BUCKET = 'profile-images';
 const DOCUMENT_BUCKET = 'official-documents';
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const ALLOWED_DOCUMENT_TYPES = [...ALLOWED_IMAGE_TYPES, 'application/pdf'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024; // 20 MB
 
@@ -18,65 +17,82 @@ function sanitizeFileName(name: string): string {
   );
 }
 
-function assertAllowed(type: string, allowed: string[], maxBytes: number, size: number) {
-  // Type is taken from the parsed upload (not the raw extension) and re-checked
-  // against the bucket whitelist; size is enforced server-side.
-  if (!allowed.includes(type)) {
-    throw new ApiError(400, 'VALIDATION_ERROR', `File type ${type || 'unknown'} is not allowed.`);
-  }
-  if (size <= 0 || size > maxBytes) {
-    throw new ApiError(
-      400,
-      'VALIDATION_ERROR',
-      `File exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB limit.`
-    );
+function extensionFor(format: string): string {
+  switch (format) {
+    case 'png':
+      return 'png';
+    case 'webp':
+      return 'webp';
+    case 'gif':
+      return 'gif';
+    case 'jpeg':
+      return 'jpg';
+    case 'pdf':
+      return 'pdf';
+    default:
+      return 'bin';
   }
 }
 
 /**
  * Application service layer: Supabase Storage operations.
- * Private documents are accessed through server-generated signed URLs.
+ *
+ * Every upload passes through UploadSecurityService first: the file is
+ * validated by signature, written to private quarantine and scanned by a real
+ * malware engine. Only clean bytes reach an approved bucket, so a stored
+ * object always implies a completed clean scan. Scanner failures block the
+ * upload instead of being treated as clean.
  */
 export class StorageService {
   /** Uploads a profile image to the caller's own folder. RLS enforces ownership. */
-  static async uploadProfileImage(userId: string, file: File): Promise<{ path: string; publicUrl: string }> {
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Profile image must be JPEG, PNG, WebP or GIF.');
-    }
-    assertAllowed(file.type, ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES, file.size);
+  static async uploadProfileImage(
+    userId: string,
+    file: File,
+  ): Promise<{
+    path: string;
+    publicUrl: string;
+    scan: { status: string; message: string };
+  }> {
+    const policy = { ...UPLOAD_POLICIES.image, maxBytes: Math.min(MAX_IMAGE_BYTES, UPLOAD_POLICIES.image.maxBytes) };
+    const secured = await UploadSecurityService.ingest(file.name, file, policy, {
+      actorId: userId,
+      source: 'profile_image',
+    });
 
-    const ext =
-      file.type === 'image/png'
-        ? 'png'
-        : file.type === 'image/webp'
-        ? 'webp'
-        : file.type === 'image/gif'
-        ? 'gif'
-        : 'jpg';
-    const path = `${userId}/${Date.now()}-${sanitizeFileName(file.name.replace(/\.[^.]+$/, ''))}.${ext}`;
-    const buffer = await file.arrayBuffer();
+    try {
+      const ext = extensionFor(secured.detected.format);
+      const path = `${userId}/${Date.now()}-${sanitizeFileName(
+        secured.displayName.replace(/\.[^.]+$/, ''),
+      )}.${ext}`;
 
-    const supabase = await getSupabaseServerClient();
-    let { error } = await supabase.storage
-      .from(PROFILE_IMAGE_BUCKET)
-      .upload(path, buffer, { contentType: file.type, upsert: false });
-
-    // Fallback to privileged admin client if session client encounters permission constraints
-    if (error) {
-      const admin = getSupabaseAdminClient();
-      const adminRes = await admin.storage
+      const supabase = await getSupabaseServerClient();
+      let { error } = await supabase.storage
         .from(PROFILE_IMAGE_BUCKET)
-        .upload(path, buffer, { contentType: file.type, upsert: false });
-      error = adminRes.error;
-    }
+        .upload(path, secured.bytes, { contentType: secured.detected.mime, upsert: false });
 
-    if (error) {
-      throw new ApiError(500, 'AUTH_ERROR', `Image upload failed: ${error.message}`);
-    }
+      // Fallback to privileged admin client if session client encounters permission constraints
+      if (error) {
+        const admin = getSupabaseAdminClient();
+        const adminRes = await admin.storage
+          .from(PROFILE_IMAGE_BUCKET)
+          .upload(path, secured.bytes, { contentType: secured.detected.mime, upsert: false });
+        error = adminRes.error;
+      }
 
-    const admin = getSupabaseAdminClient();
-    const { data } = admin.storage.from(PROFILE_IMAGE_BUCKET).getPublicUrl(path);
-    return { path, publicUrl: data.publicUrl };
+      if (error) {
+        throw new ApiError(500, 'AUTH_ERROR', `Image upload failed: ${error.message}`);
+      }
+
+      const admin = getSupabaseAdminClient();
+      const { data } = admin.storage.from(PROFILE_IMAGE_BUCKET).getPublicUrl(path);
+      return {
+        path,
+        publicUrl: data.publicUrl,
+        scan: { status: 'Clean', message: 'File security scan completed successfully.' },
+      };
+    } finally {
+      await UploadSecurityService.release(secured);
+    }
   }
 
   /** Removes all existing profile images for a user from the bucket. */
@@ -96,24 +112,46 @@ export class StorageService {
     }
   }
 
-  /** Uploads an official document (private bucket). */
-  static async uploadDocument(userId: string, file: File): Promise<{ path: string }> {
-    assertAllowed(file.type, ALLOWED_DOCUMENT_TYPES, MAX_DOCUMENT_BYTES, file.size);
+  /** Uploads an official document (private bucket) after a clean malware scan. */
+  static async uploadDocument(
+    userId: string,
+    file: File,
+  ): Promise<{ path: string; scan: { status: string; message: string } }> {
+    const policy = {
+      ...UPLOAD_POLICIES.document,
+      maxBytes: Math.min(MAX_DOCUMENT_BYTES, UPLOAD_POLICIES.document.maxBytes),
+    };
+    const secured = await UploadSecurityService.ingest(file.name, file, policy, {
+      actorId: userId,
+      source: 'official_document',
+    });
 
-    const supabase = await getSupabaseServerClient();
-    const path = `${userId}/${Date.now()}-${sanitizeFileName(file.name)}`;
+    try {
+      const supabase = await getSupabaseServerClient();
+      const ext = extensionFor(secured.detected.format);
+      const baseName = sanitizeFileName(secured.displayName.replace(/\.[^.]+$/, ''));
+      const path = `${userId}/${Date.now()}-${baseName}.${ext}`;
 
-    const { error } = await supabase.storage
-      .from(DOCUMENT_BUCKET)
-      .upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: false });
+      const { error } = await supabase.storage
+        .from(DOCUMENT_BUCKET)
+        .upload(path, secured.bytes, { contentType: secured.detected.mime, upsert: false });
 
-    if (error) {
-      throw new ApiError(500, 'AUTH_ERROR', `Document upload failed: ${error.message}`);
+      if (error) {
+        throw new ApiError(500, 'AUTH_ERROR', `Document upload failed: ${error.message}`);
+      }
+      return {
+        path,
+        scan: { status: 'Clean', message: 'File security scan completed successfully.' },
+      };
+    } finally {
+      await UploadSecurityService.release(secured);
     }
-    return { path };
   }
 
-  /** Short-lived signed URL for a private document (server-side authorization). */
+  /**
+   * Short-lived signed URL for a private document (server-side authorization).
+   * Only objects that passed scanning are ever written to this bucket.
+   */
   static async createDocumentSignedUrl(path: string, expiresIn = 300): Promise<string> {
     const admin = getSupabaseAdminClient();
     const { data, error } = await admin.storage

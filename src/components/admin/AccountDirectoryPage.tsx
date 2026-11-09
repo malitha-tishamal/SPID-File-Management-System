@@ -1,6 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useTranslation } from 'react-i18next';
 import {
   FiUserPlus,
   FiShield,
@@ -12,18 +13,25 @@ import {
   FiPrinter,
   FiDownload,
   FiAlertTriangle,
+  FiLock,
+  FiTrash2,
 } from 'react-icons/fi';
 import { MdAdminPanelSettings } from 'react-icons/md';
 import PageHeader from 'components/admin/PageHeader';
 import StatCard from 'components/admin/StatCard';
 import AccountTable, { PRIMARY_ADMIN_EMAIL } from 'components/admin/AccountTable';
-import { useAccountActions, type AccountAction } from 'components/admin/useAccountActions';
+import LockedAccountsTable from 'components/admin/LockedAccountsTable';
+import { useAccountActions, type AccountAction, type DeletePayload } from 'components/admin/useAccountActions';
+import { attributedName, attributedNameText, isReservedDeletedEmail } from 'utils/userDisplay';
 
 // Modals are only mounted on demand — keep them out of the route's initial JS.
 const ActionFeedbackModal = dynamic(() => import('components/modals/ActionFeedbackModal'), {
   ssr: false,
 });
 const ConfirmActionModal = dynamic(() => import('components/modals/ConfirmActionModal'), {
+  ssr: false,
+});
+const DeleteAccountModal = dynamic(() => import('components/admin/DeleteAccountModal'), {
   ssr: false,
 });
 const EditUserModal = dynamic(() => import('components/modals/EditUserModal'), { ssr: false });
@@ -55,25 +63,24 @@ export function broadcastAdminSync(type: 'ACCOUNTS_UPDATED' | 'SECTIONS_UPDATED'
   }
 }
 
-const CONFIRM_TEXT: Record<
-  'disable' | 'reject' | 'delete',
-  { title: string; description: (name: string) => string; confirmLabel: string }
+const CONFIRM_KEYS: Record<
+  'disable' | 'reject' | 'keep_locked',
+  { title: string; description: string; confirmLabel: string }
 > = {
+  keep_locked: {
+    title: 'modals.confirm.keepLockedTitle',
+    description: 'modals.confirm.keepLockedDescription',
+    confirmLabel: 'modals.confirm.keepLockedConfirm',
+  },
   disable: {
-    title: 'Disable Account?',
-    description: (n) => `${n} will be signed out and blocked from the SPID system immediately.`,
-    confirmLabel: 'Disable',
+    title: 'modals.confirm.disableTitle',
+    description: 'modals.confirm.disableDescription',
+    confirmLabel: 'modals.confirm.disableConfirm',
   },
   reject: {
-    title: 'Reject Registration?',
-    description: (n) => `${n} will be prevented from accessing the SPID system.`,
-    confirmLabel: 'Reject',
-  },
-  delete: {
-    title: 'Delete Account Permanently?',
-    description: (n) =>
-      `${n}'s credentials and records will be irrevocably removed. This action cannot be undone.`,
-    confirmLabel: 'Delete Forever',
+    title: 'modals.confirm.rejectTitle',
+    description: 'modals.confirm.rejectDescription',
+    confirmLabel: 'modals.confirm.rejectConfirm',
   },
 };
 
@@ -86,29 +93,13 @@ const STATUS_FILTERS: ('all' | AccountStatus)[] = [
   'locked',
 ];
 
-const COPY = {
-  admin: {
-    crumbs: ['Pages', 'System Management', 'Admin Management'],
-    title: 'Admin Management',
-    subtitle:
-      'Manage system administrators, security clearance, approval workflows, and audit access.',
-    registerLabel: 'Register New Administrator',
-    tableTitle: 'Verified System Administrators',
-    tableCaption: 'Security Clearance Level: Super-Tier / Level 4',
-    searchPlaceholder: 'Search by Admin ID, Name, NIC, Email...',
-    emptyMessage: 'No administrator accounts match your search/filter criteria.',
-  },
-  staff: {
-    crumbs: ['Pages', 'System Management', 'User Management'],
-    title: 'User Management',
-    subtitle:
-      'Manage registered staff members, field officers, departmental clerks, and institutional document access privileges across Southern Provincial Irrigation Department divisions.',
-    registerLabel: 'Register New User / Staff',
-    tableTitle: 'Staff & User Accounts',
-    tableCaption: 'Registered Personnel Roster',
-    searchPlaceholder: 'Search by User ID, Name, NIC, Mobile...',
-    emptyMessage: 'No accounts match your search/filter criteria.',
-  },
+const STATUS_LABEL_KEYS: Record<'all' | AccountStatus, string> = {
+  all: 'filters.allStatuses',
+  pending: 'common:status.pending',
+  approved: 'common:status.approved',
+  rejected: 'common:status.rejected',
+  disabled: 'status.disabled',
+  locked: 'status.locked',
 };
 
 // Module-level in-memory cache so switching between the two directory routes is instant.
@@ -137,6 +128,14 @@ function accountsSignature(rows: AdminUserRow[]): string {
     }\u0001${row.avatar_url ?? ''}\u0002`;
   }
   return signature;
+}
+
+/** A lock can be permanent or still counting down; `account_status` stays "approved". */
+function isAccountLocked(acc: AdminUserRow): boolean {
+  return (
+    acc.is_permanently_locked === true ||
+    (!!acc.locked_until && new Date(acc.locked_until).getTime() > Date.now())
+  );
 }
 
 function getInitialAccounts(): AdminUserRow[] {
@@ -171,6 +170,7 @@ export function invalidateAccountDirectoryCache() {
 
 /** In-page loading banner. Owns its timer so the once-per-second tick re-renders only this card. */
 function DirectoryLoadingBanner({ variant }: { variant: 'admin' | 'staff' }) {
+  const { t } = useTranslation('accounts');
   const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
@@ -193,19 +193,22 @@ function DirectoryLoadingBanner({ variant }: { variant: 'admin' | 'staff' }) {
           className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300 motion-reduce:animate-none"
         />
         <span>
-          Loading the {variant === 'admin' ? 'administrator' : 'staff'} directory…
+          {t(variant === 'admin' ? 'directory.loadingAdmin' : 'directory.loadingStaff')}
         </span>
         <span aria-hidden="true" className="ml-auto shrink-0 tabular-nums">
-          {seconds}s / {DIRECTORY_LOAD_TIMEOUT_SECONDS}s
+          {t('directory.elapsed', { seconds, total: DIRECTORY_LOAD_TIMEOUT_SECONDS })}
         </span>
       </div>
       <div
         role="progressbar"
-        aria-label="Directory loading progress"
+        aria-label={t('directory.progressAria')}
         aria-valuemin={0}
         aria-valuemax={DIRECTORY_LOAD_TIMEOUT_SECONDS}
         aria-valuenow={Math.min(seconds, DIRECTORY_LOAD_TIMEOUT_SECONDS)}
-        aria-valuetext={`${seconds} of ${DIRECTORY_LOAD_TIMEOUT_SECONDS} seconds`}
+        aria-valuetext={t('directory.progressValue', {
+          seconds,
+          total: DIRECTORY_LOAD_TIMEOUT_SECONDS,
+        })}
         className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-indigo-100 dark:bg-navy-900"
       >
         <span
@@ -215,14 +218,14 @@ function DirectoryLoadingBanner({ variant }: { variant: 'admin' | 'staff' }) {
         />
       </div>
       <p className="mt-2 text-[11px] font-medium text-slate-600 dark:text-gray-400">
-        The registry usually answers in a moment. If it has not responded within 30 seconds, a retry
-        option will appear here.
+        {t('directory.hint', { seconds: DIRECTORY_LOAD_TIMEOUT_SECONDS })}
       </p>
     </div>
   );
 }
 
 function LoadingStatusPill() {
+  const { t } = useTranslation('accounts');
   return (
     <span
       role="status"
@@ -232,7 +235,7 @@ function LoadingStatusPill() {
         aria-hidden="true"
         className="h-2 w-2 animate-spin rounded-full border-2 border-[#4318FF]/20 border-t-[#4318FF] dark:border-brand-300/20 dark:border-t-brand-300 motion-reduce:animate-none"
       />
-      LOADING REGISTRY...
+      {t('directory.loadingRegistry')}
     </span>
   );
 }
@@ -242,7 +245,42 @@ function LoadingStatusPill() {
  * and every action wired to the reusable feedback / edit / confirm modals.
  */
 export default function AccountDirectoryPage({ variant }: { variant: 'admin' | 'staff' }) {
-  const copy = COPY[variant];
+  const { t } = useTranslation('accounts');
+  const copy = useMemo(
+    () =>
+      variant === 'admin'
+        ? {
+            crumbs: [
+              t('page.crumbs.pages'),
+              t('page.crumbs.systemManagement'),
+              t('nav:menu.admin-management'),
+            ],
+            title: t('nav:menu.admin-management'),
+            subtitle: t('page.admin.subtitle'),
+            registerLabel: t('page.admin.registerLabel'),
+            tableTitle: t('page.admin.tableTitle'),
+            tableCaption: t('page.admin.tableCaption'),
+            searchPlaceholder: t('page.admin.searchPlaceholder'),
+            emptyMessage: t('page.admin.emptyMessage'),
+            searchAria: t('page.admin.searchAria'),
+          }
+        : {
+            crumbs: [
+              t('page.crumbs.pages'),
+              t('page.crumbs.systemManagement'),
+              t('nav:menu.users'),
+            ],
+            title: t('nav:menu.users'),
+            subtitle: t('page.staff.subtitle'),
+            registerLabel: t('page.staff.registerLabel'),
+            tableTitle: t('page.staff.tableTitle'),
+            tableCaption: t('page.staff.tableCaption'),
+            searchPlaceholder: t('page.staff.searchPlaceholder'),
+            emptyMessage: t('page.staff.emptyMessage'),
+            searchAria: t('page.staff.searchAria'),
+          },
+    [t, variant]
+  );
   const { showToast } = useToast();
   const { profile } = useProfile();
 
@@ -268,7 +306,16 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [filterSection, setFilterSection] = useState<'all' | number>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | AccountStatus>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | AccountStatus | 'deleted' | 'locked'>(() => {
+    // Notification deep links land on the locked tab directly.
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('locked') === '1' || params.get('locked') === 'true') return 'locked';
+      // ?deleted=1 deep-links the deleted-accounts tab (restore flow).
+      if (params.get('deleted') === '1' || params.get('deleted') === 'true') return 'deleted';
+    }
+    return 'all';
+  });
 
   // Debounced so typing re-filters the table at most every 250ms instead of per keystroke.
   useEffect(() => {
@@ -352,8 +399,8 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         } else {
           showToast({
             type: 'error',
-            title: 'Load Failed',
-            message: usersJson.message || 'Could not load the personnel registry.',
+            title: t('feedback.loadFailedTitle'),
+            message: usersJson.message || t('feedback.loadRegistryFailed'),
           });
         }
       }
@@ -377,11 +424,15 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         setLoadTimedOut(true);
         showToast({
           type: 'error',
-          title: 'Loading Timed Out',
-          message: `The registry did not respond within ${DIRECTORY_LOAD_TIMEOUT_SECONDS} seconds. Please try again.`,
+          title: t('feedback.timeoutTitle'),
+          message: t('feedback.timeoutMessage', { seconds: DIRECTORY_LOAD_TIMEOUT_SECONDS }),
         });
       } else if ((error as { name?: string })?.name !== 'AbortError' && !isCached && !silent) {
-        showToast({ type: 'error', title: 'Load Failed', message: 'Could not reach the server.' });
+        showToast({
+          type: 'error',
+          title: t('feedback.loadFailedTitle'),
+          message: t('feedback.serverUnreachable'),
+        });
       }
     } finally {
       window.clearTimeout(timeoutId);
@@ -391,7 +442,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         setIsRefreshing(false);
       }
     }
-  }, [showToast, variant]);
+  }, [showToast, t, variant]);
 
   const forceReload = useCallback(() => {
     broadcastAdminSync('ACCOUNTS_UPDATED');
@@ -437,7 +488,23 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const handleOptimisticUpdate = useCallback((acc: AdminUserRow, action: AccountAction) => {
     const previous = accountsRef.current;
     if (action === 'delete') {
-      setAccounts((prev) => prev.filter((u) => u.id !== acc.id));
+      // Soft delete: the row stays in the directory (Deleted tab) with its
+      // records untouched — it only leaves the active lists.
+      setAccounts((prev) =>
+        prev.map((u) =>
+          u.id === acc.id
+            ? { ...u, is_deleted: true, deleted_at: new Date().toISOString(), account_status: 'disabled' }
+            : u
+        )
+      );
+    } else if (action === 'restore') {
+      setAccounts((prev) =>
+        prev.map((u) =>
+          u.id === acc.id
+            ? { ...u, is_deleted: false, deleted_at: null, account_status: 'pending' }
+            : u
+        )
+      );
     } else if (action === 'approve' || action === 'enable') {
       setAccounts((prev) =>
         prev.map((u) => (u.id === acc.id ? { ...u, account_status: 'approved' } : u))
@@ -453,6 +520,26 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     } else if (action === 'clear_lockout') {
       setAccounts((prev) =>
         prev.map((u) => (u.id === acc.id ? { ...u, locked_until: null, failed_attempts: 0 } : u))
+      );
+    } else if (action === 'approve_unlock') {
+      setAccounts((prev) =>
+        prev.map((u) =>
+          u.id === acc.id
+            ? {
+                ...u,
+                account_status: 'approved',
+                locked_until: null,
+                failed_attempts: 0,
+                lockout_level: 0,
+                is_permanently_locked: false,
+                locked_at: null,
+              }
+            : u
+        )
+      );
+    } else if (action === 'keep_locked') {
+      setAccounts((prev) =>
+        prev.map((u) => (u.id === acc.id ? { ...u, account_status: 'disabled' } : u))
       );
     }
     return () => {
@@ -573,20 +660,45 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     if (!search) return null;
     const index = new Map<string, string>();
     for (const acc of scoped) {
+      // The retired address is kept searchable so a deleted account is still
+      // found by the email it used.
       index.set(
         acc.id,
-        `${acc.full_name}\n${acc.email}\n${acc.section_name ?? ''}\n${acc.nic ?? ''}`.toLowerCase()
+        `${acc.full_name}\n${acc.email}\n${acc.original_email ?? ''}\n${acc.section_name ?? ''}\n${acc.nic ?? ''}`.toLowerCase()
       );
     }
     return index;
   }, [scoped, search]);
+
+  const lockedCount = useMemo(
+    () => scoped.filter((acc) => isAccountLocked(acc)).length,
+    [scoped]
+  );
+
+  const deletedCount = useMemo(
+    () => scoped.filter((acc) => acc.is_deleted === true).length,
+    [scoped]
+  );
 
   const filtered = useMemo(
     () =>
       scoped.filter((acc) => {
         const matchSearch = !searchIndex || (searchIndex.get(acc.id) ?? '').includes(search);
         const matchSection = filterSection === 'all' || acc.section_id === filterSection;
-        const matchStatus = filterStatus === 'all' || acc.account_status === filterStatus;
+        const isDeleted = acc.is_deleted === true;
+        // Deleted accounts are their own tab: they never appear among the
+        // active rows, and every other status filter hides them.
+        if (filterStatus === 'deleted') {
+          return matchSearch && matchSection && isDeleted;
+        }
+        if (isDeleted) return false;
+        // A lockout is orthogonal to account_status (a locked account is still
+        // "approved"), so the locked tab keys off the lock fields themselves.
+        const matchStatus =
+          filterStatus === 'all' ||
+          (filterStatus === 'locked'
+            ? isAccountLocked(acc)
+            : acc.account_status === filterStatus);
         return matchSearch && matchSection && matchStatus;
       }),
     [scoped, searchIndex, search, filterSection, filterStatus]
@@ -597,11 +709,13 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     let pending = 0;
     let disabled = 0;
     for (const account of scoped) {
+      // Deleted accounts are excluded from every active count.
+      if (account.is_deleted === true) continue;
       if (account.account_status === 'approved') approved += 1;
       else if (account.account_status === 'pending') pending += 1;
       else if (account.account_status === 'disabled' || account.account_status === 'rejected') disabled += 1;
     }
-    const total = scoped.length;
+    const total = scoped.filter((account) => account.is_deleted !== true).length;
     const pct = total === 0 ? '0%' : `${Math.round((approved / total) * 100)}%`;
     return { total, approved, pending, disabled, pct };
   }, [scoped]);
@@ -612,8 +726,21 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     [sections]
   );
 
+  // Pending requests may only move to an active, approved staff member.
+  const reassignCandidates = useMemo(
+    () =>
+      accounts.filter(
+        (acc) =>
+          acc.is_deleted !== true &&
+          acc.account_status === 'approved' &&
+          (acc.role === 'Staff' || acc.role === 'Administrator')
+      ),
+    [accounts]
+  );
+
   const isProtectedRow = (acc: AdminUserRow) =>
-    acc.email.toLowerCase() === PRIMARY_ADMIN_EMAIL && acc.role === 'Administrator';
+    attributedName(acc.email).toLowerCase() === PRIMARY_ADMIN_EMAIL &&
+    acc.role === 'Administrator';
 
   const handleEditSave = async (payload: {
     full_name: string;
@@ -627,38 +754,50 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     if (ok) setEditUser(null);
   };
 
-  const confirm = confirmTarget ? CONFIRM_TEXT[confirmTarget.action as 'disable' | 'reject' | 'delete'] : null;
+  // Deleting an account uses its own dialog: it previews what is kept and asks
+  // what should happen to pending requests before the account is retired.
+  const confirm =
+    confirmTarget && confirmTarget.action !== 'delete'
+      ? CONFIRM_KEYS[confirmTarget.action as 'disable' | 'reject' | 'keep_locked']
+      : null;
 
   // Export to Excel (CSV with UTF-8 BOM)
   const handleExportExcel = () => {
     const list = isAdmin ? filtered : [];
     if (!list.length) {
-      showToast({ type: 'error', title: 'Export Empty', message: 'No records to export.' });
+      showToast({
+        type: 'error',
+        title: t('feedback.exportEmptyTitle'),
+        message: t('feedback.exportEmptyMessage'),
+      });
       return;
     }
 
     const headers = [
-      'Index',
-      'User ID',
-      'Full Name',
-      'Role',
-      'Email',
-      'Mobile Phone',
-      'Department / Section',
-      'Account Status',
-      'Last Login'
+      t('table.columns.index'),
+      t('table.columns.userId'),
+      t('table.columns.fullName'),
+      t('table.columns.role'),
+      t('table.columns.email'),
+      t('table.columns.mobilePhone'),
+      t('table.columns.departmentSection'),
+      t('table.columns.accountStatus'),
+      t('table.columns.lastLogin')
     ];
 
     const rows = list.map((u, i) => [
       i + 1,
       `"${u.id}"`,
-      `"${(u.full_name || '').replace(/"/g, '""')}"`,
+      `"${attributedNameText(u.full_name, {
+        deleted: u.is_deleted === true,
+        label: t('common:deletedUser'),
+      }).replace(/"/g, '""')}"`,
       `"${u.role}"`,
-      `"${u.email}"`,
+      `"${isReservedDeletedEmail(u.email) ? u.original_email ?? '' : u.email}"`,
       `"${u.mobile_phone || ''}"`,
-      `"${(u.section_name || 'Unassigned').replace(/"/g, '""')}"`,
-      `"${u.account_status}"`,
-      `"${u.last_login_at ? formatSriLankaDateTime(u.last_login_at) : 'Never'}"`
+      `"${(u.section_name || t('table.unassigned')).replace(/"/g, '""')}"`,
+      `"${u.is_deleted === true ? 'deleted' : u.account_status}"`,
+      `"${u.last_login_at ? formatSriLankaDateTime(u.last_login_at) : t('table.never')}"`
     ]);
 
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
@@ -672,24 +811,37 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showToast({ type: 'success', title: 'Export Successful', message: 'Directory exported to Excel.' });
+    showToast({
+      type: 'success',
+      title: t('feedback.exportSuccessTitle'),
+      message: t('feedback.exportSuccessMessage'),
+    });
   };
 
   // Print to PDF (Opens print-ready window)
   const handlePrintPDF = () => {
     const list = isAdmin ? filtered : [];
     if (!list.length) {
-      showToast({ type: 'error', title: 'Print Empty', message: 'No records to print.' });
+      showToast({
+        type: 'error',
+        title: t('feedback.printEmptyTitle'),
+        message: t('feedback.printEmptyMessage'),
+      });
       return;
     }
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      showToast({ type: 'error', title: 'Popup Blocked', message: 'Please allow popups to print directory.' });
+      showToast({
+        type: 'error',
+        title: t('feedback.popupBlockedTitle'),
+        message: t('feedback.popupBlockedMessage'),
+      });
       return;
     }
 
-    const titleText = variant === 'admin' ? 'SPID - Verified System Administrators Roster' : 'SPID - Staff & Personnel Directory';
+    const titleText =
+      variant === 'admin' ? t('directory.printRosterTitle') : t('directory.printDirectoryTitle');
     const dateStr = formatSriLankaDateTime(new Date());
 
     const html = `
@@ -719,35 +871,35 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           <div class="header">
             <div>
               <div class="logo-title">${titleText}</div>
-              <div class="sub">Southern Provincial Irrigation Department • Official Personnel Record</div>
+              <div class="sub">${t('directory.printSubtitle')}</div>
             </div>
             <div class="meta">
-              <div>Total Records: <strong>${list.length}</strong></div>
-              <div>Generated: ${dateStr}</div>
+              <div>${t('directory.printTotal', { total: `<strong>${list.length}</strong>` })}</div>
+              <div>${t('directory.printGenerated', { date: dateStr })}</div>
             </div>
           </div>
           <table>
             <thead>
               <tr>
                 <th style="width: 30px;">#</th>
-                <th>Full Name</th>
-                <th>Role</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Department / Section</th>
-                <th>Status</th>
+                <th>${t('table.columns.fullName')}</th>
+                <th>${t('table.columns.role')}</th>
+                <th>${t('table.columns.email')}</th>
+                <th>${t('table.columns.phone')}</th>
+                <th>${t('table.columns.departmentSection')}</th>
+                <th>${t('common:labels.status')}</th>
               </tr>
             </thead>
             <tbody>
               ${list.map((u, i) => `
                 <tr>
                   <td>${i + 1}</td>
-                  <td><strong>${u.full_name}</strong></td>
+                  <td><strong>${attributedNameText(u.full_name, { deleted: u.is_deleted === true, label: t('common:deletedUser') })}</strong></td>
                   <td>${u.role}</td>
-                  <td>${u.email}</td>
+                  <td>${isReservedDeletedEmail(u.email) ? u.original_email ?? '—' : u.email}</td>
                   <td>${u.mobile_phone || '—'}</td>
-                  <td>${u.section_name || 'Unassigned'}</td>
-                  <td class="status-${u.account_status}">${u.account_status.toUpperCase()}</td>
+                  <td>${u.section_name || t('table.unassigned')}</td>
+                  <td class="status-${u.is_deleted === true ? 'deleted' : u.account_status}">${(u.is_deleted === true ? 'deleted' : u.account_status).toUpperCase()}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -769,26 +921,30 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
   const statCards =
     variant === 'admin'
       ? [
-          { icon: MdAdminPanelSettings, tone: 'purple' as const, label: 'Total Administrators', value: stats.total, pill: 'Total', sub: undefined },
-          { icon: FiCheckCircle, tone: 'green' as const, label: 'Approved & Active', value: stats.approved, pill: stats.pct, sub: 'Active & Operational' },
-          { icon: FiUserCheck, tone: 'blue' as const, label: 'Pending Approve', value: stats.pending, pill: 'Action', sub: 'Requires Super-admin sign-off' },
-          { icon: FiUserX, tone: 'red' as const, label: 'Disabled / Suspended', value: stats.disabled, pill: 'Alert', sub: 'Access revoking enforced' },
+          { icon: MdAdminPanelSettings, tone: 'purple' as const, label: t('users.stats.totalAdmins'), value: stats.total, pill: t('users.stats.totalAdminsPill'), sub: undefined },
+          { icon: FiCheckCircle, tone: 'green' as const, label: t('users.stats.approvedActive'), value: stats.approved, pill: stats.pct, sub: t('users.stats.approvedActiveSub') },
+          { icon: FiUserCheck, tone: 'blue' as const, label: t('users.stats.pendingApprove'), value: stats.pending, pill: t('users.stats.pendingApprovePill'), sub: t('users.stats.pendingApproveSub') },
+          { icon: FiUserX, tone: 'red' as const, label: t('users.stats.disabledSuspended'), value: stats.disabled, pill: t('users.stats.disabledSuspendedPill'), sub: t('users.stats.disabledSuspendedSub') },
         ]
       : [
-          { icon: FiShield, tone: 'purple' as const, label: 'Total Registered', value: stats.total, pill: 'Users', sub: 'All divisions' },
-          { icon: FiCheckCircle, tone: 'green' as const, label: 'Approved Staff', value: stats.approved, pill: stats.pct, sub: 'Active' },
-          { icon: FiUserCheck, tone: 'blue' as const, label: 'Pending Activation', value: stats.pending, pill: 'Action Req.', sub: 'Awaiting approval' },
-          { icon: FiUserX, tone: 'red' as const, label: 'Disabled / Inactive', value: stats.disabled, pill: 'Restricted', sub: 'Sessions revoked' },
+          { icon: FiShield, tone: 'purple' as const, label: t('users.stats.totalRegistered'), value: stats.total, pill: t('users.stats.totalRegisteredPill'), sub: t('users.stats.totalRegisteredSub') },
+          { icon: FiCheckCircle, tone: 'green' as const, label: t('users.stats.approvedStaff'), value: stats.approved, pill: stats.pct, sub: t('users.stats.approvedStaffSub') },
+          { icon: FiUserCheck, tone: 'blue' as const, label: t('users.stats.pendingActivation'), value: stats.pending, pill: t('users.stats.pendingActivationPill'), sub: t('users.stats.pendingActivationSub') },
+          { icon: FiUserX, tone: 'red' as const, label: t('users.stats.disabledInactive'), value: stats.disabled, pill: t('users.stats.disabledInactivePill'), sub: t('users.stats.disabledInactiveSub') },
         ];
 
   return (
     <div className="mt-3 flex flex-col gap-5" aria-busy={listLoading}>
       <p className="sr-only" role="status" aria-live="polite">
         {listLoading
-          ? `Loading the ${variant === 'admin' ? 'administrator' : 'user'} management directory.`
+          ? t(
+              variant === 'admin'
+                ? 'directory.srLoadingAdmin'
+                : 'directory.srLoadingStaff'
+            )
           : loadTimedOut
-          ? 'Directory loading timed out. Use the retry button to try again.'
-          : `Directory loaded with ${scoped.length} accounts.`}
+          ? t('directory.srTimedOut')
+          : t('directory.srLoaded', { count: scoped.length })}
       </p>
       <PageHeader
         crumbs={copy.crumbs}
@@ -807,7 +963,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                   aria-hidden="true"
                   className="h-2 w-2 animate-spin rounded-full border-2 border-amber-500/20 border-t-amber-600 motion-reduce:animate-none"
                 />
-                SYNCING DIRECTORY…
+                {t('directory.syncing')}
               </span>
             ) : variant === 'admin' ? (
               <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-bold text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
@@ -815,7 +971,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:animate-none" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                AUDIT LOG SYNC: ACTIVE
+                {t('directory.auditActive')}
               </span>
             ) : null}
             <button
@@ -843,6 +999,77 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         ))}
       </div>
 
+      {/* Account / Locked / Deleted tabs with live badges */}
+      {isAdmin && (
+        <div
+          role="tablist"
+          aria-label={t('lockedPanel.tabsAria')}
+          className="flex flex-wrap items-center gap-2"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterStatus !== 'locked' && filterStatus !== 'deleted'}
+            onClick={() => setFilterStatus('all')}
+            className={`rounded-xl px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] ${
+              filterStatus !== 'locked' && filterStatus !== 'deleted'
+                ? 'bg-[#4318FF] text-white shadow-md shadow-[#4318FF]/25'
+                : 'border border-slate-300 bg-white text-slate-700 hover:border-[#4318FF] hover:text-[#4318FF] dark:border-navy-600 dark:bg-navy-800 dark:text-gray-200'
+            }`}
+          >
+            {t('lockedPanel.allAccounts')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterStatus === 'locked'}
+            onClick={() => setFilterStatus('locked')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 ${
+              filterStatus === 'locked'
+                ? 'bg-red-600 text-white shadow-md shadow-red-600/25'
+                : 'border border-red-200 bg-white text-red-700 hover:border-red-400 hover:bg-red-50 dark:border-red-900 dark:bg-navy-800 dark:text-red-300'
+            }`}
+          >
+            <FiLock aria-hidden="true" className="h-3.5 w-3.5" />
+            <span className="break-words">{t('lockedPanel.tabLabel')}</span>
+            <span
+              className={`inline-flex min-w-[1.5rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
+                filterStatus === 'locked'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
+              }`}
+              aria-label={t('lockedPanel.badgeAria', { count: lockedCount })}
+            >
+              {lockedCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterStatus === 'deleted'}
+            onClick={() => setFilterStatus('deleted')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${
+              filterStatus === 'deleted'
+                ? 'bg-slate-700 text-white shadow-md shadow-slate-700/25'
+                : 'border border-slate-300 bg-white text-slate-700 hover:border-slate-500 dark:border-navy-600 dark:bg-navy-800 dark:text-gray-200'
+            }`}
+          >
+            <FiTrash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            <span className="break-words">{t('filters.deletedTab')}</span>
+            <span
+              className={`inline-flex min-w-[1.5rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
+                filterStatus === 'deleted'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-slate-100 text-slate-700 dark:bg-navy-900 dark:text-gray-300'
+              }`}
+              aria-label={t('filters.deletedCount', { count: deletedCount })}
+            >
+              {deletedCount}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Filters & Search */}
       {isAdmin && (
         <div className="rounded-2xl bg-white p-4 shadow-md shadow-shadow-500 dark:bg-navy-700 dark:shadow-none">
@@ -852,7 +1079,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               <input
                 type="search"
                 id="directory-search"
-                aria-label={variant === 'admin' ? 'Search administrators' : 'Search staff accounts'}
+                aria-label={copy.searchAria}
                 placeholder={copy.searchPlaceholder}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -866,10 +1093,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 onChange={(e) =>
                   setFilterSection(e.target.value === 'all' ? 'all' : Number(e.target.value))
                 }
-                aria-label="Filter by department"
+                aria-label={t('filters.departmentAria')}
                 className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none border border-slate-300 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4318FF]/40"
               >
-                <option value="all">All Departments</option>
+                <option value="all">{t('filters.allDepartments')}</option>
                 {sectionOptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -879,12 +1106,12 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as 'all' | AccountStatus)}
-                aria-label="Filter by account status"
+                aria-label={t('filters.statusAria')}
                 className="h-9 rounded-xl bg-[#f4f7fe] px-3 text-xs font-extrabold text-slate-950 outline-none border border-slate-300 dark:border-navy-700 dark:bg-navy-900 dark:text-gray-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4318FF]/40"
               >
                 {STATUS_FILTERS.map((s) => (
                   <option key={s} value={s}>
-                    {s === 'all' ? 'All Statuses' : s.charAt(0).toUpperCase() + s.slice(1)}
+                    {t(STATUS_LABEL_KEYS[s])}
                   </option>
                 ))}
               </select>
@@ -893,10 +1120,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 type="button"
                 onClick={handleExportExcel}
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-[#f4f7fe] px-3 border border-slate-300 dark:border-navy-700 text-xs font-bold text-slate-800 transition-all hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer shadow-sm active:scale-95"
-                title="Export to Excel" aria-label="Export records to Excel CSV"
+                title={t('directory.exportTitle')} aria-label={t('directory.exportAria')}
               >
                 <FiDownload className="h-3.5 w-3.5 text-emerald-600" />
-                <span className="hidden sm:inline">Export Excel</span>
+                <span className="hidden sm:inline">{t('directory.exportLabel')}</span>
               </button>
 
               {/* Print to PDF Button */}
@@ -904,20 +1131,24 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
                 type="button"
                 onClick={handlePrintPDF}
                 className="flex h-9 items-center gap-1.5 rounded-xl bg-[#f4f7fe] px-3 border border-slate-300 dark:border-navy-700 text-xs font-bold text-slate-800 transition-all hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer shadow-sm active:scale-95"
-                title="Print to PDF" aria-label="Print records as PDF"
+                title={t('directory.printTitle')} aria-label={t('directory.printAria')}
               >
                 <FiPrinter className="h-3.5 w-3.5 text-[#4318FF]" />
-                <span className="hidden sm:inline">Print PDF</span>
+                <span className="hidden sm:inline">{t('directory.printLabel')}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => loadAccounts(true)}
                 disabled={listLoading || isRefreshing}
-                aria-label="Refresh directory"
+                aria-label={t('directory.refreshAria')}
                 aria-busy={listLoading || isRefreshing}
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f7fe] border border-slate-300 dark:border-navy-700 text-slate-900 transition-colors hover:text-[#4318FF] hover:border-[#4318FF] dark:bg-navy-900 dark:text-gray-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF] focus-visible:ring-offset-1"
-                title={listLoading || isRefreshing ? 'Refreshing directory...' : 'Refresh'}
+                title={
+                  listLoading || isRefreshing
+                    ? t('directory.refreshing')
+                    : t('common:buttons.refresh')
+                }
               >
                 <FiRefreshCw
                   aria-hidden="true"
@@ -936,7 +1167,7 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
         <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/20">
           <MdAdminPanelSettings className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            Only Administrators can view and manage the personnel registry.
+            {t('directory.adminOnly')}
           </p>
         </div>
       )}
@@ -954,11 +1185,10 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
             />
             <div>
               <p className="text-sm font-bold text-red-800 dark:text-red-300">
-                Directory loading timed out
+                {t('directory.timeoutTitle')}
               </p>
               <p className="mt-0.5 text-xs font-medium text-red-700 dark:text-red-400">
-                The SPID registry did not respond within {DIRECTORY_LOAD_TIMEOUT_SECONDS} seconds.
-                Check your connection, then retry.
+                {t('directory.timeoutMessage', { seconds: DIRECTORY_LOAD_TIMEOUT_SECONDS })}
               </p>
             </div>
           </div>
@@ -967,35 +1197,58 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
             onClick={retryLoad}
             className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-red-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 cursor-pointer"
           >
-            <FiRefreshCw aria-hidden="true" className="h-3.5 w-3.5" /> Retry
+            <FiRefreshCw aria-hidden="true" className="h-3.5 w-3.5" /> {t('directory.retry')}
           </button>
         </div>
       )}
 
-      {/* Directory Table */}
-      <AccountTable
-        rows={isAdmin ? filtered : []}
-        listLoading={listLoading}
-        loadingId={loadingId}
-        title={copy.tableTitle}
-        caption={copy.tableCaption}
-        emptyMessage={copy.emptyMessage}
-        variant={variant}
-        currentUserId={meId}
-        onAction={request}
-        onEdit={setEditUser}
-      />
+      {/* Directory Table — the locked tab swaps in its own columns */}
+      {isAdmin && filterStatus === 'locked' ? (
+        <LockedAccountsTable
+          rows={filtered}
+          listLoading={listLoading}
+          loadingId={loadingId}
+          currentUserId={meId}
+          onUnlock={(acc) => request(acc, 'approve_unlock')}
+          onKeepLocked={(acc) => request(acc, 'keep_locked')}
+        />
+      ) : (
+        <AccountTable
+          rows={isAdmin ? filtered : []}
+          listLoading={listLoading}
+          loadingId={loadingId}
+          title={copy.tableTitle}
+          caption={copy.tableCaption}
+          emptyMessage={copy.emptyMessage}
+          variant={variant}
+          currentUserId={meId}
+          onAction={request}
+          onEdit={setEditUser}
+        />
+      )}
 
       {/* Confirm (destructive actions) */}
       {confirmTarget && confirm && (
         <ConfirmActionModal
-          title={confirm.title}
-          description={confirm.description(confirmTarget.acc.full_name)}
-          confirmLabel={confirm.confirmLabel}
-          tone={confirmTarget.action === 'delete' ? 'danger' : 'primary'}
+          title={t(confirm.title)}
+          description={t(confirm.description, { name: attributedName(confirmTarget.acc.full_name) })}
+          confirmLabel={t(confirm.confirmLabel)}
+          tone="primary"
           loading={loadingId === confirmTarget.acc.id}
           onConfirm={() => run(confirmTarget.acc, confirmTarget.action as AccountAction)}
           onCancel={() => setConfirmTarget(null)}
+        />
+      )}
+
+      {/* Soft delete: previews the records that are kept and the pending requests */}
+      {confirmTarget?.action === 'delete' && (
+        <DeleteAccountModal
+          key={confirmTarget.acc.id}
+          acc={confirmTarget.acc}
+          reassignCandidates={reassignCandidates}
+          loading={loadingId === confirmTarget.acc.id}
+          onClose={() => setConfirmTarget(null)}
+          onConfirm={(payload: DeletePayload) => run(confirmTarget.acc, 'delete', payload)}
         />
       )}
 
@@ -1023,14 +1276,23 @@ export default function AccountDirectoryPage({ variant }: { variant: 'admin' | '
           onSuccess={(msg) => {
             showToast({
               type: 'success',
-              title: variant === 'admin' ? 'Administrator Registered' : 'Staff Member Registered',
+              title:
+                variant === 'admin'
+                  ? t('feedback.adminRegisteredTitle')
+                  : t('feedback.staffRegisteredTitle'),
               message: msg,
             });
             setFeedback({
               tone: 'success',
               icon: 'check',
-              badge: variant === 'admin' ? 'Super-Tier Provisioned' : 'Personnel Activated',
-              title: variant === 'admin' ? 'Administrator Created Successfully' : 'Account Created Successfully',
+              badge:
+                variant === 'admin'
+                  ? t('feedback.superTierBadge')
+                  : t('feedback.personnelBadge'),
+              title:
+                variant === 'admin'
+                  ? t('feedback.adminCreatedTitle')
+                  : t('feedback.accountCreatedTitle'),
               description: msg,
             });
             broadcastAdminSync('ACCOUNTS_UPDATED');

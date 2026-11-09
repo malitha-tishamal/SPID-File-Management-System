@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Indeterminate loading bar for table fetches.
@@ -11,17 +12,20 @@ import React from 'react';
  */
 export default function TableLoadingProgressBar({
   active,
-  label = 'Loading file records',
+  label,
 }: {
   active: boolean;
   label?: string;
 }) {
+  const { t } = useTranslation('files');
+  const labelText = label ?? t('table.loadingRecords');
+
   return (
     <div className="mb-2">
       <div
         role="progressbar"
         aria-busy={active}
-        aria-label={label}
+        aria-label={labelText}
         aria-hidden={!active}
         className={`relative h-1 w-full overflow-hidden rounded-full bg-slate-100 transition-opacity duration-150 dark:bg-navy-700 ${
           active ? 'opacity-100' : 'opacity-0'
@@ -33,7 +37,7 @@ export default function TableLoadingProgressBar({
       </div>
       {active && (
         <span className="sr-only" role="status" aria-live="polite">
-          {label}
+          {labelText}
         </span>
       )}
     </div>

@@ -1,13 +1,15 @@
 import Card from 'components/card';
 import CardMenu from 'components/card/CardMenu';
 import Switch from 'components/switch';
+import { useTranslation } from 'react-i18next';
 
 function Notification() {
+  const { t } = useTranslation('profile');
   return (
     <Card extra={'w-full h-full p-3'}>
       <div className="relative mb-3 flex items-center justify-between pt-1">
         <h4 className="text-xl font-bold text-navy-700 dark:text-white">
-          Notifications
+          {t('notificationSettings.title')}
         </h4>
         <CardMenu />
       </div>
@@ -19,7 +21,7 @@ function Notification() {
             htmlFor="checkbox1"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Item comment notifications
+            {t('notificationSettings.itemComment')}
           </label>
         </div>
 
@@ -29,7 +31,7 @@ function Notification() {
             htmlFor="checkbox2"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Buyer review notifications
+            {t('notificationSettings.buyerReview')}
           </label>
         </div>
 
@@ -39,7 +41,7 @@ function Notification() {
             htmlFor="checkbox3"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Rating reminders notifications
+            {t('notificationSettings.ratingReminders')}
           </label>
         </div>
 
@@ -49,7 +51,7 @@ function Notification() {
             htmlFor="checkbox4"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Meetups near you notifications
+            {t('notificationSettings.meetups')}
           </label>
         </div>
 
@@ -59,7 +61,7 @@ function Notification() {
             htmlFor="checkbox5"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Company news notifications
+            {t('notificationSettings.companyNews')}
           </label>
         </div>
 
@@ -69,7 +71,7 @@ function Notification() {
             htmlFor="checkbox6"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            New launches and projects
+            {t('notificationSettings.newLaunches')}
           </label>
         </div>
         <div className="mt-4 flex items-center gap-3">
@@ -78,7 +80,7 @@ function Notification() {
             htmlFor="checkbox7"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Monthly product changes
+            {t('notificationSettings.monthlyChanges')}
           </label>
         </div>
         <div className="mt-4 flex items-center gap-3">
@@ -87,7 +89,7 @@ function Notification() {
             htmlFor="checkbox8"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Subscribe to newsletter
+            {t('notificationSettings.newsletter')}
           </label>
         </div>
         <div className="mt-4 flex items-center gap-3">
@@ -96,7 +98,7 @@ function Notification() {
             htmlFor="checkbox8"
             className="text-base font-medium text-navy-700 dark:text-white"
           >
-            Email me when someone follows me
+            {t('notificationSettings.follows')}
           </label>
         </div>
       </div>

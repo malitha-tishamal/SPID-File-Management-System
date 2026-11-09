@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiXCircle } from 'react-icons/fi';
 import type { FileRecordRow } from 'models/FileRepository';
 import FileModalShell from './FileModalShell';
@@ -17,6 +18,7 @@ export default function ConfirmRejectModal({
   onConfirm: (reason?: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('files');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
@@ -39,7 +41,7 @@ export default function ConfirmRejectModal({
     const trimmed = dom.trim();
 
     if (!trimmed) {
-      setError('Rejection reason is required. Please provide a reason before rejecting this file.');
+      setError(t('modals.rejectReasonRequired'));
       reasonRef.current?.focus();
       return;
     }
@@ -51,8 +53,8 @@ export default function ConfirmRejectModal({
 
   return (
     <FileModalShell
-      title="Reject File Submission"
-      subtitle="Decline file request"
+      title={t('modals.rejectTitle')}
+      subtitle={t('modals.rejectSubtitle')}
       icon={<FiXCircle className="h-5 w-5" />}
       iconTone="rose"
       size="sm"
@@ -68,7 +70,7 @@ export default function ConfirmRejectModal({
             disabled={loading}
             className="flex-1"
           >
-            Cancel
+            {t('common:buttons.cancel')}
           </Button>
           <button
             type="button"
@@ -79,12 +81,12 @@ export default function ConfirmRejectModal({
             {loading ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                <span>Rejecting...</span>
+                <span>{t('modals.rejecting')}</span>
               </>
             ) : (
               <>
                 <FiXCircle className="h-4 w-4" />
-                <span>Reject Request</span>
+                <span>{t('modals.rejectConfirm')}</span>
               </>
             )}
           </button>
@@ -93,18 +95,20 @@ export default function ConfirmRejectModal({
     >
       <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-xs dark:border-navy-700 dark:bg-navy-900/50">
         <p className="leading-relaxed text-slate-500 dark:text-slate-300">
-          Are you sure you want to decline this submission? Rejected requests
-          will not enter the active file repository.
+          {t('modals.rejectIntro')}
         </p>
         <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-200/60 pt-2.5 dark:border-navy-700">
           <div className="flex justify-between gap-3">
-            <span className="font-semibold text-slate-400">File Number:</span>
-            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+            <span className="font-semibold text-slate-400">{t('modals.fileNumber')}</span>
+            <span
+              className="max-w-[240px] break-words text-right font-mono font-bold text-slate-700 dark:text-slate-300 [overflow-wrap:anywhere]"
+              title={file.file_no}
+            >
               {file.file_no}
             </span>
           </div>
           <div className="flex justify-between gap-3">
-            <span className="shrink-0 font-semibold text-slate-400">File Name:</span>
+            <span className="shrink-0 font-semibold text-slate-400">{t('modals.fileName')}</span>
             <span
               className="max-w-[240px] truncate text-right font-bold text-slate-800 dark:text-white"
               title={file.file_name}
@@ -119,7 +123,7 @@ export default function ConfirmRejectModal({
             htmlFor="rejection-reason"
             className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300"
           >
-            Rejection Reason <span className="text-rose-500">*</span>
+            {t('detail.rejectionReason')} <span className="text-rose-500">*</span>
           </label>
           <textarea
             id="rejection-reason"
@@ -129,7 +133,7 @@ export default function ConfirmRejectModal({
             onChange={(e) => setReason(e.target.value)}
             onBlur={syncReasonFromDom}
             onKeyUp={syncReasonFromDom}
-            placeholder="Ex: Missing section documentation, invalid date range..."
+            placeholder={t('modals.rejectReasonPlaceholder')}
             className={`w-full resize-none rounded-xl border bg-white p-2.5 text-xs leading-relaxed text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:ring-2 dark:border-navy-700 dark:bg-navy-900 dark:text-white ${
               error
                 ? 'border-rose-400 focus:border-rose-400 focus:ring-rose-400/20'

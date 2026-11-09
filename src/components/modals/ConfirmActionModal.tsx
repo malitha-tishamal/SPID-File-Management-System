@@ -1,5 +1,6 @@
 'use client';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { FiAlertTriangle } from 'react-icons/fi';
 import Modal from 'components/ui/Modal';
 import Button from 'components/ui/Button';
@@ -28,6 +29,7 @@ export default function ConfirmActionModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation('accounts');
   const isWarning = tone === 'warning';
 
   const panelClassName = isWarning
@@ -87,14 +89,14 @@ export default function ConfirmActionModal({
             disabled={loading}
             className="flex-1"
           >
-            Cancel
+            {t('common:buttons.cancel')}
           </Button>
           <Button
             type="button"
             variant={isWarning ? 'warning' : tone === 'danger' ? 'danger' : 'primary'}
             onClick={onConfirm}
             loading={loading}
-            loadingText="Working..."
+            loadingText={t('modals.working')}
             className="flex-1"
           >
             {confirmLabel}

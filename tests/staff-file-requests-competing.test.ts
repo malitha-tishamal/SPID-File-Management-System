@@ -1,8 +1,20 @@
+/**
+ * The original competing-request scenarios, kept as fixtures but asserted
+ * through `lib/competing-requests` — the ranking the admin queue, the staff
+ * views and the approve API all share. The local re-implementation this file
+ * used to carry has been removed; a test that ranks on its own can pass while
+ * the app disagrees.
+ */
 import { describe, expect, it } from 'vitest';
+import {
+  getCompetingInfo,
+  sortByCompetingRank,
+  type CompetingRequestInput,
+} from 'lib/competing-requests';
 
 type RequestPriority = 'HIGH' | 'NORMAL' | 'LOW';
 
-interface RequestItem {
+interface RequestItem extends CompetingRequestInput {
   id: number;
   file_no: string;
   file_name: string;
@@ -13,64 +25,13 @@ interface RequestItem {
   request_date: string;
 }
 
-const priorityWeight: Record<RequestPriority, number> = {
-  HIGH: 3,
-  NORMAL: 2,
-  LOW: 1,
-};
-
-function resolveCompetingRequests(requests: RequestItem[]) {
-  const map = new Map<
-    string,
-    {
-      count: number;
-      leaderId: number;
-      isTie: boolean;
-      sortedRequests: RequestItem[];
-    }
-  >();
-
-  const pending = requests.filter((r) => r.status === 'PENDING');
-
-  pending.forEach((req) => {
-    const existing = map.get(req.file_no);
-    if (!existing) {
-      map.set(req.file_no, {
-        count: 1,
-        leaderId: req.id,
-        isTie: false,
-        sortedRequests: [req],
-      });
-    } else {
-      existing.count += 1;
-      existing.sortedRequests.push(req);
-    }
-  });
-
-  map.forEach((group) => {
-    if (group.count > 1) {
-      group.sortedRequests.sort((a, b) => {
-        // 1. Priority weight (HIGH > NORMAL > LOW)
-        const pDiff = priorityWeight[b.priority] - priorityWeight[a.priority];
-        if (pDiff !== 0) return pDiff;
-
-        // 2. FIFO Tie-breaker: Earliest submission wins!
-        const timeA = new Date(a.created_at).getTime();
-        const timeB = new Date(b.created_at).getTime();
-        if (timeA !== timeB) return timeA - timeB;
-
-        // 3. Earliest access date
-        return a.request_date.localeCompare(b.request_date);
-      });
-
-      group.leaderId = group.sortedRequests[0].id;
-      group.isTie =
-        group.sortedRequests.length >= 2 &&
-        group.sortedRequests[0].priority === group.sortedRequests[1].priority;
-    }
-  });
-
-  return map;
+/** The pending rows sharing a file, highest rank first. */
+function competingGroup(requests: RequestItem[]): RequestItem[] {
+  const info = getCompetingInfo(requests);
+  return sortByCompetingRank(
+    requests.filter((row) => info.get(row.id)?.isCompeting),
+    info,
+  );
 }
 
 describe('Staff File Requests — Priority & Competing Requests Logic', () => {
@@ -98,16 +59,13 @@ describe('Staff File Requests — Priority & Competing Requests Logic', () => {
       },
     ];
 
-    const map = resolveCompetingRequests(requests);
-    const de12 = map.get('DE-12');
+    const info = getCompetingInfo(requests);
 
-    expect(de12).toBeDefined();
-    expect(de12?.count).toBe(2);
+    expect(info.get(101)?.groupSize).toBe(2);
     // Request 102 has HIGH priority, so it beats Request 101 (NORMAL) despite being submitted later
-    expect(de12?.leaderId).toBe(102);
-    expect(de12?.isTie).toBe(false);
-    expect(de12?.sortedRequests[0].id).toBe(102);
-    expect(de12?.sortedRequests[1].id).toBe(101);
+    expect(info.get(102)).toMatchObject({ rank: 0, isLeader: true, isTie: false });
+    expect(info.get(101)?.rank).toBe(1);
+    expect(competingGroup(requests).map((row) => row.id)).toEqual([102, 101]);
   });
 
   it('resolves ties using FIFO (First-In First-Out submission timestamp) when priorities are identical', () => {
@@ -134,16 +92,15 @@ describe('Staff File Requests — Priority & Competing Requests Logic', () => {
       },
     ];
 
-    const map = resolveCompetingRequests(requests);
-    const flGroup = map.get('FL-2026-0142');
+    const info = getCompetingInfo(requests);
 
-    expect(flGroup).toBeDefined();
-    expect(flGroup?.count).toBe(2);
-    expect(flGroup?.isTie).toBe(true);
     // Staff Member 1 was earlier by 15 mins, so they take precedence as tie leader
-    expect(flGroup?.leaderId).toBe(201);
-    expect(flGroup?.sortedRequests[0].id).toBe(201);
-    expect(flGroup?.sortedRequests[1].id).toBe(202);
+    expect(info.get(201)).toMatchObject({ rank: 0, isLeader: true, isTie: true });
+    expect(info.get(202)).toMatchObject({
+      rank: 1,
+      samePriorityAsLeader: true,
+    });
+    expect(competingGroup(requests).map((row) => row.id)).toEqual([201, 202]);
   });
 
   it('does not flag non-pending (already reviewed) requests as competing', () => {
@@ -170,11 +127,11 @@ describe('Staff File Requests — Priority & Competing Requests Logic', () => {
       },
     ];
 
-    const map = resolveCompetingRequests(requests);
-    const group = map.get('DE-12');
+    const info = getCompetingInfo(requests);
 
-    expect(group?.count).toBe(1);
-    expect(group?.leaderId).toBe(302);
+    expect(info.get(301)).toBeUndefined();
+    expect(info.get(302)).toBeUndefined();
+    expect(competingGroup(requests)).toEqual([]);
   });
 
   it('correctly ranks 3 competing requests across High, Normal, and Low priorities', () => {
@@ -211,11 +168,11 @@ describe('Staff File Requests — Priority & Competing Requests Logic', () => {
       },
     ];
 
-    const map = resolveCompetingRequests(requests);
-    const group = map.get('AUD-99');
+    const info = getCompetingInfo(requests);
 
-    expect(group?.count).toBe(3);
-    expect(group?.leaderId).toBe(403); // HIGH wins
-    expect(group?.sortedRequests.map((r) => r.id)).toEqual([403, 402, 401]);
+    expect(info.get(403)).toMatchObject({ rank: 0, isLeader: true, groupSize: 3 });
+    expect(info.get(402)?.rank).toBe(1);
+    expect(info.get(401)?.rank).toBe(2);
+    expect(competingGroup(requests).map((row) => row.id)).toEqual([403, 402, 401]);
   });
 });

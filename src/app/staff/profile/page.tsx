@@ -21,6 +21,7 @@ import {
 import type { ProfileDTO } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
 import { formatSriLankaDate } from 'lib/datetime';
+import { useTranslation } from 'react-i18next';
 import Button from 'components/ui/Button';
 
 type ActiveTab = 'profile' | 'security';
@@ -33,6 +34,7 @@ interface ProfileFeedback {
 }
 
 export default function StaffProfilePage() {
+  const { t } = useTranslation('profile');
   const [activeTab, setActiveTab] = useState<ActiveTab>('profile');
   const [profile, setProfile] = useState<ProfileDTO | null>(null);
   const [sections, setSections] = useState<SectionRow[]>([]);
@@ -158,26 +160,23 @@ export default function StaffProfilePage() {
       if (res.ok && json?.ok) {
         setFeedback({
           type: 'profile-success',
-          badge: 'PROFILE SYNCHRONIZED',
-          title: 'Profile Details Updated Successfully',
-          description:
-            'Your SPID staff credentials and departmental registry allocation have been securely committed to the canonical registry.',
+          badge: t('feedback.badgeProfileSynced'),
+          title: t('feedback.profileUpdated'),
+          description: t('feedback.staffProfileUpdatedDesc'),
         });
         loadData();
       } else {
         setFeedback({
           type: 'profile-error',
-          title: 'Profile Update Failed',
-          description:
-            json?.message ||
-            'The departmental archive registry rejected the submitted profile modifications due to compliance validation constraints.',
+          title: t('feedback.profileUpdateFailed'),
+          description: json?.message || t('feedback.profileRejectedDesc'),
         });
       }
     } catch {
       setFeedback({
         type: 'profile-error',
-        title: 'Profile Update Failed',
-        description: 'Could not reach the server. Please verify your internet connection and try again.',
+        title: t('feedback.profileUpdateFailed'),
+        description: t('feedback.networkDesc'),
       });
     } finally {
       setSavingProfile(false);
@@ -198,18 +197,18 @@ export default function StaffProfilePage() {
     if (!currentPassword) {
       setFeedback({
         type: 'password-error',
-        badge: 'AUTHENTICATION DISCREPANCY',
-        title: 'Password Update Failed',
-        description: 'Please enter your current password to proceed.',
+        badge: t('feedback.badgeAuthDiscrepancy'),
+        title: t('feedback.passwordUpdateFailed'),
+        description: t('feedback.staffCurrentPasswordRequired'),
       });
       return;
     }
     if (passStrengthScore < 3 || !passwordsMatch) {
       setFeedback({
         type: 'password-error',
-        badge: 'AUTHENTICATION DISCREPANCY',
-        title: 'Password Update Failed',
-        description: 'The new password does not satisfy compliance requirements or passwords do not match.',
+        badge: t('feedback.badgeAuthDiscrepancy'),
+        title: t('feedback.passwordUpdateFailed'),
+        description: t('feedback.staffPasswordComplianceDesc'),
       });
       return;
     }
@@ -224,9 +223,8 @@ export default function StaffProfilePage() {
       if (res.ok && json?.ok) {
         setFeedback({
           type: 'password-success',
-          title: 'Password Updated Successfully',
-          description:
-            'Your SPID staff credentials and cryptographic session tokens have been synchronized according to departmental security protocols.',
+          title: t('feedback.passwordUpdated'),
+          description: t('feedback.staffPasswordUpdatedDesc'),
         });
         setCurrentPassword('');
         setNewPassword('');
@@ -234,19 +232,17 @@ export default function StaffProfilePage() {
       } else {
         setFeedback({
           type: 'password-error',
-          badge: 'AUTHENTICATION DISCREPANCY',
-          title: 'Password Update Failed',
-          description:
-            json?.message ||
-            'We could not verify and update your credentials. Please review the security requirements.',
+          badge: t('feedback.badgeAuthDiscrepancy'),
+          title: t('feedback.passwordUpdateFailed'),
+          description: json?.message || t('feedback.staffPasswordVerifyDesc'),
         });
       }
     } catch {
       setFeedback({
         type: 'password-error',
-        badge: 'AUTHENTICATION DISCREPANCY',
-        title: 'Password Update Failed',
-        description: 'Could not reach the security cluster. Please check your network and try again.',
+        badge: t('feedback.badgeAuthDiscrepancy'),
+        title: t('feedback.passwordUpdateFailed'),
+        description: t('feedback.networkSecurityDesc'),
       });
     } finally {
       setSavingPassword(false);
@@ -261,9 +257,9 @@ export default function StaffProfilePage() {
     if (file.size > 2 * 1024 * 1024) {
       setFeedback({
         type: 'profile-error',
-        badge: 'FILE SIZE EXCEEDED',
-        title: 'Image Too Large',
-        description: 'The selected image exceeds the 2MB size limit. Please select a smaller photo.',
+        badge: t('feedback.badgeFileSize'),
+        title: t('feedback.imageTooLarge'),
+        description: t('feedback.imageTooLargeDesc'),
       });
       return;
     }
@@ -312,25 +308,24 @@ export default function StaffProfilePage() {
 
         setFeedback({
           type: 'profile-success',
-          badge: 'AVATAR SYNCHRONIZED',
-          title: 'Profile Picture Updated',
-          description:
-            'Your official profile photograph has been successfully updated and synchronized across all SPID systems and directories.',
+          badge: t('feedback.badgeAvatarSynced'),
+          title: t('feedback.avatarUpdated'),
+          description: t('feedback.avatarUpdatedDesc'),
         });
       } else {
         setFeedback({
           type: 'profile-error',
-          badge: 'UPLOAD FAILED',
-          title: 'Avatar Update Failed',
-          description: json?.message || 'Could not save your new profile picture. Please try again.',
+          badge: t('feedback.badgeUploadFailed'),
+          title: t('feedback.avatarUpdateFailed'),
+          description: json?.message || t('feedback.avatarSaveFailedDesc'),
         });
       }
     } catch {
       setFeedback({
         type: 'profile-error',
-        badge: 'NETWORK DISCREPANCY',
-        title: 'Connection Error',
-        description: 'Could not connect to the image storage service. Please check your network.',
+        badge: t('feedback.badgeNetwork'),
+        title: t('feedback.connectionError'),
+        description: t('feedback.networkStorageDesc'),
       });
     } finally {
       setAvatarUploading(false);
@@ -351,15 +346,15 @@ export default function StaffProfilePage() {
     setProfile((prev) => (prev ? { ...prev, updated_at: nowIso } : null));
     setFeedback({
       type: 'profile-success',
-      badge: 'AVATAR REMOVED',
-      title: 'Profile Picture Reset',
-      description: 'Your profile picture has been reset to default initials.',
+      badge: t('feedback.badgeAvatarRemoved'),
+      title: t('feedback.avatarReset'),
+      description: t('feedback.avatarResetDesc'),
     });
   };
 
-  const displayName = profile?.full_name || 'SPID Staff';
+  const displayName = profile?.full_name || t('common:misc.staffFallback');
   // Staff: show role as-is from the API (e.g. "Staff")
-  const displayRole = profile?.role || 'Staff';
+  const displayRole = profile?.role || t('identity.staffFallback');
   const displayEmail = profile?.email || '';
   const displayInitials = displayName.slice(0, 2).toUpperCase();
 
@@ -375,19 +370,19 @@ export default function StaffProfilePage() {
       <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
         <div>
           <nav className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-            <span>Pages</span>
+            <span>{t('page.pages')}</span>
             <span>&gt;</span>
-            <span>System Settings</span>
+            <span>{t('page.systemSettings')}</span>
             <span>&gt;</span>
-            <span className="font-bold text-[#4318FF] dark:text-brand-300">Profile Management</span>
+            <span className="font-bold text-[#4318FF] dark:text-brand-300">{t('page.title')}</span>
           </nav>
           <h1 className="text-2xl sm:text-[28px] font-black tracking-tight text-navy-700 dark:text-white mt-1">
-            Profile Management
+            {t('page.title')}
           </h1>
           <p className="max-w-2xl text-xs sm:text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 mt-0.5">
             {activeTab === 'profile'
-              ? 'Manage your official Southern Provincial Irrigation Department staff credentials, contact info, and department allocation.'
-              : 'Manage your official SPID security credentials, cryptographic session keys, and password authentication.'}
+              ? t('page.description')
+              : t('page.staffSecurityDescription')}
           </p>
         </div>
 
@@ -396,12 +391,12 @@ export default function StaffProfilePage() {
           {activeTab === 'profile' ? (
             <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3.5 py-1.5 text-[10px] font-black text-slate-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200/60 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>SESSION ACTIVE - SPID STAFF PORTAL</span>
+              <span>{t('page.staffSessionStatus')}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3.5 py-1.5 text-[10px] font-black text-slate-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200/60 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>SPID INTRANET NODE 04 - SECURE</span>
+              <span>{t('page.nodeStatus')}</span>
             </div>
           )}
         </div>
@@ -419,10 +414,10 @@ export default function StaffProfilePage() {
           }`}
         >
           <FiUser className="h-4 w-4" />
-          <span>Profile &amp; Staff Details</span>
+          <span>{t('tabs.profile')}</span>
           {activeTab === 'profile' && (
             <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase">
-              PRIMARY
+              {t('tabs.primary')}
             </span>
           )}
         </button>
@@ -437,10 +432,10 @@ export default function StaffProfilePage() {
           }`}
         >
           <FiLock className="h-4 w-4" />
-          <span>Security &amp; Password</span>
+          <span>{t('tabs.security')}</span>
           {activeTab === 'security' && (
             <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider uppercase">
-              Active
+              {t('common:status.active')}
             </span>
           )}
         </button>
@@ -457,7 +452,7 @@ export default function StaffProfilePage() {
               <div className="relative">
                 <div className="h-28 w-28 rounded-full bg-gradient-to-b from-slate-200 to-slate-300 dark:from-navy-600 dark:to-navy-800 flex items-center justify-center text-3xl font-black text-slate-500 dark:text-slate-300 shadow-inner overflow-hidden border-4 border-white dark:border-navy-700">
                   {avatarPreview ? (
-                    <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
+                    <img src={avatarPreview} alt={t('avatar.alt')} className="h-full w-full object-cover" />
                   ) : (
                     displayInitials
                   )}
@@ -472,14 +467,14 @@ export default function StaffProfilePage() {
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-600 cursor-pointer transition-colors active:scale-95">
                     <FiUploadCloud className="h-4 w-4" />
-                    <span>Upload New Avatar</span>
+                    <span>{t('avatar.upload')}</span>
                     <input type="file" accept="image/*" onChange={handleAvatarFile} className="hidden" />
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowAvatarRemoveModal(true)}
                     className="flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 text-red-500 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/20 transition-colors cursor-pointer"
-                    title="Remove avatar"
+                    title={t('avatar.removeTooltip')}
                   >
                     <FiTrash2 className="h-4 w-4" />
                   </button>
@@ -493,7 +488,7 @@ export default function StaffProfilePage() {
                       className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
                     >
                       <FiCheck className="h-3.5 w-3.5" />
-                      <span>Save New Avatar</span>
+                      <span>{t('avatar.save')}</span>
                     </button>
                     <button
                       type="button"
@@ -503,11 +498,11 @@ export default function StaffProfilePage() {
                       }}
                       className="rounded-xl border border-slate-200 dark:border-navy-600 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
                     >
-                      Cancel
+                      {t('common:buttons.cancel')}
                     </button>
                   </div>
                 )}
-                <p className="mt-1 text-[11px] font-medium text-slate-400">JPG, PNG or GIF. Max size 2MB.</p>
+                <p className="mt-1 text-[11px] font-medium text-slate-400">{t('avatar.hint')}</p>
               </div>
             </div>
 
@@ -518,7 +513,7 @@ export default function StaffProfilePage() {
                 <FiLock className="h-3 w-3" /> {displayRole}
               </span>
             </div>
-            <p className="mt-1 text-xs font-bold text-slate-400 font-mono">ID: EMP-SPID-STAFF</p>
+            <p className="mt-1 text-xs font-bold text-slate-400 font-mono">{t('identity.employeeId', { id: 'EMP-SPID-STAFF' })}</p>
 
             {/* Account Status */}
             <div className="mt-6 w-full rounded-2xl bg-[#f8faff] dark:bg-navy-800 p-4 border border-slate-100 dark:border-navy-700 flex items-center justify-between">
@@ -527,11 +522,11 @@ export default function StaffProfilePage() {
                   <FiCheckCircle className="h-4 w-4" />
                 </div>
                 <div className="text-left">
-                  <p className="text-[11px] font-bold text-slate-700 dark:text-white">Account Status</p>
+                  <p className="text-[11px] font-bold text-slate-700 dark:text-white">{t('identity.accountStatus')}</p>
                 </div>
               </div>
               <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200">
-                Active &amp; Verified
+                {t('identity.verified')}
               </span>
             </div>
 
@@ -542,7 +537,7 @@ export default function StaffProfilePage() {
                   <FiClock className="h-4 w-4" />
                 </div>
                 <div className="text-left">
-                  <p className="text-[11px] font-bold text-slate-700 dark:text-white">Last Update</p>
+                  <p className="text-[11px] font-bold text-slate-700 dark:text-white">{t('identity.lastUpdate')}</p>
                 </div>
               </div>
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300 font-mono">
@@ -555,10 +550,10 @@ export default function StaffProfilePage() {
           <div className="lg:col-span-8 rounded-[24px] bg-white dark:bg-navy-700 p-6 sm:p-8 shadow-md shadow-shadow-500 dark:shadow-none border border-slate-100 dark:border-navy-600">
             <div>
               <h2 className="text-lg font-black text-navy-700 dark:text-white tracking-tight">
-                Staff Registration &amp; Profile Details
+                {t('form.staffDetailsTitle')}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Manage your SPID staff credentials and departmental assignment.
+                {t('form.staffSubtitle')}
               </p>
             </div>
 
@@ -568,10 +563,10 @@ export default function StaffProfilePage() {
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
                     <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                      User Role <span className="text-red-500">*</span>
+                      {t('form.userRole')} <span className="text-red-500">*</span>
                     </label>
                     <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                      <FiLock className="h-3 w-3" /> Locked
+                      <FiLock className="h-3 w-3" /> {t('form.locked')}
                     </span>
                   </div>
                   <div className="relative">
@@ -589,10 +584,10 @@ export default function StaffProfilePage() {
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
                     <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                      Official / Work Email <span className="text-red-500">*</span>
+                      {t('form.workEmail')} <span className="text-red-500">*</span>
                     </label>
                     <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Permanent GOV.LK
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {t('form.permanentGov')}
                     </span>
                   </div>
                   <div className="relative">
@@ -611,9 +606,9 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    Full Legal Name <span className="text-red-500">*</span>
+                    {t('form.fullName')} <span className="text-red-500">*</span>
                   </label>
-                  <span className="text-[10px] text-slate-400">Must match National Identity Card</span>
+                  <span className="text-[10px] text-slate-400">{t('form.fullNameHint')}</span>
                 </div>
                 <div className="relative">
                   <input
@@ -631,16 +626,16 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    Section / Department <span className="text-red-500">*</span>
+                    {t('form.section')} <span className="text-red-500">*</span>
                   </label>
-                  <span className="text-[10px] text-[#4318FF] dark:text-brand-300 font-bold">SPID Operational Unit</span>
+                  <span className="text-[10px] text-[#4318FF] dark:text-brand-300 font-bold">{t('form.sectionHint')}</span>
                 </div>
                 <select
                   value={sectionId ?? ''}
                   onChange={(e) => setSectionId(e.target.value ? Number(e.target.value) : null)}
                   className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 px-4 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all cursor-pointer"
                 >
-                  <option value="">— Select Assigned SPID Division —</option>
+                  <option value="">{t('form.sectionPlaceholder')}</option>
                   {sections.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -653,7 +648,7 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    Mobile Phone Number <span className="text-red-500">*</span>
+                    {t('form.phone')} <span className="text-red-500">*</span>
                   </label>
                 </div>
                 <div className="flex items-center rounded-xl bg-[#f4f7fe] dark:bg-navy-900 overflow-hidden border border-transparent focus-within:border-[#4318FF] focus-within:ring-2 focus-within:ring-[#4318FF]/20 transition-all">
@@ -667,7 +662,7 @@ export default function StaffProfilePage() {
                       required
                       value={formattedPhoneDisplay}
                       onChange={handlePhoneChange}
-                      placeholder="77 123 4567"
+                      placeholder={t('form.phonePlaceholder')}
                       maxLength={11}
                       className="h-11 w-full bg-transparent pl-3 pr-9 text-xs font-bold text-navy-700 dark:text-white outline-none"
                     />
@@ -675,14 +670,14 @@ export default function StaffProfilePage() {
                   </div>
                 </div>
                 <p className="mt-1 text-[10px] text-slate-400">
-                  9 digits without leading 0 (SMS notifications &amp; 2FA dispatch).
+                  {t('form.phoneHint')}
                 </p>
               </div>
 
               {/* Bottom Actions */}
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-t border-slate-100 dark:border-navy-600 pt-5">
                 <p className="text-[11px] font-medium text-slate-400">
-                  Field inputs marked with (<span className="text-red-500">*</span>) are mandatory.
+                  {t('form.mandatoryHint', { star: '*' })}
                 </p>
                 <div className="flex items-center gap-3">
                   <button
@@ -691,7 +686,7 @@ export default function StaffProfilePage() {
                     disabled={savingProfile}
                     className="rounded-xl bg-[#ff5a60] px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-red-600 transition-colors cursor-pointer"
                   >
-                    Discard Changes
+                    {t('form.discard')}
                   </button>
                   <button
                     type="submit"
@@ -701,12 +696,12 @@ export default function StaffProfilePage() {
                     {savingProfile ? (
                       <>
                         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                        <span>Saving...</span>
+                        <span>{t('form.saving')}</span>
                       </>
                     ) : (
                       <>
                         <FiCheck className="h-4 w-4" />
-                        <span>Save Profile Changes</span>
+                        <span>{t('form.save')}</span>
                       </>
                     )}
                   </button>
@@ -727,10 +722,10 @@ export default function StaffProfilePage() {
             <div className="flex items-start justify-between pb-4 border-b border-gray-100 dark:border-navy-600">
               <div>
                 <h2 className="text-lg font-black text-navy-700 dark:text-white tracking-tight">
-                  Change Account Password
+                  {t('security.title')}
                 </h2>
                 <p className="text-xs text-slate-400 max-w-xl mt-1 leading-relaxed">
-                  Ensure your password uses at least 10 characters with numbers, special characters, and mixed casing for government archival compliance.
+                  {t('security.description')}
                 </p>
               </div>
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-[#4318FF] dark:bg-navy-800 dark:text-brand-300">
@@ -743,10 +738,10 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    Current Password <span className="text-red-500">*</span>
+                    {t('security.currentPassword')} <span className="text-red-500">*</span>
                   </label>
                   <a href="/auth/forgot-password" className="text-[11px] font-bold text-[#4318FF] hover:underline dark:text-brand-300">
-                    Forgot your current password?
+                    {t('security.forgot')}
                   </a>
                 </div>
                 <div className="relative">
@@ -756,7 +751,7 @@ export default function StaffProfilePage() {
                     required
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Enter current official password"
+                    placeholder={t('security.currentPlaceholder')}
                     className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-10 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
                   />
                   <button
@@ -773,7 +768,7 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    New Password <span className="text-red-500">*</span>
+                    {t('security.newPassword')} <span className="text-red-500">*</span>
                   </label>
                 </div>
                 <div className="relative">
@@ -783,7 +778,7 @@ export default function StaffProfilePage() {
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter strong password (e.g. Kanneliya#Dams2025)"
+                    placeholder={t('security.staffNewPlaceholder')}
                     className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-10 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
                   />
                   <button
@@ -799,10 +794,10 @@ export default function StaffProfilePage() {
               {/* Strength Meter */}
               <div>
                 <div className="flex items-center justify-between text-[11px] mb-1.5">
-                  <span className="font-bold text-slate-500">Password Resilience:</span>
+                  <span className="font-bold text-slate-500">{t('security.resilience')}</span>
                   <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400">
                     <FiShield className="h-3.5 w-3.5" />
-                    {passStrengthScore >= 3 ? 'Strong (Government Grade)' : passStrengthScore >= 2 ? 'Moderate' : 'Weak'}
+                    {passStrengthScore >= 3 ? t('security.strong') : passStrengthScore >= 2 ? t('security.moderate') : t('security.weak')}
                   </span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
@@ -817,16 +812,16 @@ export default function StaffProfilePage() {
                 </div>
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-xl bg-[#f8faff] dark:bg-navy-800 p-3 text-[11px]">
                   <p className={`flex items-center gap-1.5 ${passCriteria.length ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least 8-16 characters
+                    <FiCheck className="h-3.5 w-3.5" /> {t('security.criteriaLength')}
                   </p>
                   <p className={`flex items-center gap-1.5 ${passCriteria.upper ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least one uppercase letter (A-Z)
+                    <FiCheck className="h-3.5 w-3.5" /> {t('security.criteriaUpper')}
                   </p>
                   <p className={`flex items-center gap-1.5 ${passCriteria.digit ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> At least one numerical digit (0-9)
+                    <FiCheck className="h-3.5 w-3.5" /> {t('security.criteriaDigit')}
                   </p>
                   <p className={`flex items-center gap-1.5 ${passCriteria.special ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
-                    <FiCheck className="h-3.5 w-3.5" /> Special symbol (@, #, $, %, etc.)
+                    <FiCheck className="h-3.5 w-3.5" /> {t('security.criteriaSpecial')}
                   </p>
                 </div>
               </div>
@@ -835,11 +830,11 @@ export default function StaffProfilePage() {
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="text-xs font-bold text-navy-700 dark:text-slate-200">
-                    Confirm New Password <span className="text-red-500">*</span>
+                    {t('security.confirmPassword')} <span className="text-red-500">*</span>
                   </label>
                   {passwordsMatch && (
                     <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                      <FiCheck className="h-3.5 w-3.5" /> Passwords match
+                      <FiCheck className="h-3.5 w-3.5" /> {t('security.matches')}
                     </span>
                   )}
                 </div>
@@ -850,7 +845,7 @@ export default function StaffProfilePage() {
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter new password"
+                    placeholder={t('security.staffConfirmPlaceholder')}
                     className="h-11 w-full rounded-xl bg-[#f4f7fe] dark:bg-navy-900 pl-10 pr-10 text-xs font-bold text-navy-700 dark:text-white outline-none focus:ring-2 focus:ring-[#4318FF]/20 border border-transparent focus:border-[#4318FF] transition-all"
                   />
                   <button
@@ -874,12 +869,12 @@ export default function StaffProfilePage() {
                     {savingPassword ? (
                       <>
                         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                        <span>Updating...</span>
+                        <span>{t('security.updating')}</span>
                       </>
                     ) : (
                       <>
                         <FiRefreshCw className="h-4 w-4" />
-                        <span>Update Password &amp; Re-authenticate</span>
+                        <span>{t('security.staffSubmit')}</span>
                       </>
                     )}
                   </button>
@@ -888,7 +883,7 @@ export default function StaffProfilePage() {
                     onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); }}
                     className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-navy-800 transition-colors"
                   >
-                    Cancel
+                    {t('common:buttons.cancel')}
                   </button>
                 </div>
                 <div className="text-[10px] font-mono font-bold text-slate-400">
@@ -984,7 +979,7 @@ export default function StaffProfilePage() {
                 <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-[#4318FF] shadow-xl shadow-indigo-500/20 bg-slate-100 dark:bg-navy-900">
                   <img
                     src={pendingAvatarBase64}
-                    alt="Pending Avatar Preview"
+                    alt={t('avatar.pendingAlt')}
                     className="h-full w-full object-cover"
                   />
                 </div>
@@ -996,10 +991,10 @@ export default function StaffProfilePage() {
 
             {/* Title & Description */}
             <h3 className="mt-5 text-xl font-black text-navy-700 dark:text-white">
-              Confirm Profile Picture Update
+              {t('modals.confirmAvatarTitle')}
             </h3>
             <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              Are you sure you want to save this new photograph? Your profile picture and last update timestamp will be synchronized immediately across all portals and directories.
+              {t('modals.confirmAvatarDesc')}
             </p>
 
             {/* Action buttons */}
@@ -1014,7 +1009,7 @@ export default function StaffProfilePage() {
                 }}
                 className="flex-1 rounded-2xl border border-slate-200 dark:border-navy-600 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition-colors cursor-pointer"
               >
-                Discard Changes
+                {t('form.discard')}
               </button>
               <button
                 type="button"
@@ -1025,12 +1020,12 @@ export default function StaffProfilePage() {
                 {avatarUploading ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    <span>Saving...</span>
+                    <span>{t('form.saving')}</span>
                   </>
                 ) : (
                   <>
                     <FiCheck className="h-4 w-4 stroke-[3]" />
-                    <span>Confirm &amp; Save</span>
+                    <span>{t('modals.confirmSave')}</span>
                   </>
                 )}
               </button>
@@ -1047,10 +1042,10 @@ export default function StaffProfilePage() {
               <FiTrash2 className="h-7 w-7" />
             </div>
             <h3 className="mt-4 text-lg font-black text-navy-700 dark:text-white">
-              Remove Profile Picture?
+              {t('modals.removeTitle')}
             </h3>
             <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-              Your profile picture will be removed and your avatar will revert to your name initials.
+              {t('modals.removeDesc')}
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
               <Button
@@ -1060,7 +1055,7 @@ export default function StaffProfilePage() {
                 onClick={() => setShowAvatarRemoveModal(false)}
                 className="flex-1"
               >
-                Cancel
+                {t('common:buttons.cancel')}
               </Button>
               <Button
                 type="button"
@@ -1069,7 +1064,7 @@ export default function StaffProfilePage() {
                 onClick={handleRemoveAvatar}
                 className="flex-1"
               >
-                Remove Photo
+                {t('modals.removePhoto')}
               </Button>
             </div>
           </div>

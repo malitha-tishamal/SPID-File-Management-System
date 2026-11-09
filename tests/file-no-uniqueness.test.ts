@@ -11,6 +11,19 @@ vi.mock('config/env', () => ({
   SITE_URL: 'http://localhost:3000',
 }));
 
+vi.mock('services/MalwareScanner', () => ({
+  MalwareScanService: {
+    scanFile: vi.fn(async () => ({ status: 'clean', engine: 'clamscan', durationMs: 3 })),
+    getStatus: vi.fn(async () => ({
+      requested: 'auto',
+      engine: 'clamscan',
+      available: true,
+      detail: 'test scanner',
+      timeoutMs: 1000,
+    })),
+  },
+}));
+
 interface FileRow {
   id: number;
   file_no: string;
@@ -290,6 +303,25 @@ function postJson(body: unknown) {
   });
 }
 
+/** Bulk import now requires a scanned spreadsheet upload, not JSON rows. */
+function postCsv(rows: Array<{ file_no: string; file_name: string }>): Request {
+  const header = 'File No,File Name,Section,Start Date,End Date';
+  const body = rows
+    .map((row) =>
+      [row.file_no, row.file_name, 'Administration', '2026-01-01', '2026-12-31'].join(','),
+    )
+    .join('\n');
+  const formData = new FormData();
+  formData.append(
+    'file',
+    new File([`${header}\n${body}\n`], 'bulk-import.csv', { type: 'text/csv' }),
+  );
+  return new Request('http://localhost:3000/api/admin/files/bulk-import', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
 describe('File No. uniqueness', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -350,12 +382,10 @@ describe('File No. uniqueness', () => {
     seed({ file_no: 'FL-2026-0010', status: 'APPROVED' });
 
     const res = await FileController.bulkImportFiles(
-      postJson({
-        records: [
-          { file_no: 'FL-2026-0010', ...filePayload('FL-2026-0010'), file_name: 'Dup' },
-          { ...filePayload('FL-2026-0011', 'Fresh') },
-        ],
-      }),
+      postCsv([
+        { file_no: 'FL-2026-0010', file_name: 'Dup' },
+        { file_no: 'FL-2026-0011', file_name: 'Fresh' },
+      ]),
     );
     const json = await res.json();
 
@@ -369,12 +399,10 @@ describe('File No. uniqueness', () => {
 
   it('rejects repeated file numbers within the same upload', async () => {
     const res = await FileController.bulkImportFiles(
-      postJson({
-        records: [
-          filePayload('FL-2026-0012', 'First'),
-          filePayload('FL-2026-0012', 'Second'),
-        ],
-      }),
+      postCsv([
+        { file_no: 'FL-2026-0012', file_name: 'First' },
+        { file_no: 'FL-2026-0012', file_name: 'Second' },
+      ]),
     );
     const json = await res.json();
 
@@ -387,7 +415,7 @@ describe('File No. uniqueness', () => {
     seed({ file_no: 'fl-2026-0013', status: 'APPROVED' });
 
     const res = await FileController.bulkImportFiles(
-      postJson({ records: [filePayload('FL-2026-0013')] }),
+      postCsv([{ file_no: 'FL-2026-0013', file_name: 'Case Variant' }]),
     );
     const json = await res.json();
 

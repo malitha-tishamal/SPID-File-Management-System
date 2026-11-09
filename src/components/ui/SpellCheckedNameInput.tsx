@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SectionNameLike } from 'lib/sectionName';
 import {
   addDictionaryWords,
@@ -68,6 +69,8 @@ export default function SpellCheckedNameInput({
   fieldClassName = '',
   paddingClassName = 'px-3.5 py-2.5',
 }: SpellCheckedNameInputProps) {
+  const { t } = useTranslation();
+
   const inputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
@@ -255,7 +258,7 @@ export default function SpellCheckedNameInput({
           id={suggestionsId}
           className="flex flex-wrap items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
         >
-          <span className="font-semibold">Did you mean:</span>
+          <span className="font-semibold">{t('shell:spelling.didYouMean')}</span>
           {activeIssue.suggestions.map((suggestion) => (
             <button
               key={suggestion}
@@ -274,7 +277,7 @@ export default function SpellCheckedNameInput({
               onClick={applyAll}
               className="ml-auto font-bold text-[#4318FF] underline-offset-2 hover:underline disabled:opacity-50 dark:text-brand-300"
             >
-              Apply all corrections
+              {t('shell:spelling.applyAll')}
             </button>
           )}
         </div>

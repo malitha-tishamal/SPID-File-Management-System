@@ -17,6 +17,19 @@ vi.mock('config/env', () => ({
   SITE_URL: 'http://localhost:3000',
 }));
 
+vi.mock('services/MalwareScanner', () => ({
+  MalwareScanService: {
+    scanFile: vi.fn(async () => ({ status: 'clean', engine: 'clamscan', durationMs: 3 })),
+    getStatus: vi.fn(async () => ({
+      requested: 'auto',
+      engine: 'clamscan',
+      available: true,
+      detail: 'test scanner',
+      timeoutMs: 1000,
+    })),
+  },
+}));
+
 vi.mock('services/AuthorizationService', () => ({
   AuthorizationService: {
     requireApprovedProfile: () => mockRequireApprovedProfile(),
@@ -95,13 +108,22 @@ function filesBuilder() {
           : { data: null, error: { message: 'Not found' } },
       ),
     insert: (payloads: any[]) => ({
-      select: () => ({
-        single: () => {
-          const row = { id: 900 + state.files.length, ...payloads[0] };
+      select: () => {
+        const created = payloads.map((payload, i) => {
+          const row = { id: 900 + state.files.length + i, ...payload };
           state.files.push(row);
-          return Promise.resolve({ data: row, error: null });
-        },
-      }),
+          return row;
+        });
+        // Awaitable for createMany, still chainable with .single() for create.
+        const result: any = Promise.resolve({ data: created, error: null });
+        result.single = () =>
+          Promise.resolve(
+            created[0]
+              ? { data: created[0], error: null }
+              : { data: null, error: { message: 'Not found' } },
+          );
+        return result;
+      },
     }),
     update: (patch: any) => ({
       eq: (col: string, val: unknown) => ({
@@ -161,6 +183,21 @@ function jsonRequest(url: string, method: string, body: unknown) {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+}
+
+/** Build a multipart bulk-import request from CSV rows (the API is file-based). */
+function bulkImportRequest(
+  headers: string[],
+  rows: Array<Array<string | number | null>>,
+  fileName = 'bulk-import.csv',
+): Request {
+  const csv = [headers.join(','), ...rows.map((row) => row.map((cell) => cell ?? '').join(','))].join('\n');
+  const formData = new FormData();
+  formData.append('file', new File([`${csv}\n`], fileName, { type: 'text/csv' }));
+  return new Request('http://localhost:3000/api/admin/files/bulk-import', {
+    method: 'POST',
+    body: formData,
   });
 }
 
@@ -362,18 +399,10 @@ describe('Active section filtering', () => {
   });
 
   it('bulk import reports a row-level error for a disabled section', async () => {
-    const req = jsonRequest('http://localhost:3000/api/admin/files/bulk-import', 'POST', {
-      records: [
-        {
-          rowIndex: 2,
-          file_no: 'FL-2026-0200',
-          file_name: 'Disabled Section Import',
-          section: 'Agree',
-          start_date: '2026-01-01',
-          end_date: '2026-12-31',
-        },
-      ],
-    });
+    const req = bulkImportRequest(
+      ['File No', 'File Name', 'Section', 'Start Date', 'End Date'],
+      [['FL-2026-0200', 'Disabled Section Import', 'Agree', '2026-01-01', '2026-12-31']],
+    );
 
     const res = await FileController.bulkImportFiles(req);
     const json = await res.json();
@@ -385,5 +414,94 @@ describe('Active section filtering', () => {
       row: 2,
       reason: 'Selected section is disabled.',
     });
+  });
+
+  it('bulk import leaves storage unset for staff rows that carry no location values', async () => {
+    mockRequireApprovedProfile.mockResolvedValue({
+      id: 'staff-1',
+      role: 'Staff',
+      email: 'staff@spid.gov.lk',
+      full_name: 'Staff User',
+      account_status: 'approved',
+    });
+
+    const req = bulkImportRequest(
+      [
+        'File No',
+        'File Name',
+        'Section',
+        'Start Date',
+        'End Date',
+        'Total Pages',
+        'Minute Sheets Count',
+      ],
+      [
+        [
+          'FL-2026-0300',
+          'Staff Bulk Row',
+          'Accounting',
+          '2026-01-01',
+          '2026-12-31',
+          45,
+          8,
+        ],
+      ],
+    );
+
+    const res = await FileController.bulkImportFiles(req);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data.importedCount).toBe(1);
+    expect(json.data.failedCount).toBe(0);
+
+    const stored = state.files.find((f) => f.file_no === 'FL-2026-0300');
+    expect(stored.locker_no).toBeNull();
+    expect(stored.shelf_name).toBeNull();
+    // No implicit 'Front' position for staff-imported files
+    expect(stored.shelf_position).toBeNull();
+    expect(stored.status).toBe('PENDING');
+    expect(stored.page_numbers).toBe(45);
+  });
+
+  it('bulk import keeps the location values supplied by an admin sheet', async () => {
+    const req = bulkImportRequest(
+      [
+        'File No',
+        'File Name',
+        'Section',
+        'Start Date',
+        'End Date',
+        'Locker No',
+        'Shelf Name',
+        'Shelf Position',
+        'Total Pages',
+        'Minute Sheets Count',
+      ],
+      [
+        [
+          'FL-2026-0301',
+          'Admin Bulk Row',
+          'Accounting',
+          '2026-01-01',
+          '2026-12-31',
+          'L-101',
+          'Shelf A',
+          'Middle',
+          120,
+          14,
+        ],
+      ],
+    );
+
+    const res = await FileController.bulkImportFiles(req);
+    const json = await res.json();
+
+    expect(json.data.importedCount).toBe(1);
+    const stored = state.files.find((f) => f.file_no === 'FL-2026-0301');
+    expect(stored.locker_no).toBe('L-101');
+    expect(stored.shelf_name).toBe('Shelf A');
+    expect(stored.shelf_position).toBe('Middle');
+    expect(stored.status).toBe('APPROVED');
   });
 });

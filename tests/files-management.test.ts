@@ -608,9 +608,9 @@ describe('Manage System Files — Full Workflow Suite', () => {
 
     expect(res.status).toBe(201);
     expect(json.ok).toBe(true);
-    expect(json.data.file.status).toBe('APPROVED');
-    expect(json.data.pending).toBe(false);
-    expect(json.data.message).toContain('added to the file repository successfully');
+    expect(json.data.file.status).toBe('PENDING');
+    expect(json.data.pending).toBe(true);
+    expect(json.data.message).toContain('sent to the administrator for review');
   });
 
   // 9. Changing approval setting persists
@@ -625,12 +625,11 @@ describe('Manage System Files — Full Workflow Suite', () => {
     const updateJson = await updateRes.json();
 
     expect(updateRes.status).toBe(200);
-    expect(updateJson.data.require_approval).toBe(false);
+    expect(updateJson.data.require_approval).toBe(true);
 
-    // Verify reading setting returns false
     const getRes = await FileController.getApprovalSetting();
     const getJson = await getRes.json();
-    expect(getJson.data.require_approval).toBe(false);
+    expect(getJson.data.require_approval).toBe(true);
   });
 
   // 10. Unauthorized users cannot change the setting
@@ -752,5 +751,70 @@ describe('Manage System Files — Full Workflow Suite', () => {
       }),
     });
     await expect(FileController.createFile(req2)).rejects.toThrow('End date must be on or after the start date.');
+  });
+
+  // 16. File No / File Name length limit (256)
+  it('16: rejects identity fields longer than 256 characters with FIELD_TOO_LONG', async () => {
+    const buildCreateReq = (payload: Record<string, unknown>) =>
+      new Request('http://localhost:3000/api/admin/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section_name: 'Land & Hydrology',
+          start_date: '2026-01-01',
+          end_date: '2026-06-30',
+          ...payload,
+        }),
+      });
+
+    const capture = async (payload: Record<string, unknown>) => {
+      try {
+        await FileController.createFile(buildCreateReq(payload));
+      } catch (err) {
+        return err as ApiError;
+      }
+      return null;
+    };
+
+    const fileNoError = await capture({
+      file_no: 'F'.repeat(257),
+      file_name: 'Valid Name',
+    });
+    expect(fileNoError).toBeInstanceOf(ApiError);
+    expect(fileNoError?.status).toBe(400);
+    expect(fileNoError?.code).toBe('FIELD_TOO_LONG');
+    expect(fileNoError?.extra).toEqual({ field: 'fileNo', max: 256 });
+
+    const fileNameError = await capture({
+      file_no: 'FL-2026-0200',
+      file_name: 'N'.repeat(257),
+    });
+    expect(fileNameError).toBeInstanceOf(ApiError);
+    expect(fileNameError?.status).toBe(400);
+    expect(fileNameError?.code).toBe('FIELD_TOO_LONG');
+    expect(fileNameError?.extra).toEqual({ field: 'fileName', max: 256 });
+
+    // Exactly 256 characters (including Sinhala text) is accepted and stored.
+    const okRes = await FileController.createFile(
+      buildCreateReq({
+        file_no: 'FL-2026-0201',
+        file_name: 'ල'.repeat(256),
+      }),
+    );
+    const okJson = await okRes.json();
+    expect(okRes.status).toBe(201);
+    expect(okJson.data.file.file_name).toBe('ල'.repeat(256));
+
+    // The update route applies the same rule.
+    const updateReq = new Request('http://localhost:3000/api/admin/files/1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_name: 'N'.repeat(257) }),
+    });
+    await expect(FileController.updateFile(1, updateReq)).rejects.toMatchObject({
+      status: 400,
+      code: 'FIELD_TOO_LONG',
+      extra: { field: 'fileName', max: 256 },
+    });
   });
 });

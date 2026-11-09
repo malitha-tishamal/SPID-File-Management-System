@@ -1,0 +1,36 @@
+{
+  "menu": {
+    "dashboard": "උපකරණ පුවරුව",
+    "default": "උපකරණ පුවරුව",
+    "manage-system-files": "පද්ධති ලිපිගොනු කළමනාකරණය",
+    "issued-files": "නිකුත් කළ ලිපිගොනු",
+    "add-new-file": "නව ලිපිගොනුවක් එක් කරන්න",
+    "admin-management": "පරිපාලන කළමනාකරණය",
+    "users": "පරිශීලක කළමනාකරණය",
+    "section-management": "අංශ කළමනාකරණය",
+    "staff-file-request": "කාර්ය මණ්ඩල ලිපිගොනු ඉල්ලීම්",
+    "files": "ලිපිගොනු බලන්න සහ සොයන්න",
+    "request-file": "ලිපිගොනුවක් ඉල්ලන්න",
+    "your-requests": "ඔබේ ඉල්ලීම්",
+    "profile": "පරිශීලක පැතිකඩ",
+    "sign-in": "පද්ධතියට පිවිසෙන්න",
+    "security-logs": "ආරක්ෂක ලොග"
+  },
+  "brand": {
+    "spid": "SPID",
+    "fileManagement": "ලිපිගොනු කළමනාකරණය",
+    "archiveTagline": "සුරැකුම්පත්‍රිත ලේභාගාර පද්ධතිය",
+    "registry": "මධ්‍යම ලේභාගාරය සහ ලිපිගොනු"
+  },
+  "navbar": {
+    "brandText": "උපකරණ පුවරුව",
+    "languageLabel": "භාෂාව",
+    "languageMenu": "දර්ශන භාෂාව වෙනස් කරන්න",
+    "switchToEnglish": "English භාෂාවට මාරු වන්න",
+    "switchToSinhala": "සිංහලට මාරු වන්න",
+    "openProfile": "පැතිකඩ කළමනාකරණය විවෘත කරන්න",
+    "sidebarLabel": "පැති මෙනු සංචලනය",
+    "staffSidebarLabel": "කාර්ය මණ්ඩල පැති මෙනු සංචලනය",
+    "adminSidebarLabel": "පරිපාලන පැති මෙනු සංචලනය"
+  }
+}

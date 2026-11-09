@@ -22,7 +22,7 @@ export default function AuthLayout({ children }: PropsWithChildren) {
       <RecoveryLinkBridge />
 
       {/* Centered Page Content */}
-      <main className="relative z-10 w-full flex-grow flex flex-col items-center justify-center">
+      <main id="main-content" className="relative z-10 w-full flex-grow flex flex-col items-center justify-center">
         {children}
       </main>
     </div>

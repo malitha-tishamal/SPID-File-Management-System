@@ -50,7 +50,9 @@ export default function Admin({ children }: { children: React.ReactNode }) {
       {/* Navbar & Main Content */}
       <div className="h-full w-full font-dm dark:bg-navy-900">
         {/* Main Content */}
+        <meta name="robots" content="noindex, nofollow" />
         <main
+          id="main-content"
           className={`mx-2.5 flex-none transition-all duration-300 ease-in-out dark:bg-navy-900 
               md:pr-2 ${open ? 'xl:ml-[296px]' : 'xl:ml-4'}`}
         >

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_PAGER_BTN_CLASS, TABLE_PAGER_CLASS, TABLE_PAGER_PAGE_ACTIVE_CLASS, TABLE_PAGER_PAGE_CLASS, TABLE_ROW_CLASS } from 'lib/tableStyles';
 import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
 import {
@@ -24,6 +25,9 @@ import FilesTableSkeleton from './FilesTableSkeleton';
 import FilesPagination from './FilesPagination';
 import LocationDetailsButton from './LocationDetailsButton';
 import TableLoadingSpinner from './TableLoadingSpinner';
+import { LocalizedText } from 'lib/useLocalizedFields';
+import AttributedUser from 'components/ui/AttributedUser';
+import { attributedNameText } from 'utils/userDisplay';
 
 function getInitials(name?: string | null): string {
   if (!name) return 'SO';
@@ -99,6 +103,9 @@ export default function AllFilesTable({
   onReject?: (file: FileRecordRow) => void;
   onRetry?: () => void;
 }) {
+  const { t } = useTranslation('files');
+  const deletedLabel = t('common:deletedUser');
+
   if (error && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-rose-100 bg-white px-4 py-16 text-center dark:border-rose-900/40 dark:bg-navy-800">
@@ -106,7 +113,7 @@ export default function AllFilesTable({
           <FiAlertCircle className="h-7 w-7" />
         </div>
         <div>
-          <h4 className="text-sm font-bold text-slate-800 dark:text-white">Failed to Load Files</h4>
+          <h4 className="text-sm font-bold text-slate-800 dark:text-white">{t('empty.errorFiles')}</h4>
           <p className="mt-1 max-w-sm text-xs text-slate-400">{error}</p>
         </div>
         {onRetry && (
@@ -116,7 +123,7 @@ export default function AllFilesTable({
             className="inline-flex items-center gap-1.5 rounded-xl bg-[#4318FF] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#3311CC] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/50 cursor-pointer"
           >
             <FiRefreshCw className="h-3.5 w-3.5" />
-            Retry
+            {t('page.retry')}
           </button>
         )}
       </div>
@@ -129,9 +136,9 @@ export default function AllFilesTable({
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300 mb-3">
           <FiFileText className="h-7 w-7" />
         </div>
-        <h4 className="text-sm font-bold text-slate-800 dark:text-white">No Files Found</h4>
+        <h4 className="text-sm font-bold text-slate-800 dark:text-white">{t('empty.noFilesTitle')}</h4>
         <p className="mt-1 text-xs text-slate-400 max-w-sm">
-          No records match the current filter or search criteria. Try resetting filters or adding a new file.
+          {t('empty.noFilesHint')}
         </p>
       </div>
     );
@@ -149,7 +156,7 @@ export default function AllFilesTable({
         <div className="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-navy-900/35 backdrop-blur-[1px]" />
       )}
       <div className="w-full overflow-x-auto">
-        <table aria-label="All system files" className="w-full min-w-[860px] text-left border-collapse table-auto xl:table-fixed xl:min-w-0">
+        <table aria-label={t('table.ingestAria')} className="w-full min-w-[860px] text-left border-collapse table-auto">
           <colgroup>
             <col className="w-[3%]" />
             <col className="w-[12%]" />
@@ -164,23 +171,23 @@ export default function AllFilesTable({
           </colgroup>
           <thead>
             <tr className={TABLE_HEAD_ROW_CLASS}>
-              <th scope="col" className="py-2.5 px-1.5 text-center">NO</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE NUMBER</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE NAME</th>
-              <th scope="col" className="py-2.5 px-1.5">SECTION</th>
-              <th scope="col" className="py-2.5 px-1.5">FILE LOCATION</th>
-              <th scope="col" className="py-2.5 px-1.5">ADDED BY</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">ROLE</th>
-              <th scope="col" className="py-2.5 px-1.5">ADDED DATE &amp; TIME</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">REQUEST STATUS</th>
-              <th scope="col" className="py-2.5 px-1.5 text-center">ADMIN ACTIONS</th>
+              <th scope="col" className="py-2.5 px-2.5 text-center">{t('table.colNo')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colFileNumber')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colFileName')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colSection')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colFileLocation')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colAddedBy')}</th>
+              <th scope="col" className="py-2.5 px-2.5 text-center">{t('table.colRole')}</th>
+              <th scope="col" className="py-2.5 px-2.5">{t('table.colAddedDateTime')}</th>
+              <th scope="col" className="py-2.5 px-2.5 text-center">{t('table.colRequestStatus')}</th>
+              <th scope="col" className="py-2.5 px-2.5 text-center">{t('table.colAdminActions')}</th>
             </tr>
           </thead>
           <tbody className={TABLE_BODY_CLASS}>
             {loading ? (
               <tr>
                 <td colSpan={10} className="p-0">
-                  <TableLoadingSpinner label="Loading files..." />
+                  <TableLoadingSpinner label={t('table.loadingFiles')} />
                 </td>
               </tr>
             ) : files.map((file, idx) => {
@@ -196,35 +203,72 @@ export default function AllFilesTable({
                 file.approved_by_name ||
                 (file.approved_by && !file.approved_by.includes('-') ? file.approved_by : null);
 
-              let statusLabel = 'System Verified';
-              let subtext: string | null = `Admin Added (${file.registrar_name || 'Admin'})`;
+              let statusLabel = t('table.statusSystemVerified');
+              let subtext: string | null = t('table.statusAdminAdded', {
+                name: attributedNameText(file.registrar_name, {
+                  deleted: file.registrar_is_deleted,
+                  label: deletedLabel,
+                  fallback: t('common:roles.ADMIN'),
+                }),
+              });
               let statusColor = 'text-blue-600 dark:text-blue-400';
               let IconComponent = FiCheckCircle;
 
               if (isAdmin) {
-                statusLabel = 'System Verified';
-                subtext = `Admin Added (${file.registrar_name || 'Admin'})`;
+                statusLabel = t('table.statusSystemVerified');
+                subtext = t('table.statusAdminAdded', {
+                  name: attributedNameText(file.registrar_name, {
+                    deleted: file.registrar_is_deleted,
+                    label: deletedLabel,
+                    fallback: t('common:roles.ADMIN'),
+                  }),
+                });
                 statusColor = 'text-blue-600 dark:text-blue-400';
                 IconComponent = FiCheckCircle;
               } else if (file.status === 'PENDING') {
-                statusLabel = 'Pending Review';
-                subtext = 'Awaiting administrative review';
+                statusLabel = t('table.statusPendingReview');
+                subtext = t('table.statusPendingHint');
                 statusColor = 'text-amber-600 dark:text-amber-400';
                 IconComponent = FiClock;
               } else if (file.status === 'disabled' || file.status === 'disposed') {
-                statusLabel = 'Disabled';
-                subtext = adminName ? `by ${adminName}` : null;
+                statusLabel = t('table.statusDisabled');
+                subtext = adminName
+                  ? t('table.statusDisabledBy', {
+                      name: attributedNameText(adminName, {
+                        deleted: file.approver_is_deleted,
+                        label: deletedLabel,
+                      }),
+                    })
+                  : null;
                 statusColor = 'text-rose-600 dark:text-rose-400';
                 IconComponent = FiAlertCircle;
               } else if (file.status === 'REJECTED') {
-                statusLabel = 'Rejected';
+                statusLabel = t('common:status.rejected');
                 const rejectedName = file.rejected_by_name || adminName;
-                subtext = rejectedName ? `By ${rejectedName} (Admin)` : 'By Admin';
+                // rejected_by_name itself has no deleted flag; only mark when the
+                // displayed name resolves to the (flagged) approver.
+                subtext = rejectedName
+                  ? t('table.statusRejectedBy', {
+                      name: attributedNameText(rejectedName, {
+                        deleted:
+                          !file.rejected_by_name &&
+                          file.approver_is_deleted === true,
+                        label: deletedLabel,
+                      }),
+                      role: t('common:roles.ADMIN'),
+                    })
+                  : t('table.statusRejectedByAdmin');
                 statusColor = 'text-rose-600 dark:text-rose-400';
                 IconComponent = FiXCircle;
               } else {
-                statusLabel = 'Approved';
-                subtext = `Approved (${file.approved_by_name || adminName || 'Admin'})`;
+                statusLabel = t('table.statusApproved');
+                subtext = t('table.statusApprovedBy', {
+                  name: attributedNameText(file.approved_by_name, {
+                    deleted: file.approver_is_deleted,
+                    label: deletedLabel,
+                    fallback: adminName || t('common:roles.ADMIN'),
+                  }),
+                });
                 statusColor = 'text-emerald-600 dark:text-emerald-400';
                 IconComponent = FiCheckCircle;
               }
@@ -235,40 +279,43 @@ export default function AllFilesTable({
                   className={TABLE_ROW_CLASS}
                 >
                   {/* NO */}
-                  <td className="py-2.5 px-1.5 align-top text-center font-bold text-slate-400 text-xs">
+                  <td className="py-2.5 px-2.5 align-top text-center font-bold text-muted text-xs">
                     {rowNo}
                   </td>
 
                   {/* FILE NUMBER */}
-                  <td className="break-words py-2.5 px-1.5 align-top">
-                    <span className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight">
+                  <td className="break-words py-2.5 px-2.5 align-top">
+                    <span
+                      className="font-bold text-[#4318FF] dark:text-brand-300 text-[11px] sm:text-xs tracking-tight [overflow-wrap:anywhere]"
+                      title={file.file_no}
+                    >
                       {file.file_no}
                     </span>
                   </td>
 
                   {/* FILE NAME */}
-                  <td className="py-2.5 px-1.5 align-top">
+                  <td className="py-2.5 px-2.5 align-top">
                     <div
-                      className="break-words font-bold text-slate-800 dark:text-white leading-snug text-xs"
+                      className="w-[240px] line-clamp-2 break-words font-bold text-slate-800 dark:text-white leading-snug text-xs [overflow-wrap:anywhere]"
                       title={file.file_name}
                     >
-                      {file.file_name}
+                      <LocalizedText value={file.file_name} />
                     </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1 break-words text-[10px] font-medium leading-tight text-slate-400">
-                      <span>Recordroom Ingest</span>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1 break-words text-[10px] font-medium leading-tight text-muted">
+                      <span>{t('table.ingestTag')}</span>
                       <span>•</span>
-                      <span>Horizon RMS</span>
+                      <span>{t('table.sourceTag')}</span>
                     </div>
                   </td>
 
                   {/* SECTION */}
-                  <td className="py-2.5 px-1.5 align-top">
+                  <td className="py-2.5 px-2.5 align-top">
                     <span
                       className={`inline-flex items-start rounded-2xl px-2 py-1 text-[10px] font-bold border leading-snug ${getSectionBadge(
                         file.section_name
                       )}`}
                     >
-                      {file.section_name}
+                      <LocalizedText value={file.section_name} />
                     </span>
                   </td>
 
@@ -276,121 +323,159 @@ export default function AllFilesTable({
                   <td className="py-2.5 px-2">
                     <LocationDetailsButton
                       file={file}
-                      className="inline-flex items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 max-w-[160px] xl:max-w-[200px] leading-tight"
+                      className="inline-flex max-w-full min-w-0 items-start gap-1.5 rounded-xl bg-slate-100/90 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:bg-navy-900/90 dark:text-slate-200 border border-slate-200/80 dark:border-navy-700 leading-snug"
                     />
                   </td>
 
                   {/* ADDED BY */}
-                  <td className="py-2.5 px-1.5 align-top">
+                  <td className="py-2.5 px-2.5 align-top">
                     <div
                       className="flex min-w-0 items-start gap-1.5"
-                      title={file.registrar_name || 'System Officer'}
+                      title={attributedNameText(file.registrar_name, {
+                        deleted: file.registrar_is_deleted,
+                        label: deletedLabel,
+                        fallback: t('table.systemOfficer'),
+                      })}
                     >
                       <div
                         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-                          isAdmin
+                          file.registrar_is_deleted
+                            ? 'bg-slate-100 text-slate-400 dark:bg-navy-700 dark:text-slate-500'
+                            : isAdmin
                             ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
                             : 'bg-slate-100 text-slate-700 dark:bg-navy-700 dark:text-slate-200'
                         }`}
                       >
-                        {getInitials(file.registrar_name)}
+                        {file.registrar_is_deleted && !file.registrar_name
+                          ? '—'
+                          : getInitials(file.registrar_name)}
                       </div>
                       <span className="min-w-0 break-words font-bold text-slate-800 dark:text-white text-[11px] leading-tight">
-                        {file.registrar_name || 'System Officer'}
+                        <AttributedUser
+                          name={file.registrar_name}
+                          deleted={file.registrar_is_deleted}
+                          fallback={t('table.systemOfficer')}
+                        />
                       </span>
                     </div>
                   </td>
 
                   {/* ROLE */}
-                  <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
+                  <td className="min-w-0 py-2.5 px-2.5 text-center align-top">
                     {isAdmin ? (
-                      <span className="inline-block rounded-full bg-[#FEECEB] text-[#FF4757] dark:bg-rose-950/40 dark:text-rose-400 border border-[#FED7D7] dark:border-rose-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                        Admin
+                      <span className="inline-flex max-w-full whitespace-normal break-words rounded-full bg-[#FEECEB] text-[#B42318] dark:bg-rose-900 dark:text-rose-50 border border-[#FED7D7] dark:border-rose-800 px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wider">
+                        {t('table.roleAdmin')}
                       </span>
                     ) : (
-                      <span className="inline-block rounded-full bg-[#E6F9F0] text-[#05CD99] dark:bg-emerald-950/40 dark:text-emerald-400 border border-[#C6F6D5] dark:border-emerald-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                        Staff
+                      <span className="inline-flex max-w-full whitespace-normal break-words rounded-full bg-[#E6F9F0] text-[#027A48] dark:bg-emerald-900 dark:text-emerald-50 border border-[#C6F6D5] dark:border-emerald-800 px-2.5 py-1 text-[10px] font-bold uppercase leading-snug tracking-wider">
+                        {t('table.roleStaff')}
                       </span>
                     )}
+                    <AttributedUser suffixOnly deleted={file.registrar_is_deleted} />
                   </td>
 
                   {/* ADDED DATE & TIME (Stacked cleanly) */}
-                  <td className="py-2.5 px-1.5 align-top whitespace-nowrap">
+                  <td className="min-w-0 py-2.5 px-2.5 align-top whitespace-nowrap">
                     <div className="font-semibold text-slate-700 dark:text-slate-200 text-[11px] leading-tight">
                       {dt.date}
                     </div>
                     {dt.time && (
-                      <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                      <div className="text-[10px] text-muted leading-tight mt-0.5">
                         {dt.time}
                       </div>
                     )}
                   </td>
 
                   {/* REQUEST STATUS */}
-                  <td className="py-2.5 px-1.5 align-top text-center">
+                  <td className="min-w-0 py-2.5 px-2.5 align-top text-center">
                     {isAdmin ? (
-                      <div className="flex flex-col items-center justify-center gap-0.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 px-2.5 py-0.5 text-[10px] font-bold">
-                          <FiCheckCircle className="h-3 w-3 stroke-[2.5]" />
-                          <span>System Verified</span>
+                      <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+                        <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900 dark:text-blue-50 dark:border-blue-800 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                          <FiCheckCircle className="h-3 w-3 shrink-0 stroke-[2.5]" />
+                          <span className="min-w-0">{t('table.statusSystemVerified')}</span>
                         </span>
-                        <span className="break-words text-[10px] font-semibold leading-tight text-slate-500 dark:text-slate-400">
-                          Admin Added ({file.registrar_name || 'Admin'})
+                        <span className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-muted">
+                          {t('table.statusAdminAdded', {
+                            name: attributedNameText(file.registrar_name, {
+                              deleted: file.registrar_is_deleted,
+                              label: deletedLabel,
+                              fallback: t('table.roleAdmin'),
+                            }),
+                          })}
                         </span>
                       </div>
                     ) : file.status === 'PENDING' ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FFFBEB] text-[#D97706] border border-[#FDE68A] dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 px-2.5 py-0.5 text-[10px] font-bold">
-                        <span className="text-[9px]">⏳</span>
-                        <span>Pending Review</span>
+                      <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A] dark:bg-amber-900 dark:text-amber-50 dark:border-amber-700 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                        <span className="shrink-0 text-[9px]">⏳</span>
+                        <span className="min-w-0">{t('table.statusPendingReview')}</span>
                       </span>
                     ) : file.status === 'REJECTED' ? (
-                      <div className="flex flex-col items-center justify-center gap-0.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900 px-2.5 py-0.5 text-[10px] font-bold">
-                          <FiX className="h-3 w-3 stroke-[3]" />
-                          <span>Rejected</span>
+                      <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+                        <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full bg-rose-50 text-rose-800 border border-rose-300 dark:bg-rose-900 dark:text-rose-50 dark:border-rose-800 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                          <FiX className="h-3 w-3 shrink-0 stroke-[3]" />
+                          <span className="min-w-0">{t('common:status.rejected')}</span>
                         </span>
-                        <span className="break-words text-[10px] font-semibold leading-tight text-rose-500 dark:text-rose-400">
-                          By {file.rejected_by_name || file.approved_by_name || 'Admin'} (Admin)
+                        <span className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-rose-700 dark:text-rose-300">
+                          {t('table.statusRejectedBy', {
+                            name: attributedNameText(
+                              file.rejected_by_name || file.approved_by_name,
+                              {
+                                deleted:
+                                  !file.rejected_by_name &&
+                                  !!file.approved_by_name &&
+                                  file.approver_is_deleted === true,
+                                label: deletedLabel,
+                                fallback: t('table.roleAdmin'),
+                              }
+                            ),
+                            role: t('table.roleAdmin'),
+                          })}
                         </span>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center gap-0.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#E6F9F0] text-[#05CD99] border border-[#C6F6D5] dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900 px-2.5 py-0.5 text-[10px] font-bold">
-                          <FiCheck className="h-3 w-3 stroke-[3]" />
-                          <span>Approved</span>
+                      <div className="flex min-w-0 flex-col items-center justify-center gap-1">
+                        <span className="inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full bg-[#E6F9F0] text-[#027A48] border border-[#A7F3D0] dark:bg-emerald-900 dark:text-emerald-50 dark:border-emerald-800 px-2.5 py-1 text-[10px] font-bold leading-snug">
+                          <FiCheck className="h-3 w-3 shrink-0 stroke-[3]" />
+                          <span className="min-w-0">{t('common:status.approved')}</span>
                         </span>
-                        <span className="break-words text-[10px] font-semibold leading-tight text-slate-500 dark:text-slate-400">
+                        <span className="max-w-full whitespace-normal break-words text-[10px] font-semibold leading-snug text-muted">
                           {file.approved_by_name?.toLowerCase().includes('auto') || (!file.approved_by && !file.approved_by_name && !isAdmin)
-                            ? '(Reason: Auto approval on)'
-                            : `Admin (${file.approved_by_name || 'Admin'})`}
+                            ? t('table.statusAutoApproval')
+                            : t('table.statusAdminName', {
+                                name: attributedNameText(file.approved_by_name, {
+                                  deleted: file.approver_is_deleted,
+                                  label: deletedLabel,
+                                  fallback: t('table.roleAdmin'),
+                                }),
+                              })}
                         </span>
                       </div>
                     )}
                   </td>
 
                   {/* ADMIN ACTIONS: Approve, Reject (only for pending staff files), View, Edit, Delete */}
-                  <td className="py-2.5 px-1.5 align-top text-center">
+                  <td className="py-2.5 px-2.5 align-top text-center">
                     <div className="flex flex-wrap items-center justify-center gap-1">
                       {!isAdmin && file.status === 'PENDING' && onApprove && onReject && (
                         <>
                           <button
                             type="button"
                             onClick={() => onApprove(file)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2 py-1 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                            title="Approve File"
+                            className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg bg-[#05CD99] hover:bg-[#04B787] text-white px-2.5 py-1.5 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title={t('table.actionApproveFile')}
                           >
                             <FiCheck className="h-3 w-3 stroke-[3]" />
-                            <span>Approve</span>
+                            <span>{t('common:buttons.approve')}</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => onReject(file)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 dark:bg-navy-900 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2 py-1 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
-                            title="Reject File"
+                            className="inline-flex min-w-fit items-center gap-1 whitespace-nowrap rounded-lg bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 dark:bg-navy-900 dark:text-rose-300 dark:border-rose-900/40 dark:hover:bg-rose-950/30 px-2.5 py-1.5 text-[10px] font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                            title={t('table.actionRejectFile')}
                           >
                             <FiX className="h-3 w-3 stroke-[3]" />
-                            <span>Reject</span>
+                            <span>{t('common:buttons.reject')}</span>
                           </button>
                         </>
                       )}
@@ -398,24 +483,24 @@ export default function AllFilesTable({
                       <button
                         type="button"
                         onClick={() => onView(file)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#4318FF] hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
-                        title="View details"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-[#4318FF] hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title={t('table.actionViewDetails')}
                       >
                         <FiEye className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => onEdit(file)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-navy-700 transition-colors cursor-pointer"
-                        title="Edit file"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-navy-700 transition-colors cursor-pointer"
+                        title={t('table.actionEditFile')}
                       >
                         <FiEdit2 className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDelete(file)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                        title="Delete file"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:text-slate-300 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                        title={t('table.actionDeleteFile')}
                       >
                         <FiTrash2 className="h-3.5 w-3.5" />
                       </button>

@@ -2,6 +2,7 @@
 'use client';
 import React, { useCallback } from 'react';
 import { usePathname } from 'next/navigation';
+import { useTranslation } from 'react-i18next';
 import NavLink from 'components/link/NavLink';
 import DashIcon from 'components/icons/DashIcon';
 
@@ -10,6 +11,7 @@ export const SidebarLinks = (props: {
   onClickRoute?: () => void;
 }): JSX.Element => {
   const pathname = usePathname();
+  const { t } = useTranslation();
   const { routes } = props;
   const [pendingPath, setPendingPath] = React.useState<string | null>(null);
 
@@ -53,8 +55,8 @@ export const SidebarLinks = (props: {
                 <span className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-600 dark:text-gray-400'}`}>
                   {route.icon ? route.icon : <DashIcon />}
                 </span>
-                <p className={`text-sm font-bold leading-tight truncate ${isActive ? 'text-white' : 'text-slate-800 dark:text-gray-200'}`}>
-                  {route.name}
+                <p className={`min-w-0 break-words text-sm font-bold leading-snug ${isActive ? 'text-white' : 'text-slate-800 dark:text-gray-200'}`}>
+                  {t(`nav:menu.${route.path}`, route.name)}
                 </p>
               </div>
 

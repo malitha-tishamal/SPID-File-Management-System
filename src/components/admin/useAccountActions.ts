@@ -9,7 +9,17 @@ export type AccountAction =
   | 'disable'
   | 'enable'
   | 'clear_lockout'
+  | 'approve_unlock'
+  | 'keep_locked'
+  | 'restore'
   | 'delete';
+
+/** Body sent with the soft-delete request (see UserDeletionService). */
+export interface DeletePayload {
+  pendingAction?: 'reject' | 'reassign';
+  reassignToUserId?: string;
+  reason?: string;
+}
 
 interface ActionMessages {
   successTitle: string;
@@ -52,10 +62,31 @@ const MESSAGES: Record<AccountAction, ActionMessages> = {
     failTitle: 'Lockout Clear Failed',
     failDescription: 'The lockout could not be cleared at this time.',
   },
-  delete: {
-    successTitle: 'Account Permanently Deleted',
+  approve_unlock: {
+    successTitle: 'Account Approved & Unlocked',
     successDescription: (n) =>
-      `The account for ${n} has been permanently deleted from the system.`,
+      `${n}'s lockout counters were reset and the account can sign in again.`,
+    failTitle: 'Unlock Failed',
+    failDescription: 'The account could not be unlocked at this time.',
+  },
+  keep_locked: {
+    successTitle: 'Account Disabled',
+    successDescription: (n) =>
+      `${n}'s account was disabled and its active sessions were revoked. The lockout remains on record.`,
+    failTitle: 'Account Disable Failed',
+    failDescription: 'The account could not be disabled at this time.',
+  },
+  restore: {
+    successTitle: 'Account Restored',
+    successDescription: (n) =>
+      `${n}'s account is active again with all of its files, requests and history still linked. It needs administrator approval before the user can sign in.`,
+    failTitle: 'Account Restore Failed',
+    failDescription: 'The account could not be restored at this time.',
+  },
+  delete: {
+    successTitle: 'Account Deleted',
+    successDescription: (n) =>
+      `${n} can no longer sign in and is hidden from active lists. Every file, request, checkout and log they took part in has been kept.`,
     failTitle: 'Account Deletion Failed',
     failDescription: 'The account could not be deleted at this time.',
   },
@@ -72,9 +103,12 @@ function successFeedback(action: AccountAction, name: string, apiMessage?: strin
   if (action === 'reject') {
     return { tone: 'warning', icon: 'alert', title: m.successTitle, description: apiMessage || m.successDescription(name) };
   }
+  if (action === 'keep_locked') {
+    return { tone: 'info', icon: 'pause', title: m.successTitle, description: apiMessage || m.successDescription(name) };
+  }
   return {
     tone: 'success',
-    icon: action === 'clear_lockout' ? 'lock' : 'check',
+    icon: action === 'clear_lockout' || action === 'approve_unlock' ? 'lock' : 'check',
     title: m.successTitle,
     description: apiMessage || m.successDescription(name),
   };
@@ -118,16 +152,21 @@ export function useAccountActions(
   } | null>(null);
 
   const run = useCallback(
-    async (acc: AdminUserRow, action: AccountAction) => {
+    async (acc: AdminUserRow, action: AccountAction, payload?: DeletePayload) => {
       setConfirmTarget(null);
       setLoadingId(acc.id);
       const rollback = onOptimisticUpdate ? onOptimisticUpdate(acc, action) : null;
       const isDelete = action === 'delete';
+      // "Keep locked / Disable account" is the existing disable action: it
+      // suspends the account and deliberately leaves the lockout record intact.
+      const apiAction = action === 'keep_locked' ? 'disable' : action;
       try {
         const res = await fetch(`/api/admin/users/${acc.id}`, {
           method: isDelete ? 'DELETE' : 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: isDelete ? undefined : JSON.stringify({ action }),
+          // A soft delete carries the admin's choice for any pending requests;
+          // a plain PATCH only needs the action name.
+          body: isDelete ? JSON.stringify(payload ?? {}) : JSON.stringify({ action: apiAction }),
         });
         const json = await res.json().catch(() => null);
         if (res.ok && json?.ok) {
@@ -155,7 +194,12 @@ export function useAccountActions(
   /** Destructive actions go through the confirm dialog first. */
   const request = useCallback(
     (acc: AdminUserRow, action: AccountAction) => {
-      if (action === 'disable' || action === 'reject' || action === 'delete') {
+      if (
+        action === 'disable' ||
+        action === 'reject' ||
+        action === 'delete' ||
+        action === 'keep_locked'
+      ) {
         setConfirmTarget({ acc, action });
       } else {
         void run(acc, action);
