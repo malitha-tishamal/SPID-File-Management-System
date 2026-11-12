@@ -42,6 +42,8 @@ import { getSupabaseBrowserClient } from 'config/supabase/client';
 import TableLoadingProgressBar from 'components/admin/files/TableLoadingProgressBar';
 import { useDialogBehavior } from 'lib/dialogBehavior';
 import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
+import { useAppLanguage } from 'i18n/LanguageProvider';
+import { localizeField } from 'lib/useLocalizedFields';
 import {
   clearQueryParam,
   parseRecordId,
@@ -171,6 +173,7 @@ type CurrentIssuance = {
 };
 
 export default function AdminStaffFileRequestPage() {
+  useAppLanguage(); // subscribe to language changes for date re-renders
   const { t } = useTranslation('staffRequests');
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<RequestTab>('pending');
@@ -975,7 +978,7 @@ export default function AdminStaffFileRequestPage() {
                 <Trans
                   t={t}
                   i18nKey="page.extensionMigrationHint"
-                  components={{ code: <code className="font-mono" /> }}
+                  components={{ code: <code key="code" className="font-mono" /> }}
                 />
               </p>
             )}
@@ -1271,7 +1274,7 @@ export default function AdminStaffFileRequestPage() {
                           {request.file_name}
                         </p>
                         <p className="mt-0.5 text-[10px] text-muted">
-                          {request.section_name}
+                          {localizeField(request.section_name)}
                         </p>
                       </td>
                       <td className="px-2.5 py-3 font-semibold text-slate-700 dark:text-slate-200">
@@ -1415,7 +1418,7 @@ export default function AdminStaffFileRequestPage() {
                           {request.file_name}
                         </p>
                         <p className="mt-0.5 break-words text-[10px] text-muted">
-                          {request.section_name}
+                          {localizeField(request.section_name)}
                         </p>
                         {competing && (
                           <div className="mt-1.5">
@@ -1446,9 +1449,9 @@ export default function AdminStaffFileRequestPage() {
                       <td className="min-w-0 px-2.5 py-3 row-text-secondary">
                         <div
                           className="flex max-w-[220px] flex-wrap items-center gap-x-1 break-words text-[10px] row-text-secondary"
-                          title={request.storage_location}
+                          title={localizeField(request.storage_location)}
                         >
-                          {getLocationParts(request.storage_location).map(
+                          {getLocationParts(localizeField(request.storage_location)).map(
                             (part, index) => (
                               <React.Fragment key={`${part}-${index}`}>
                                 {index > 0 && (
@@ -1634,7 +1637,7 @@ export default function AdminStaffFileRequestPage() {
                   }}
                   components={{
                     strong: (
-                      <strong className="text-slate-800 dark:text-white font-bold" />
+                      <strong key="strong" className="text-slate-800 dark:text-white font-bold" />
                     ),
                   }}
                 />
@@ -1740,7 +1743,7 @@ export default function AdminStaffFileRequestPage() {
                     }}
                     components={{
                       strong: (
-                        <strong className="text-slate-900 dark:text-white font-bold" />
+                        <strong key="strong" className="text-slate-900 dark:text-white font-bold" />
                       ),
                     }}
                   />
@@ -1952,13 +1955,13 @@ export default function AdminStaffFileRequestPage() {
                     <div>
                       <p className="text-[10px] font-bold text-slate-400">{t('detail.fileSection')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
-                        {selectedDetailRequest.section_name}
+                        {localizeField(selectedDetailRequest.section_name)}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-400">{t('detail.storageCoordinates')}</p>
                       <p className="font-bold text-slate-800 dark:text-white mt-0.5">
-                        {selectedDetailRequest.storage_location}
+                        {localizeField(selectedDetailRequest.storage_location)}
                       </p>
                     </div>
                   </div>
@@ -2205,7 +2208,7 @@ export default function AdminStaffFileRequestPage() {
                   }}
                   components={{
                     strong: (
-                      <strong className="font-bold text-slate-800 dark:text-white" />
+                      <strong key="strong" className="font-bold text-slate-800 dark:text-white" />
                     ),
                   }}
                 />
@@ -2215,7 +2218,7 @@ export default function AdminStaffFileRequestPage() {
                 <div>
                   <p className="font-bold uppercase tracking-wider text-slate-400">{t('common:labels.section')}</p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                    {approvalTarget.section_name}
+                    {localizeField(approvalTarget.section_name)}
                   </p>
                 </div>
                 <div>
@@ -2430,7 +2433,7 @@ export default function AdminStaffFileRequestPage() {
                         },
                       ),
                     }}
-                    components={{ strong: <strong className="text-slate-800 dark:text-white" /> }}
+                    components={{ strong: <strong key="strong" className="text-slate-800 dark:text-white" /> }}
                   />
                 </p>
                 <div className="flex flex-wrap gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-navy-700 dark:bg-navy-900/50">

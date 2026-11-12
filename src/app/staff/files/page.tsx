@@ -30,7 +30,7 @@ import ViewFileModal from 'components/admin/files/ViewFileModal';
 import { useToast } from 'components/toast/ToastContext';
 import { useProfile } from 'contexts/ProfileContext';
 import { TABLE_BODY_CLASS } from 'lib/tableStyles';
-import { formatSriLankaDate, formatSriLankaTime } from 'lib/datetime';
+import { formatStaffSriLankaDate, formatSriLankaTime } from 'lib/datetime';
 import type { FileRecordRow } from 'models/FileRepository';
 import { fetchClientSections } from 'lib/sectionsClient';
 import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
@@ -68,7 +68,6 @@ function getSectionBadge(section?: string | null) {
 function getCompactLocation(file: FileRecordRow, t: TFunction) {
   const shelfName = localizeField(file.shelf_name);
   const shelfPosition = localizeField(file.shelf_position);
-  const repository = localizeField(file.archive_repository);
 
   let primary = '';
   if (file.locker_no && shelfName) {
@@ -78,20 +77,17 @@ function getCompactLocation(file: FileRecordRow, t: TFunction) {
   } else if (shelfName) {
     primary = t('staff.locationShelf', { shelf: shelfName });
   } else {
-    primary = repository || t('detail.centralRecordRoom');
+    primary = t('detail.notAssigned');
   }
 
   const secondaryParts = [];
   if (shelfPosition) {
     secondaryParts.push(t('detail.positionLabel', { value: shelfPosition }));
   }
-  if (repository && (file.locker_no || shelfName)) {
-    secondaryParts.push(repository);
-  }
 
   return {
     primary,
-    secondary: secondaryParts.join(' • ') || t('staff.mainRepository'),
+    secondary: secondaryParts.join(' • '),
   };
 }
 
@@ -126,7 +122,6 @@ export default function StaffFilesPage() {
       file.section_name,
       file.shelf_name,
       file.shelf_position,
-      file.archive_repository,
     ]),
     ...sectionsList.map((section) => section.name),
   ]);
@@ -367,7 +362,7 @@ export default function StaffFilesPage() {
                   ns="files"
                   i18nKey="staff.showingCount"
                   values={{ shown: files.length, total }}
-                  components={{ strong: <strong /> }}
+                  components={{ strong: <strong key="strong" /> }}
                 />
               </span>
             )}
@@ -424,17 +419,17 @@ export default function StaffFilesPage() {
             </div>
           ) : (
             /* Data Table */
-            <table aria-label={t('table.staffAria')} className="w-full text-left border-collapse table-auto min-w-[1040px]">
+            <table aria-label={t('table.staffAria')} className="w-full text-left border-collapse table-auto">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-navy-700 bg-slate-50/70 dark:bg-navy-900/50 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-400">
                   <th scope="col" className="py-3 px-3 w-12 text-center">{t('table.colNo')}</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[130px]">{t('table.colFileNumber')}</th>
-                  <th scope="col" className="py-3 px-3 min-w-[220px]">{t('table.colFileName')}</th>
-                  <th scope="col" className="py-3 px-3 min-w-[140px]">{t('table.colSection')}</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[180px]">{t('table.colStartEndDate')}</th>
-                  <th scope="col" className="py-3 px-3 min-w-[210px]">{t('table.colFileLocation')}</th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap min-w-[140px]">{t('table.colLastUpdated')}</th>
-                  <th scope="col" className="py-3 px-3 text-center whitespace-nowrap min-w-[170px]">{t('table.colAction')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colFileNumber')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colFileName')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colSection')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colStartEndDate')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colFileLocation')}</th>
+                  <th scope="col" className="py-3 px-3">{t('table.colLastUpdated')}</th>
+                  <th scope="col" className="py-3 px-3 text-center">{t('table.colAction')}</th>
                 </tr>
               </thead>
               <tbody className={TABLE_BODY_CLASS}>
@@ -442,7 +437,7 @@ export default function StaffFilesPage() {
                   const location = getCompactLocation(file, t);
                   const rowNo = String((page - 1) * LIMIT + idx + 1).padStart(2, '0');
                   const updatedDate = file.updated_at || file.created_at;
-                  const dateFormatted = updatedDate ? formatSriLankaDate(updatedDate) : '—';
+                  const dateFormatted = updatedDate ? formatStaffSriLankaDate(updatedDate) : '—';
                   const timeFormatted = updatedDate ? formatSriLankaTime(updatedDate) : '';
 
                   return (
@@ -501,17 +496,17 @@ export default function StaffFilesPage() {
                       </td>
 
                       {/* START / END DATE */}
-                      <td className="py-3 px-3 whitespace-nowrap">
+                      <td className="py-3 px-3">
                         <div className="flex items-center gap-2">
                           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 dark:bg-navy-900 text-slate-400 shrink-0">
                             <FiCalendar className="h-3.5 w-3.5" />
                           </div>
                           <div className="leading-tight">
                             <p className="font-bold text-slate-700 dark:text-slate-200 text-xs">
-                              {file.start_date ? formatSriLankaDate(file.start_date) : '—'}
+                              {file.start_date ? formatStaffSriLankaDate(file.start_date) : '—'}
                             </p>
                             <p className="text-[10px] text-muted font-medium mt-0.5">
-                              {t('staff.dateRangeTo', { date: file.end_date ? formatSriLankaDate(file.end_date) : '—' })}
+                              {t('staff.dateRangeTo', { date: file.end_date ? formatStaffSriLankaDate(file.end_date) : '—' })}
                             </p>
                           </div>
                         </div>
@@ -533,14 +528,14 @@ export default function StaffFilesPage() {
                               {location.primary}
                             </p>
                             <p className="text-[10px] font-medium text-slate-400 dark:text-slate-400 whitespace-normal break-words mt-0.5">
-                              {location.secondary}
+                              {location.secondary || '—'}
                             </p>
                           </div>
                         </button>
                       </td>
 
                       {/* LAST UPDATED DATE */}
-                      <td className="py-3 px-3 whitespace-nowrap">
+                      <td className="py-3 px-3">
                         <div className="flex items-center gap-2">
                           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 dark:bg-navy-900 text-slate-400 shrink-0">
                             <FiCalendar className="h-3.5 w-3.5" />
@@ -614,7 +609,7 @@ export default function StaffFilesPage() {
                   to: Math.min(page * LIMIT, total),
                   total,
                 }}
-                components={{ b: <span className="font-bold text-slate-700 dark:text-white" /> }}
+                components={{ b: <span key="b" className="font-bold text-slate-700 dark:text-white" /> }}
               />
             </div>
             <div className="flex items-center gap-1.5">
@@ -699,7 +694,6 @@ export default function StaffFilesPage() {
             {/* Coordinate Grid */}
             <dl className="grid grid-cols-2 gap-2.5">
               {[
-                { label: t('staff.archiveRepository'), value: localizeField(locationFile.archive_repository) || t('detail.centralRecordRoom'), colSpan: 'col-span-2' },
                 { label: t('staff.lockerNumber'), value: locationFile.locker_no || '—', colSpan: 'col-span-1' },
                 { label: t('staff.shelfNameNo'), value: localizeField(locationFile.shelf_name) || '—', colSpan: 'col-span-1' },
                 { label: t('staff.shelfPosition'), value: localizeField(locationFile.shelf_position) || '—', colSpan: 'col-span-2' },

@@ -20,7 +20,7 @@ import {
 } from 'react-icons/fi';
 import type { ProfileDTO } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
-import { formatSriLankaDate } from 'lib/datetime';
+import { formatStaffSriLankaDate } from 'lib/datetime';
 import { useTranslation } from 'react-i18next';
 import Button from 'components/ui/Button';
 
@@ -361,7 +361,7 @@ export default function StaffProfilePage() {
   const formattedUpdateDate = useMemo(() => {
     const raw = profile?.updated_at || profile?.approved_at || profile?.created_at;
     if (!raw) return '—';
-    return formatSriLankaDate(raw);
+    return formatStaffSriLankaDate(raw);
   }, [profile?.updated_at, profile?.approved_at, profile?.created_at]);
 
   return (

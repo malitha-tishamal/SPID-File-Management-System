@@ -20,6 +20,6 @@ export const PUT = withErrorHandling(
 export const DELETE = withErrorHandling(
   async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
     const { id } = await ctx.params;
-    return FileController.deleteFileByFileNo(decodeURIComponent(id));
+    return FileController.deleteFileByFileNo(decodeURIComponent(id), req);
   }
 );

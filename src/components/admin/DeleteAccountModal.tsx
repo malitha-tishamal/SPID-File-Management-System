@@ -65,7 +65,10 @@ export default function DeleteAccountModal({
         const res = await fetch(`/api/admin/users/${acc.id}`);
         const json = await res.json().catch(() => null);
         if (cancelled) return;
-        if (res.ok && json?.ok) setImpact(json.impact as DeletionImpact);
+        // API responses are wrapped as { ok, data } — reading `json.impact`
+        // left the dialog stuck on "Checking…" forever with Delete disabled.
+        const impact = json?.data?.impact as DeletionImpact | undefined;
+        if (res.ok && json?.ok && impact) setImpact(impact);
         else setLoadError(json?.message || t('modals.deleteAccount.impactFailed'));
       } catch {
         if (!cancelled) setLoadError(t('modals.deleteAccount.impactFailed'));

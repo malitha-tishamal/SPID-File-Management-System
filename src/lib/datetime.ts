@@ -7,6 +7,28 @@
 
 export const SRI_LANKA_TIME_ZONE = 'Asia/Colombo';
 
+export const SINHALA_MONTHS_SHORT = [
+  'ජන', 'පෙබ', 'මාර්තු', 'අප්‍රේල්', 'මැයි', 'ජූනි',
+  'ජූලි', 'අගෝ', 'සැප්', 'ඔක්', 'නොවැ', 'දෙසැ'
+] as const;
+
+export const SINHALA_MONTHS_FULL = [
+  'ජනවාරි', 'පෙබරවාරි', 'මාර්තු', 'අප්‍රේල්', 'මැයි', 'ජූනි',
+  'ජූලි', 'අගෝස්තු', 'සැප්තැම්බර්', 'ඔක්තෝබර්', 'නොවැම්බර්', 'දෙසැම්බර්'
+] as const;
+
+export const SINHALA_WEEKDAYS_SHORT = [
+  'ඉරි', 'සඳු', 'අඟ', 'බදා', 'බ්‍රහස්', 'සිකු', 'සෙන'
+] as const;
+
+export const SINHALA_WEEKDAYS_NARROW = [
+  'ඉ', 'ස', 'අ', 'බ', 'බ්‍ර', 'සි', 'සෙ'
+] as const;
+
+export const SINHALA_WEEKDAYS_FULL = [
+  'ඉරිදා', 'සඳුදා', 'අඟහරුවාදා', 'බදාදා', 'බ්‍රහස්පතින්දා', 'සිකුරාදා', 'සෙනසුරාදා'
+] as const;
+
 const DATE_OPTS: Intl.DateTimeFormatOptions = {
   day: '2-digit',
   month: 'short',
@@ -21,16 +43,6 @@ const TIME_OPTS: Intl.DateTimeFormatOptions = {
   timeZone: SRI_LANKA_TIME_ZONE,
 };
 
-/**
- * The UI language decides the label locale of *displayed* dates only
- * ('23 Oct 2026' / '23 නොවැ 2026'); the instant and the Asia/Colombo
- * boundary never change. English keeps the original en-GB / en-US locales so
- * existing output is byte-identical.
- *
- * This is a registry rather than an i18next import: the same module is used by
- * controllers and repositories, and the translation runtime must not be pulled
- * into the server bundle. LanguageProvider pushes the choice on switch.
- */
 type DisplayLanguage = 'en' | 'si';
 
 const DISPLAY_LOCALE: Record<DisplayLanguage, { date: string; time: string }> = {
@@ -40,13 +52,26 @@ const DISPLAY_LOCALE: Record<DisplayLanguage, { date: string; time: string }> = 
 
 let displayLanguage: DisplayLanguage = 'en';
 
+export function getEffectiveLanguage(): DisplayLanguage {
+  if (displayLanguage === 'si') return 'si';
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = window.localStorage.getItem('spid.ui.language');
+      if (stored === 'si') return 'si';
+      if (document.cookie.includes('spid.ui.language=si')) return 'si';
+    } catch {
+      // ignore
+    }
+  }
+  return displayLanguage;
+}
+
 const cachedDisplayFormatters = new Map<DisplayLanguage, { date: Intl.DateTimeFormat; time: Intl.DateTimeFormat }>();
 
 function displayFormatters() {
   const existing = cachedDisplayFormatters.get(displayLanguage);
   if (existing) return existing;
   const built = {
-    // Cached per language: Intl tables are expensive to rebuild per row render.
     date: new Intl.DateTimeFormat(DISPLAY_LOCALE[displayLanguage].date, DATE_OPTS),
     time: new Intl.DateTimeFormat(DISPLAY_LOCALE[displayLanguage].time, TIME_OPTS),
   };
@@ -59,6 +84,73 @@ export function setUiDisplayLanguage(language: DisplayLanguage): void {
   displayLanguage = language;
 }
 
+/**
+ * Staff-facing Sinhala dates use Gregorian transliterations (සැප්තැම්බර්,
+ * නොවැම්බර්, …) instead of the traditional Sinhala calendar names that
+ * si-LK emits. English output is unchanged.
+ */
+const SINHALA_GREGORIAN_MONTHS = [
+  'ජනවාරි',
+  'පෙබරවාරි',
+  'මාර්තු',
+  'අප්‍රේල්',
+  'මැයි',
+  'ජූනි',
+  'ජූලි',
+  'අගෝස්තු',
+  'සැප්තැම්බර්',
+  'ඔක්තෝබර්',
+  'නොවැම්බර්',
+  'දෙසැම්බර්',
+] as const;
+
+const staffSiDateFormatter = new Intl.DateTimeFormat('si-LK', DATE_OPTS);
+const staffSiMonthFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'numeric',
+  timeZone: SRI_LANKA_TIME_ZONE,
+});
+
+function sriLankaMonthIndex(value: Date): number {
+  const month = staffSiMonthFormatter
+    .formatToParts(value)
+    .find((part) => part.type === 'month')?.value;
+  const parsed = month ? Number(month) : NaN;
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(11, Math.max(0, parsed - 1));
+}
+
+function formatStaffSriLankaDateValue(value: Date): string {
+  const monthIndex = sriLankaMonthIndex(value);
+  return staffSiDateFormatter
+    .formatToParts(value)
+    .map((part) =>
+      part.type === 'month' ? SINHALA_GREGORIAN_MONTHS[monthIndex] : part.value,
+    )
+    .join('');
+}
+
+/** "2026 සැප්තැම්බර් 15" in Sinhala UI; English keeps the existing format. */
+export function formatStaffSriLankaDate(
+  value: string | Date | null | undefined,
+): string {
+  const d = toDate(value);
+  if (!d) return '—';
+  if (displayLanguage !== 'si') return formatSriLankaDate(value);
+  return formatStaffSriLankaDateValue(d);
+}
+
+/** Staff display variant of formatSriLankaDateTime with Gregorian Sinhala months. */
+export function formatStaffSriLankaDateTime(
+  value: string | Date | null | undefined,
+): string {
+  const d = toDate(value);
+  if (!d) return '—';
+  if (displayLanguage !== 'si') return formatSriLankaDateTime(value);
+  const time = formatSriLankaTime(d);
+  const date = formatStaffSriLankaDateValue(d);
+  return time ? `${date} • ${time}` : date;
+}
+
 // Machine-readable formats stay locale-fixed: they feed <input type="date">,
 // filenames, CSV columns and day-boundary queries, never a label.
 const compactDateFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -68,30 +160,87 @@ const compactDateFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: SRI_LANKA_TIME_ZONE,
 });
 
+const slPartsFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+  hour12: false,
+  timeZone: SRI_LANKA_TIME_ZONE,
+});
+
+function getSriLankaParts(d: Date) {
+  const parts = slPartsFormatter.formatToParts(d);
+  const get = (type: string) => {
+    const found = parts.find((p) => p.type === type);
+    return found ? parseInt(found.value, 10) : 0;
+  };
+  return {
+    year: get('year'),
+    month: get('month'), // 1 - 12
+    day: get('day'),     // 1 - 31
+    hour24: get('hour') === 24 ? 0 : get('hour'), // 0 - 23
+    minute: get('minute'), // 0 - 59
+    second: get('second'), // 0 - 59
+  };
+}
+
 function toDate(value: string | Date | null | undefined): Date | null {
   if (value === null || value === undefined || value === '') return null;
   const d = value instanceof Date ? value : new Date(value);
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** "23 Oct 2026" — falls back to '—' for missing/invalid values. */
+/** "23 Oct 2026" / "2026 ඔක් 23" — falls back to '—' for missing/invalid values. */
 export function formatSriLankaDate(value: string | Date | null | undefined): string {
   const d = toDate(value);
-  return d ? displayFormatters().date.format(d) : '—';
+  if (!d) return '—';
+  if (getEffectiveLanguage() === 'si') {
+    const p = getSriLankaParts(d);
+    const monthName = SINHALA_MONTHS_SHORT[p.month - 1] ?? '';
+    const dayStr = String(p.day).padStart(2, '0');
+    return `${p.year} ${monthName} ${dayStr}`;
+  }
+  return displayFormatters().date.format(d);
 }
 
-/** "06:15 PM" — falls back to an empty string for missing/invalid values. */
-export function formatSriLankaTime(value: string | Date | null | undefined): string {
+/** "06:15 PM" / "ප.ව. 06:15" — falls back to an empty string for missing/invalid values. */
+export function formatSriLankaTime(value: string | Date | null | undefined, includeSeconds = false): string {
   const d = toDate(value);
-  return d ? displayFormatters().time.format(d) : '';
+  if (!d) return '';
+  if (getEffectiveLanguage() === 'si') {
+    const p = getSriLankaParts(d);
+    const period = p.hour24 < 12 ? 'පෙ.ව.' : 'ප.ව.';
+    const h12 = p.hour24 % 12 || 12;
+    const hStr = String(h12).padStart(2, '0');
+    const mStr = String(p.minute).padStart(2, '0');
+    if (includeSeconds) {
+      const sStr = String(p.second).padStart(2, '0');
+      return `${period} ${hStr}:${mStr}:${sStr}`;
+    }
+    return `${period} ${hStr}:${mStr}`;
+  }
+  if (includeSeconds) {
+    return new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+      timeZone: SRI_LANKA_TIME_ZONE,
+    }).format(d);
+  }
+  return displayFormatters().time.format(d);
 }
 
-/** "23 Oct 2026 • 06:15 PM" */
+/** "23 Oct 2026 • 06:15 PM" / "2026 ඔක් 23 • ප.ව. 06:15" */
 export function formatSriLankaDateTime(value: string | Date | null | undefined): string {
   const d = toDate(value);
   if (!d) return '—';
+  const date = formatSriLankaDate(d);
   const time = formatSriLankaTime(d);
-  return time ? `${displayFormatters().date.format(d)} • ${time}` : displayFormatters().date.format(d);
+  return time ? `${date} • ${time}` : date;
 }
 
 /** "2026-10-23 06:15 PM" — compact variant for ledgers, dashboards and CSV. */

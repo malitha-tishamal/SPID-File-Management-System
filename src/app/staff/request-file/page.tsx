@@ -29,7 +29,9 @@ import { useProfile } from 'contexts/ProfileContext';
 import CompetingBadge from 'components/requests/CompetingBadge';
 import type { CompetingInfo } from 'lib/competing-requests';
 import type { ProfileDTO } from 'types/auth';
-import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
+import { formatStaffSriLankaDate, formatStaffSriLankaDateTime } from 'lib/datetime';
+import { useAppLanguage } from 'i18n/LanguageProvider';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
 import {
   classifyPendingPriority,
   type OwnPendingRequest,
@@ -38,6 +40,7 @@ import {
 import RequestPriorityDialog, {
   type RequestPriorityDialogState,
 } from 'components/staff/requests/RequestPriorityDialog';
+import StaffConfirmDialog from 'components/staff/requests/StaffConfirmDialog';
 import AttributedUser from 'components/ui/AttributedUser';
 import { attributedNameText } from 'utils/userDisplay';
 
@@ -49,7 +52,6 @@ type ArchiveFile = {
   locker_no?: string | null;
   shelf_name?: string | null;
   shelf_position?: string | null;
-  archive_repository?: string | null;
   status?: string;
 };
 
@@ -114,7 +116,6 @@ const cardClass =
 
 function getLocation(file: ArchiveFile, t: TFunction) {
   return [
-    file.archive_repository || t('page.locationFallback'),
     file.locker_no ? t('page.locationLocker', { no: file.locker_no }) : null,
     file.shelf_name ? t('page.locationShelf', { name: file.shelf_name }) : null,
     file.shelf_position
@@ -142,6 +143,7 @@ function HighlightMatch({ text, term }: { text: string; term: string }) {
 }
 
 export default function StaffRequestFilePage() {
+  useAppLanguage(); // subscribe to language changes for date re-renders
   const { t } = useTranslation('requests');
   const { showToast } = useToast();
   const { profile: contextProfile } = useProfile();
@@ -197,6 +199,7 @@ export default function StaffRequestFilePage() {
   const [ownPending, setOwnPending] = useState<OwnPendingRequest | null>(null);
   const [priorityDialog, setPriorityDialog] =
     useState<RequestPriorityDialogState | null>(null);
+  const [requestConfirmOpen, setRequestConfirmOpen] = useState(false);
   const [fileName, setFileName] = useState('');
   const [nameResults, setNameResults] = useState<ArchiveFile[]>([]);
   const [nameSearching, setNameSearching] = useState(false);
@@ -205,6 +208,15 @@ export default function StaffRequestFilePage() {
   const [activeNameIndex, setActiveNameIndex] = useState(-1);
   const fileNoBoxRef = useRef<HTMLDivElement>(null);
   const fileNameBoxRef = useRef<HTMLDivElement>(null);
+  // Prime the Sinhala translation cache for the section and shelf wording
+  // that appears in search results, and for the selected file.
+  useLocalizedFields([
+    ...results.map((f) => f.section_name),
+    ...nameResults.map((f) => f.section_name),
+    selectedFile?.section_name ?? '',
+    selectedFile?.shelf_name ?? '',
+    selectedFile?.shelf_position ?? '',
+  ]);
   /** Synchronous guard so a double-click cannot start two submissions. */
   const submittingRef = useRef(false);
 
@@ -593,7 +605,7 @@ export default function StaffRequestFilePage() {
       return;
     }
 
-    await sendRequest();
+    setRequestConfirmOpen(true);
   };
 
   return (
@@ -896,7 +908,7 @@ export default function StaffRequestFilePage() {
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-slate-500">
                         {file.file_no}
-                        {file.section_name ? ` · ${file.section_name}` : ''}
+                        {file.section_name ? ` · ${localizeField(file.section_name)}` : ''}
                       </span>
                     </button>
                   ))}
@@ -921,7 +933,7 @@ export default function StaffRequestFilePage() {
                 <input
                   className={`${inputClass} pr-10`}
                   readOnly
-                  value={selectedFile?.section_name ?? ''}
+                  value={selectedFile?.section_name ? localizeField(selectedFile.section_name) : ''}
                   placeholder={t('page.sectionPlaceholder')}
                 />
                 <FiFolder className="absolute right-3 top-3.5 text-slate-400" />
@@ -1100,13 +1112,13 @@ export default function StaffRequestFilePage() {
                           ns="requests"
                           i18nKey="page.availableFrom"
                           values={{
-                            date: formatSriLankaDate(
+                            date: formatStaffSriLankaDate(
                               `${String(
                                 competingData.issuance.expected_return_date,
                               ).slice(0, 10)}T00:00:00Z`,
                             ),
                           }}
-                          components={{ b: <strong /> }}
+                          components={{ b: <strong key="b" /> }}
                         />
                       </span>
                     ) : null}
@@ -1138,7 +1150,7 @@ export default function StaffRequestFilePage() {
                       </p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                         {competingData.issuance.issued_at
-                          ? formatSriLankaDateTime(
+                          ? formatStaffSriLankaDateTime(
                               competingData.issuance.issued_at,
                             )
                           : t('page.issuedDateMissing')}
@@ -1151,7 +1163,7 @@ export default function StaffRequestFilePage() {
                       <p className="mt-0.5 flex items-center gap-1.5 font-bold text-slate-800 dark:text-white">
                         <FiClock className="h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden="true" />
                         {competingData.issuance.expected_return_date
-                          ? formatSriLankaDate(
+                          ? formatStaffSriLankaDate(
                               `${String(
                                 competingData.issuance.expected_return_date,
                               ).slice(0, 10)}T00:00:00Z`,
@@ -1205,7 +1217,7 @@ export default function StaffRequestFilePage() {
                           <span className="mx-1.5 text-slate-300 dark:text-slate-600">•</span>
                           <span className="text-slate-500 dark:text-slate-400">
                             {t('page.neededOn', {
-                              date: formatSriLankaDate(cr.request_date),
+                              date: formatStaffSriLankaDate(cr.request_date),
                               duration: t('common:datetime.days', {
                                 count: cr.duration_days,
                               }),
@@ -1307,6 +1319,20 @@ export default function StaffRequestFilePage() {
           </button>
         </div>
       </form>
+
+      <StaffConfirmDialog
+        open={requestConfirmOpen}
+        title={t('confirmRequest.title')}
+        description={t('confirmRequest.body')}
+        cancelLabel={t('confirmRequest.cancel')}
+        confirmLabel={t('confirmRequest.confirm')}
+        loading={submitting}
+        onCancel={() => setRequestConfirmOpen(false)}
+        onConfirm={() => {
+          setRequestConfirmOpen(false);
+          void sendRequest();
+        }}
+      />
 
       <RequestPriorityDialog
         state={priorityDialog}

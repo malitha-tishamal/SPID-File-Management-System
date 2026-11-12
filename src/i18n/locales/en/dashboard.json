@@ -130,6 +130,8 @@
     "updatedRecord": "Updated record.",
     "fileDeletedTitle": "File Deleted",
     "fileDeletedMessage": "File record {{fileNo}} has been removed.",
+    "deleteFailedTitle": "Delete Failed",
+    "deleteFailedMessage": "Could not delete the file record. Please try again.",
     "removedFromViewTitle": "Removed from View",
     "removedFromViewMessage": "Record {{fileNo}} removed."
   }

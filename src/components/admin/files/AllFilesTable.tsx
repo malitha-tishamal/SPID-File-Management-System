@@ -3,7 +3,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_PAGER_BTN_CLASS, TABLE_PAGER_CLASS, TABLE_PAGER_PAGE_ACTIVE_CLASS, TABLE_PAGER_PAGE_CLASS, TABLE_ROW_CLASS } from 'lib/tableStyles';
-import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
+import { formatSriLankaDate, formatSriLankaTime } from 'lib/datetime';
+import { useAppLanguage } from 'i18n/LanguageProvider';
 import {
   FiEye,
   FiEdit2,
@@ -60,7 +61,7 @@ function formatDateTimeParts(iso?: string | null): { date: string; time: string 
   if (!iso) return { date: '—', time: '' };
   try {
     return {
-      date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
+      date: formatSriLankaDate(iso),
       time: formatSriLankaTime(iso),
     };
   } catch {
@@ -103,6 +104,7 @@ export default function AllFilesTable({
   onReject?: (file: FileRecordRow) => void;
   onRetry?: () => void;
 }) {
+  useAppLanguage(); // subscribe to language changes for date re-renders
   const { t } = useTranslation('files');
   const deletedLabel = t('common:deletedUser');
 
@@ -296,7 +298,7 @@ export default function AllFilesTable({
                   {/* FILE NAME */}
                   <td className="py-2.5 px-2.5 align-top">
                     <div
-                      className="w-[240px] line-clamp-2 break-words font-bold text-slate-800 dark:text-white leading-snug text-xs [overflow-wrap:anywhere]"
+                      className="w-full line-clamp-3 break-words font-bold text-slate-800 dark:text-white leading-snug text-xs [overflow-wrap:anywhere]"
                       title={file.file_name}
                     >
                       <LocalizedText value={file.file_name} />

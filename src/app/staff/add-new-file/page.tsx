@@ -26,6 +26,7 @@ const BulkImportModal = dynamic(() => import('components/modals/BulkImportModal'
   loading: () => null,
 });
 import LimitedFileField from 'components/admin/files/LimitedFileField';
+import StaffConfirmDialog from 'components/staff/requests/StaffConfirmDialog';
 import { useProfile } from 'contexts/ProfileContext';
 import { fetchClientSections } from 'lib/sectionsClient';
 import { FILE_FIELD_MAX_LENGTH, validateFileFieldLength } from 'lib/constants';
@@ -73,6 +74,7 @@ export default function StaffAddNewFilePage() {
   // Bulk Import & Add Section Modals State
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isAddSectionOpen, setIsAddSectionOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   const handleSectionCreated = (newSec: SectionOption) => {
     setSectionsList((prev) => {
@@ -115,10 +117,10 @@ export default function StaffAddNewFilePage() {
     setNotification({
       isOpen: true,
       type: 'success',
-      title: t('addFile.bulkImportSuccessTitle'),
+      title: t('addFile.staffBulkImportSuccessTitle'),
       message: requireApproval
-        ? t('addFile.bulkImportSubmittedMessage', { count })
-        : t('addFile.bulkImportSuccessMessage', { count }),
+        ? t('addFile.staffBulkImportSubmittedMessage', { count })
+        : t('addFile.staffBulkImportSuccessMessage', { count }),
     });
   };
 
@@ -202,10 +204,11 @@ export default function StaffAddNewFilePage() {
 
   // Handle Cancel
   const handleCancel = () => {
-    if (fileNo || fileName || section || totalPages || minuteSheets) {
-      if (window.confirm(t('addFile.discardConfirm'))) {
-        resetForm();
-      }
+    const hasUnsavedChanges = Boolean(
+      fileNo || fileName || section || startDate || endDate || totalPages || minuteSheets,
+    );
+    if (hasUnsavedChanges) {
+      setCancelConfirmOpen(true);
     } else {
       setErrors({});
     }
@@ -356,11 +359,11 @@ export default function StaffAddNewFilePage() {
             type="button"
             onClick={() => setIsBulkImportOpen(true)}
             className="flex h-10 items-center gap-2 rounded-xl bg-white dark:bg-navy-800 px-4 text-xs font-bold text-[#1B254B] dark:text-white border border-slate-200 dark:border-navy-700 shadow-xs hover:bg-[#F4F2FF] dark:hover:bg-navy-700 hover:border-[#4318FF]/30 hover:text-[#4318FF] dark:hover:text-brand-300 active:scale-[0.98] transition-all cursor-pointer"
-            title={t('addFile.bulkImportTitle')}
-            aria-label={t('addFile.bulkImport')}
+            title={t('addFile.staffBulkImportTitle')}
+            aria-label={t('addFile.staffBulkImport')}
           >
             <FiUploadCloud className="h-4 w-4 text-[#4318FF] dark:text-brand-300 stroke-[2.5]" />
-            <span>{t('addFile.bulkImport')}</span>
+            <span>{t('addFile.staffBulkImport')}</span>
           </button>
         </div>
       </div>
@@ -670,6 +673,21 @@ export default function StaffAddNewFilePage() {
         </div>
       </form>
 
+      {/* ── ADD FILE CANCEL CONFIRMATION ── */}
+      <StaffConfirmDialog
+        open={cancelConfirmOpen}
+        title={t('addFile.cancelTitle')}
+        description={t('addFile.cancelMessage')}
+        cancelLabel={t('addFile.continueEditing')}
+        confirmLabel={t('addFile.discardChanges')}
+        confirmVariant="danger"
+        onCancel={() => setCancelConfirmOpen(false)}
+        onConfirm={() => {
+          setCancelConfirmOpen(false);
+          resetForm();
+        }}
+      />
+
       {/* ── ADD NEW SECTION MODAL (R2) ── */}
       <AddSectionModal
         isOpen={isAddSectionOpen}
@@ -684,6 +702,7 @@ export default function StaffAddNewFilePage() {
         onSuccess={handleBulkImportSuccess}
         activeSections={sectionsList}
         includeLocationFields={false}
+        i18nKeyPrefix="staff."
       />
 
       {/* ── GLASSMORPHISM SUCCESS / FAILURE NOTIFICATION MODAL ── */}

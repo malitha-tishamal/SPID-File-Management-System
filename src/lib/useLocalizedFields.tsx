@@ -16,6 +16,8 @@
 import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import { useAppLanguage } from 'i18n/LanguageProvider';
+import { currentLanguage } from 'i18n/config';
+import { translateWithGlossary } from 'i18n/glossary';
 
 const MAX_BATCH = 200;
 const BATCH_DELAY_MS = 20;
@@ -45,6 +47,8 @@ function isCandidate(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const text = value.trim();
   if (text.length < 2) return false;
+  // If the glossary already translates it, it's immediately resolvable
+  if (translateWithGlossary(text) !== null) return false;
   // Server-side guard applies the same rules; this only avoids pointless calls.
   if (/[\u0D80-\u0DFF]/.test(text)) return false;
   if (!/[A-Za-z]/.test(text)) return false;
@@ -100,6 +104,11 @@ function requestTranslations(texts: string[]): void {
   let added = false;
   for (const text of texts) {
     if (cache.has(text) || queued.has(text)) continue;
+    const fromGlossary = translateWithGlossary(text);
+    if (fromGlossary) {
+      cache.set(text, fromGlossary);
+      continue;
+    }
     const attempted = failedAt.get(text);
     if (attempted && Date.now() - attempted <= RETRY_AFTER_MS) continue;
     queued.add(text);
@@ -109,10 +118,15 @@ function requestTranslations(texts: string[]): void {
   flushTimer = setTimeout(() => void flush(), BATCH_DELAY_MS);
 }
 
-/** Synchronous cache read; falls back to the stored value. */
+/** Synchronous cache/glossary read; falls back to the stored value. Returns unmodified text in English mode. */
 export function localizeField(value: string | null | undefined): string {
   if (typeof value !== 'string') return value ?? '';
-  return cache.get(value) ?? value;
+  if (currentLanguage() !== 'si') return value;
+  const cached = cache.get(value);
+  if (cached) return cached;
+  const fromGlossary = translateWithGlossary(value);
+  if (fromGlossary) return fromGlossary;
+  return value;
 }
 
 /**
@@ -143,7 +157,7 @@ export function useLocalizedFields(values: Array<string | null | undefined>): Ar
       values.map((value) => {
         if (typeof value !== 'string') return '';
         if (language !== 'si') return value;
-        return cache.get(value) ?? value;
+        return cache.get(value) ?? translateWithGlossary(value) ?? value;
       }),
     // currentVersion is the change signal for the module-level cache.
     [values, language, currentVersion],

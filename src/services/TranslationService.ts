@@ -1,21 +1,23 @@
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import glossary from 'i18n/contentGlossary.json';
+import { translateWithGlossary } from 'i18n/glossary';
+
+export { translateWithGlossary };
 
 /**
  * Translates officer-typed database content into Sinhala.
  *
  * Three layers, cheapest first:
- *   1. the domain glossary — values the system seeds or composes itself
- *      (section names, "Central Record Room", "Locker 4 — Shelf A");
- *   2. the `content_translations` cache — sha256(target:source) keyed, so the
+ *   1. the domain glossary - values the system seeds or composes itself
+ *      (section names, "Central Record Room", "Locker 4 - Shelf A");
+ *   2. the `content_translations` cache - sha256(target:source) keyed, so the
  *      same wording is never sent to a provider twice;
  *   3. an optional machine provider (OpenAI-compatible), configured only by
  *      server-side env vars.
  *
- * Nothing here is allowed to break a page. Any failure — no provider, no
- * network, provider error, unapplied migration — returns the original text,
+ * Nothing here is allowed to break a page. Any failure - no provider, no
+ * network, provider error, unapplied migration - returns the original text,
  * which is exactly what the English view shows. Source text is never logged;
  * failures are reported as counts only.
  */
@@ -32,20 +34,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_RE = /^(https?:|www\.)\S+$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** File numbers, codes and all-caps identifiers are never translated. */
-const IDENTIFIER_RE = /^[A-Z0-9][A-Z0-9._\-/ ]*$/;
+const IDENTIFIER_RE = /^[A-Z0-9][A-Z0-9._\-\/ ]*$/;
 /** Reference codes such as PDI/SPIDF/26/Estimates never contain spaces. */
-const CODE_WITHOUT_SPACE_RE = /^[^\s]*[/\\_#][^\s]*$/;
+const CODE_WITHOUT_SPACE_RE = /^[^\s]*[\/\\_#][^\s]*$/;
 const SINHALA_RE = /[\u0D80-\u0DFF]/;
 const LATIN_RE = /[A-Za-z]/;
-
-interface GlossaryFile {
-  phrases: Record<string, string>;
-  prefixes: Record<string, string>;
-  suffixes: Record<string, string>;
-  separators: string[];
-}
-
-const CONTENT_GLOSSARY = glossary as GlossaryFile;
 
 /**
  * True when a value carries words worth translating. Identifiers, addresses,
@@ -56,71 +49,16 @@ export function isTranslatable(value: string | null | undefined): boolean {
   const text = value.trim();
   if (text.length < 2 || text.length > MAX_SOURCE_LENGTH) return false;
   if (EMAIL_RE.test(text) || URL_RE.test(text) || UUID_RE.test(text)) return false;
+  if (translateWithGlossary(text) !== null) return true;
   if (!LATIN_RE.test(text)) return false;
   if (SINHALA_RE.test(text)) return false;
   if (IDENTIFIER_RE.test(text) || CODE_WITHOUT_SPACE_RE.test(text)) return false;
   return true;
 }
 
-/** sha256("<target>:<source>") — the cache key shared by service and backfill. */
+/** sha256("<target>:<source>") - the cache key shared by service and backfill. */
 export function translationHash(sourceText: string, targetLang = TRANSLATION_TARGET): string {
   return createHash('sha256').update(`${targetLang}:${sourceText}`).digest('hex');
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Deterministic translation for seeded/composed values. Returns null when the
- * glossary has nothing to say, so the provider (or the original text) wins.
- */
-export function translateWithGlossary(value: string, depth = 0): string | null {
-  const text = value.trim();
-  if (!text) return null;
-
-  const exact = CONTENT_GLOSSARY.phrases[text];
-  if (exact) return exact;
-
-  // Case-insensitive exact match; the stored value keeps its own casing.
-  const lower = text.toLowerCase();
-  for (const [source, target] of Object.entries(CONTENT_GLOSSARY.phrases)) {
-    if (source.toLowerCase() === lower) return target;
-  }
-
-  // Storage locations are composed at write time ("Central Record Room — Locker 4").
-  if (depth < 2) {
-    for (const separator of CONTENT_GLOSSARY.separators) {
-      if (!text.includes(separator)) continue;
-      const parts = text.split(separator);
-      if (parts.length < 2) continue;
-      const translatedParts = parts.map((part) => {
-        const trimmed = part.trim();
-        return translateWithGlossary(trimmed, depth + 1) ?? trimmed;
-      });
-      return translatedParts.join(separator);
-    }
-
-    for (const [prefix, target] of Object.entries(CONTENT_GLOSSARY.prefixes)) {
-      const match = text.match(new RegExp(`^${escapeRegExp(prefix)}\\s+(.+)$`, 'i'));
-      if (match) {
-        const rest = match[1].trim();
-        const restTranslated = translateWithGlossary(rest, depth + 1) ?? rest;
-        return `${target} ${restTranslated}`;
-      }
-    }
-
-    for (const [suffix, target] of Object.entries(CONTENT_GLOSSARY.suffixes)) {
-      const match = text.match(new RegExp(`^(.+?)\\s+${escapeRegExp(suffix)}$`, 'i'));
-      if (match) {
-        const rest = match[1].trim();
-        const restTranslated = translateWithGlossary(rest, depth + 1) ?? rest;
-        return `${target} ${restTranslated}`;
-      }
-    }
-  }
-
-  return null;
 }
 
 function providerConfig(): { url: string; key: string; model: string } | null {
@@ -198,161 +136,161 @@ export class TranslationService {
 
     if (missing.length === 0) return result;
 
-    const fromProvider = await this.callProvider(missing);
-    for (const text of missing) {
-      const translated = fromProvider[text];
-      if (!translated) continue;
-      result[text] = translated;
-      void this.cache(text, translated, targetLang, 'provider');
+    const cfg = providerConfig();
+    if (!cfg) return result;
+
+    const batches: string[][] = [];
+    for (let i = 0; i < missing.length; i += PROVIDER_BATCH_SIZE) {
+      batches.push(missing.slice(i, i + PROVIDER_BATCH_SIZE));
+    }
+
+    for (const batch of batches) {
+      try {
+        const translations = await this.callProvider(batch, cfg, targetLang);
+        for (const [source, translation] of Object.entries(translations)) {
+          if (!translation || translation === source) continue;
+          result[source] = translation;
+          void this.cache(source, translation, targetLang, cfg.model);
+        }
+      } catch (err) {
+        console.warn(`[translation] provider batch failed (${batch.length} items):`, err);
+      }
     }
 
     return result;
-  }
-
-  /**
-   * Fire-and-forget warm-up after a create/update, so a record saved in English
-   * already has its Sinhala rendering when someone switches language.
-   */
-  async warm(texts: Array<string | null | undefined>, targetLang = TRANSLATION_TARGET): Promise<void> {
-    const candidates = texts.filter((text): text is string => isTranslatable(text));
-    if (candidates.length === 0) return;
-    try {
-      await this.translateMany(candidates, targetLang);
-    } catch (err) {
-      console.warn('[translation] warm-up skipped');
-    }
   }
 
   private async readCache(
     hashes: string[],
     targetLang: string,
   ): Promise<Map<string, string>> {
-    const found = new Map<string, string>();
-    if (hashes.length === 0) return found;
+    const hits = new Map<string, string>();
+    if (hashes.length === 0) return hits;
 
     try {
       const { data, error } = await this.client
         .from('content_translations')
-        .select('source_hash, translated_text')
+        .select('source_hash, translation')
         .eq('target_lang', targetLang)
         .in('source_hash', hashes);
 
       if (error) {
-        // Migration not applied yet: behave as a cold cache, not a failure.
         if (!isMissingTableError(error)) {
-          console.warn('[translation] cache read skipped:', error.code ?? 'unknown');
+          console.warn('[translation] cache read error:', error.message);
         }
-        return found;
+        return hits;
       }
 
-      for (const row of (data ?? []) as { source_hash: string; translated_text: string }[]) {
-        found.set(row.source_hash, row.translated_text);
+      for (const row of (data ?? []) as Array<{ source_hash: string; translation: string }>) {
+        if (row?.source_hash && row?.translation) {
+          hits.set(row.source_hash, row.translation);
+        }
       }
-    } catch {
-      // Network/cache problems must never block rendering.
+    } catch (err) {
+      console.warn('[translation] cache read threw:', err);
     }
-    return found;
+
+    return hits;
   }
 
   private async cache(
     sourceText: string,
-    translatedText: string,
+    translation: string,
     targetLang: string,
     provider: string,
   ): Promise<void> {
     try {
-      // ignoreDuplicates keeps an officer's manual correction in place.
+      const hash = translationHash(sourceText, targetLang);
       const { error } = await this.client.from('content_translations').upsert(
         {
-          source_hash: translationHash(sourceText, targetLang),
-          source_lang: TRANSLATION_SOURCE,
-          target_lang: targetLang,
+          source_hash: hash,
           source_text: sourceText,
-          translated_text: translatedText,
+          target_lang: targetLang,
+          translation,
           provider,
-          is_manual: false,
+          updated_at: new Date().toISOString(),
         },
-        { onConflict: 'source_hash,target_lang', ignoreDuplicates: true },
+        { onConflict: 'source_hash' },
       );
       if (error && !isMissingTableError(error)) {
-        console.warn('[translation] cache write skipped:', error.code ?? 'unknown');
+        console.warn('[translation] cache write error:', error.message);
       }
     } catch {
-      // Best effort only.
+      // Fire-and-forget; never fail a render because a cache write was rejected.
     }
   }
 
-  private async callProvider(texts: string[]): Promise<Record<string, string>> {
-    const config = providerConfig();
-    if (!config) return {};
-
-    const result: Record<string, string> = {};
-    for (let i = 0; i < texts.length; i += PROVIDER_BATCH_SIZE) {
-      const batch = texts.slice(i, i + PROVIDER_BATCH_SIZE);
-      const translated = await this.requestBatch(config, batch);
-      for (let j = 0; j < batch.length; j += 1) {
-        if (typeof translated[j] === 'string' && translated[j].trim()) {
-          result[batch[j]] = translated[j];
-        }
-      }
+  /**
+   * Pre-populates the Sinhala translation cache for the given values so the
+   * next read-side request is instant. Never throws: any failure is silently
+   * swallowed so callers can fire-and-forget with \u000boid.
+   */
+  async warm(values: (string | null | undefined)[], targetLang = TRANSLATION_TARGET): Promise<void> {
+    try {
+      const texts = values.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+      if (texts.length > 0) await this.translateMany(texts, targetLang);
+    } catch {
+      // intentionally swallowed ? warming is best-effort
     }
-    return result;
   }
 
-  private async requestBatch(
-    config: { url: string; key: string; model: string },
-    batch: string[],
-  ): Promise<string[]> {
+  private async callProvider(
+    texts: string[],
+    cfg: { url: string; key: string; model: string },
+    targetLang: string,
+  ): Promise<Record<string, string>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
 
     try {
-      const response = await fetch(config.url, {
+      const systemPrompt =
+        `You are a translator for the Sri Lanka Southern Provincial Irrigation Department (SPID) portal.\n` +
+        `Translate each input string from English to Sinhala (${targetLang}).\n` +
+        `Preserve acronyms (SPID, GIS, GPS, NIC, IT), file codes, room numbers and punctuation.\n` +
+        `Keep translations concise and official.\n` +
+        `Return ONLY valid JSON matching: {\"translations\": {\"<source text>\": \"<sinhala text>\"}}`;
+
+      const userPayload = JSON.stringify({ texts });
+
+      const response = await fetch(cfg.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.key}`,
+          Authorization: `Bearer ${cfg.key}`,
         },
         body: JSON.stringify({
-          model: config.model,
-          temperature: 0,
+          model: cfg.model,
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
           messages: [
-            {
-              role: 'system',
-              content:
-                'You translate Sri Lankan government file-registry text from English to Sinhala (si-LK). ' +
-                'Reply with a JSON array of strings only, same order and length as the input. ' +
-                'Leave file numbers, reference codes, email addresses, personal names and IDs unchanged. ' +
-                'Do not add commentary.',
-            },
-            { role: 'user', content: JSON.stringify(batch) },
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPayload },
           ],
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        console.warn('[translation] provider returned', response.status);
-        return [];
+        throw new Error(`provider HTTP ${response.status}`);
       }
 
-      const payload: any = await response.json();
-      const content = payload?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string') return [];
+      const json = await response.json();
+      const content = json?.choices?.[0]?.message?.content;
+      if (!content || typeof content !== 'string') {
+        throw new Error('empty provider response');
+      }
 
-      const jsonText = content.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
-      const parsed = JSON.parse(jsonText);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      // Timeout, network error or malformed provider output: fall back to English.
-      return [];
+      const parsed = JSON.parse(content);
+      const map = parsed?.translations;
+      if (!map || typeof map !== 'object') return {};
+
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(map)) {
+        if (typeof v === 'string' && v.trim()) clean[k] = v.trim();
+      }
+      return clean;
     } finally {
       clearTimeout(timer);
     }
   }
-}
-
-/** Shared server-side entry point; each call reuses the same service config. */
-export function createTranslationService(client: SupabaseClient): TranslationService {
-  return new TranslationService(client);
 }

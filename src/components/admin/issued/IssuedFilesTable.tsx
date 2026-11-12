@@ -184,7 +184,7 @@ export default function IssuedFilesTable({
                       {localizeField(file.file_name)}
                     </div>
                     <div className="mt-0.5 break-words text-[10px] font-medium text-muted">
-                      {localizeField(file.storage_location) || t('table.storageFallback')}
+                      {localizeField(file.storage_location) || '—'}
                     </div>
                   </td>
 

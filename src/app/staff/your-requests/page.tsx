@@ -14,7 +14,9 @@ import {
   FiX,
   FiXCircle,
 } from 'react-icons/fi';
-import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
+import { formatStaffSriLankaDate, formatStaffSriLankaDateTime } from 'lib/datetime';
+import { useAppLanguage } from 'i18n/LanguageProvider';
+import { localizeField } from 'lib/useLocalizedFields';
 import { localiseReturnStatusLabel } from 'i18n/uiText';
 import { clearQueryParam, parseRecordId, readQueryParam } from 'lib/deep-link';
 import { getReturnStatus, isReturnDateExtended } from 'lib/returnStatus';
@@ -98,6 +100,7 @@ const statusStyle: Record<string, { label: string; className: string }> = {
 };
 
 export default function StaffYourRequestsPage() {
+  useAppLanguage(); // subscribe to language changes for date re-renders
   const { t } = useTranslation('requests');
   const { showToast } = useToast();
   const { profile } = useProfile();
@@ -650,7 +653,7 @@ export default function StaffYourRequestsPage() {
                   values={{
                     file: `${cancelTarget.file_no} — ${cancelTarget.file_name}`,
                   }}
-                  components={{ b: <strong className="font-bold text-slate-800 dark:text-white" /> }}
+                  components={{ b: <strong key="b" className="font-bold text-slate-800 dark:text-white" /> }}
                 />
               </p>
 
@@ -660,7 +663,7 @@ export default function StaffYourRequestsPage() {
                     {t('details.submitted')}
                   </dt>
                   <dd className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                    {formatSriLankaDate(cancelTarget.created_at)}
+                    {formatStaffSriLankaDate(cancelTarget.created_at)}
                   </dd>
                 </div>
                 <div>
@@ -778,10 +781,10 @@ export default function StaffYourRequestsPage() {
                     <span>{t('details.archiveLocation')}</span>
                   </div>
                   <p className="mt-1.5 font-bold text-slate-800 dark:text-white">
-                    {selectedDetailRequest.storage_location}
+                    {localizeField(selectedDetailRequest.storage_location)}
                   </p>
                   <p className="mt-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                    {selectedDetailRequest.section_name}
+                    {localizeField(selectedDetailRequest.section_name)}
                   </p>
                 </div>
 
@@ -796,7 +799,7 @@ export default function StaffYourRequestsPage() {
                         {t('details.requestedAccessDate')}
                       </p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                        {formatSriLankaDate(`${String(selectedDetailRequest.request_date).slice(0, 10)}T00:00:00Z`)}
+                        {formatStaffSriLankaDate(`${String(selectedDetailRequest.request_date).slice(0, 10)}T00:00:00Z`)}
                       </p>
                     </div>
                     <div>
@@ -820,7 +823,7 @@ export default function StaffYourRequestsPage() {
                     <div>
                       <p className="text-[10px] font-bold text-slate-400">{t('details.submitted')}</p>
                       <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
-                        {formatSriLankaDateTime(selectedDetailRequest.created_at)}
+                        {formatStaffSriLankaDateTime(selectedDetailRequest.created_at)}
                       </p>
                     </div>
                   </div>
@@ -837,7 +840,7 @@ export default function StaffYourRequestsPage() {
                         <p className="text-[10px] font-bold text-slate-400">{t('details.issuedOn')}</p>
                         <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                           {selectedDetailRequest.reviewed_at
-                            ? formatSriLankaDateTime(selectedDetailRequest.reviewed_at)
+                            ? formatStaffSriLankaDateTime(selectedDetailRequest.reviewed_at)
                             : '—'}
                         </p>
                       </div>
@@ -854,7 +857,7 @@ export default function StaffYourRequestsPage() {
                           }`}
                         >
                           {selectedDetailRequest.expected_return_date
-                            ? formatSriLankaDate(
+                            ? formatStaffSriLankaDate(
                                 `${String(selectedDetailRequest.expected_return_date).slice(0, 10)}T00:00:00Z`,
                               )
                             : '—'}
@@ -865,7 +868,7 @@ export default function StaffYourRequestsPage() {
                         ) && (
                           <p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">
                             {t('details.extendedFrom', {
-                              date: formatSriLankaDate(
+                              date: formatStaffSriLankaDate(
                                 `${String(selectedDetailRequest.original_return_date).slice(0, 10)}T00:00:00Z`,
                               ),
                             })}
@@ -880,7 +883,7 @@ export default function StaffYourRequestsPage() {
                         </p>
                         <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                           {selectedDetailRequest.returned_at
-                            ? formatSriLankaDateTime(selectedDetailRequest.returned_at)
+                            ? formatStaffSriLankaDateTime(selectedDetailRequest.returned_at)
                             : localiseReturnStatusLabel(
                                 getReturnStatus(
                                   selectedDetailRequest.expected_return_date,
@@ -918,7 +921,7 @@ export default function StaffYourRequestsPage() {
                       </span>
                       <span>
                         <strong>{t('details.reviewedAt')}</strong>{' '}
-                        {formatSriLankaDateTime(
+                        {formatStaffSriLankaDateTime(
                           selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at,
                         )}
                       </span>
@@ -954,7 +957,7 @@ export default function StaffYourRequestsPage() {
                       </span>
                       <span>
                         <strong>{t('details.approvedAt')}</strong>{' '}
-                        {formatSriLankaDateTime(
+                        {formatStaffSriLankaDateTime(
                           selectedDetailRequest.reviewed_at || selectedDetailRequest.created_at,
                         )}
                       </span>
@@ -1059,7 +1062,7 @@ export default function StaffYourRequestsPage() {
                   values={{
                     file: `${extensionTarget.file_no} — ${extensionTarget.file_name}`,
                   }}
-                  components={{ b: <strong className="font-bold text-slate-800 dark:text-white" /> }}
+                  components={{ b: <strong key="b" className="font-bold text-slate-800 dark:text-white" /> }}
                 />
               </p>
 
@@ -1070,7 +1073,7 @@ export default function StaffYourRequestsPage() {
                   </p>
                   <p className="mt-0.5 font-bold text-slate-800 dark:text-white">
                     {extensionTarget.expected_return_date
-                      ? formatSriLankaDate(
+                      ? formatStaffSriLankaDate(
                           `${String(extensionTarget.expected_return_date).slice(0, 10)}T00:00:00Z`,
                         )
                       : t('extension.notSet')}

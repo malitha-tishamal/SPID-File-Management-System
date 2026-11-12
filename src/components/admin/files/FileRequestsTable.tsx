@@ -7,7 +7,8 @@ import { TABLE_BODY_CLASS, TABLE_HEAD_ROW_CLASS, TABLE_ROW_CLASS } from 'lib/tab
 import type { FileRecordRow } from 'models/FileRepository';
 import FilesTableSkeleton from './FilesTableSkeleton';
 import FilesPagination from './FilesPagination';
-import { formatSriLankaDateTimeCompact, formatSriLankaTime } from 'lib/datetime';
+import { formatSriLankaDate, formatSriLankaTime } from 'lib/datetime';
+import { useAppLanguage } from 'i18n/LanguageProvider';
 import LocationDetailsButton from './LocationDetailsButton';
 import TableLoadingSpinner from './TableLoadingSpinner';
 import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
@@ -45,7 +46,7 @@ function formatDateTimeParts(iso?: string | null): { date: string; time: string 
   if (!iso) return { date: '—', time: '' };
   try {
     return {
-      date: formatSriLankaDateTimeCompact(iso).slice(0, 10),
+      date: formatSriLankaDate(iso),
       time: formatSriLankaTime(iso),
     };
   } catch {
@@ -84,6 +85,7 @@ export default function FileRequestsTable({
   onView: (file: FileRecordRow) => void;
   onRetry?: () => void;
 }) {
+  useAppLanguage(); // subscribe to language changes for date re-renders
   const { t } = useTranslation('files');
   const deletedLabel = t('common:deletedUser');
   useLocalizedFields(files.flatMap((file) => [file.file_name, file.section_name]));

@@ -80,6 +80,12 @@
     "yourRequestsSubtitle": "Track your file requests, monitor approval decisions, and manage your request history.",
     "fixDateRange": "Fix the date range above to load this tab."
   },
+  "confirmRequest": {
+    "title": "Request this file?",
+    "body": "Are you sure you want to request this file?",
+    "cancel": "Cancel",
+    "confirm": "Confirm Request"
+  },
   "toolbar": {
     "searchPlaceholder": "Search by file number, file name, or section...",
     "clearSearch": "Clear search",

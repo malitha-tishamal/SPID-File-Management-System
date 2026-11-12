@@ -16,6 +16,7 @@ import { MdMarkEmailRead, MdMarkEmailUnread } from 'react-icons/md';
 import { resolveNotificationMessage } from 'lib/notificationMessage';
 import { useLocalizedFields } from 'lib/useLocalizedFields';
 import { getSupabaseBrowserClient } from 'config/supabase/client';
+import { formatSriLankaDate } from 'lib/datetime';
 
 type NotificationType = 'info' | 'success' | 'warning' | 'error';
 
@@ -110,10 +111,7 @@ function timeAgo(
   if (hours < 24) return t('relative.hoursAgo', { count: hours });
   const days = Math.floor(hours / 24);
   if (days < 7) return t('relative.daysAgo', { count: days });
-  return new Date(value).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-  });
+  return formatSriLankaDate(value);
 }
 
 /**
@@ -326,7 +324,14 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[calc(100vw-2rem)] max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-navy-700 dark:bg-navy-800">
+        <>
+          {/* Mobile backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs sm:hidden"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="fixed inset-x-3 top-16 z-50 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-navy-700 dark:bg-navy-800 sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-96 sm:max-w-sm">
           <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 dark:border-navy-700 dark:bg-navy-800">
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-extrabold text-slate-800 dark:text-white">
@@ -491,7 +496,8 @@ export default function NotificationBell() {
             )}
           </div>
         </div>
-      )}
+      </>
+    )}
     </div>
   );
 }

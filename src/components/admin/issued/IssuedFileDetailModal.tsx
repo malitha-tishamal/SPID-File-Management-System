@@ -177,7 +177,7 @@ export default function IssuedFileDetailModal({
           <InfoBlock icon={FiMapPin} label={t('modals.detail.sectionStorage')}>
             <p>{file.section_name || '—'}</p>
             <p className="mt-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              {file.storage_location || t('table.storageFallback')}
+              {file.storage_location || '—'}
             </p>
           </InfoBlock>
 

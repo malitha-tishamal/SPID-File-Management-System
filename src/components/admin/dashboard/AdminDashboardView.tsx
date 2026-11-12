@@ -476,6 +476,17 @@ export default function AdminDashboardView() {
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isApproving, setIsApproving] = useState<boolean>(false);
   const [isRejecting, setIsRejecting] = useState<boolean>(false);
+  const [deleteDependents, setDeleteDependents] = useState<{
+    fileRequests: number;
+    fileRequestExtensions: number;
+    activeCheckouts?: number;
+    returnedCheckouts?: number;
+    auditLogs?: number;
+    canDelete?: boolean;
+  } | null>(null);
+  const [isLoadingDependents, setIsLoadingDependents] = useState<boolean>(false);
+  const [deleteReason, setDeleteReason] = useState<string>('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState<string>('');
 
   const requestIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
@@ -582,12 +593,15 @@ export default function AdminDashboardView() {
           const summary = metaJson.data.counts as
             | FileCountsSummary
             | undefined;
+          const activeCount = Number(summary?.allFilesCount ?? 0);
+          const pagesCount =
+            activeCount === 0
+              ? 0
+              : Number(metaJson.data.totalPageNumbers ?? 0);
           setStats((prev) => ({
             ...prev,
-            totalActive: Number(summary?.allFilesCount ?? 0).toLocaleString(),
-            totalPages: Number(
-              metaJson.data.totalPageNumbers ?? 0,
-            ).toLocaleString(),
+            totalActive: activeCount.toLocaleString(),
+            totalPages: pagesCount.toLocaleString(),
           }));
           setTodayCount(Number(summary?.todayCount ?? 0));
           metaApplied = true;
@@ -731,7 +745,6 @@ export default function AdminDashboardView() {
       result = result.filter((f) => {
         const s = (f.status || 'active').toLowerCase();
         if (statusFilter === 'active' || statusFilter === 'approved') return s === 'active' || s === 'approved';
-        if (statusFilter === 'archived') return s === 'archived';
         if (statusFilter === 'pending') return s === 'pending';
         if (statusFilter === 'rejected') return s === 'rejected';
         return true;
@@ -908,38 +921,132 @@ export default function AdminDashboardView() {
   }, [editingFile, refresh, showToast, t]);
 
   // Delete file confirm
+  const handleDeleteRequest = useCallback(
+    async (file: FileRecordRow) => {
+      setDeletingFile(file);
+      setDeleteDependents(null);
+      setDeleteReason('');
+      setDeleteConfirmText('');
+      setIsLoadingDependents(true);
+
+      try {
+        const res = await fetch(
+          `/api/admin/files/${encodeURIComponent(file.file_no)}/dependents`,
+          { cache: 'no-store' },
+        );
+        const json = await res.json().catch(() => null);
+
+        if (!res.ok || !json?.ok) {
+          setDeletingFile(null);
+          showToast({
+            type: 'error',
+            title: t('dashboard:feedback.deleteFailedTitle'),
+            message: json?.message || t('dashboard:feedback.deleteFailedMessage'),
+          });
+          return;
+        }
+
+        setDeleteDependents({
+          fileRequests: Number(json.data?.file_requests ?? 0),
+          fileRequestExtensions: Number(
+            json.data?.file_request_extensions ?? 0,
+          ),
+          activeCheckouts: Number(json.data?.active_checkouts ?? 0),
+          returnedCheckouts: Number(json.data?.returned_checkouts ?? 0),
+          auditLogs: Number(json.data?.audit_logs ?? 0),
+          canDelete: Boolean(json.data?.can_delete ?? true),
+        });
+      } catch {
+        setDeletingFile(null);
+        showToast({
+          type: 'error',
+          title: t('dashboard:feedback.deleteFailedTitle'),
+          message: t('dashboard:feedback.connectionErrorMessage'),
+        });
+      } finally {
+        setIsLoadingDependents(false);
+      }
+    },
+    [showToast, t],
+  );
+
+  const handleDeleteCancel = useCallback(() => {
+    if (isDeleting) return;
+    setDeletingFile(null);
+    setDeleteDependents(null);
+    setDeleteReason('');
+    setDeleteConfirmText('');
+  }, [isDeleting]);
+
   const handleDeleteConfirm = useCallback(async () => {
-    if (!deletingFile) return;
+    if (!deletingFile || isLoadingDependents) return;
+
+    if ((deleteDependents?.activeCheckouts ?? 0) > 0) {
+      showToast({
+        type: 'error',
+        title: t('dashboard:feedback.deleteFailedTitle'),
+        message: t('files:modals.blockedActiveCheckouts', {
+          count: deleteDependents?.activeCheckouts ?? 0,
+          defaultValue: `This file is currently issued (${deleteDependents?.activeCheckouts ?? 0} active checkout). Mark it as returned before deleting.`,
+        }),
+      });
+      return;
+    }
+
     setIsDeleting(true);
 
     try {
       const res = await fetch(
         `/api/admin/files/${encodeURIComponent(deletingFile.file_no)}`,
-        { method: 'DELETE' },
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: deleteReason.trim() || undefined }),
+        },
       );
+      const json = await res.json().catch(() => null);
 
-      if (res.ok) {
+      if (res.ok && json?.ok) {
         showToast({
           type: 'success',
           title: t('dashboard:feedback.fileDeletedTitle'),
-          message: t('dashboard:feedback.fileDeletedMessage', { fileNo: deletingFile.file_no }),
+          message:
+            json?.message ||
+            t('dashboard:feedback.fileDeletedMessage', {
+              fileNo: deletingFile.file_no,
+            }),
         });
+        setFiles((prev) => prev.filter((item) => item.id !== deletingFile.id));
+        setDeletingFile(null);
+        setDeleteDependents(null);
+        setDeleteReason('');
+        setDeleteConfirmText('');
+        refresh();
       } else {
         showToast({
-          type: 'info',
-          title: t('dashboard:feedback.removedFromViewTitle'),
-          message: t('dashboard:feedback.removedFromViewMessage', { fileNo: deletingFile.file_no }),
+          type: 'error',
+          title: t('dashboard:feedback.deleteFailedTitle'),
+          message: json?.message || t('dashboard:feedback.deleteFailedMessage'),
         });
       }
-      setFiles((prev) => prev.filter((item) => item.id !== deletingFile.id));
-      setDeletingFile(null);
     } catch {
-      setFiles((prev) => prev.filter((item) => item.id !== deletingFile.id));
-      setDeletingFile(null);
+      showToast({
+        type: 'error',
+        title: t('dashboard:feedback.deleteFailedTitle'),
+        message: t('dashboard:feedback.connectionErrorMessage'),
+      });
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingFile, showToast, t]);
+  }, [
+    deleteDependents,
+    deleteReason,
+    deletingFile,
+    isLoadingDependents,
+    refresh,
+    showToast,
+    t,
+  ]);
 
   return (
     <div className="w-full space-y-6 pb-12 font-dm">
@@ -1090,7 +1197,6 @@ export default function AdminDashboardView() {
               <option value="approved" className="dark:bg-navy-800">{t('common:status.approved')}</option>
               <option value="pending" className="dark:bg-navy-800">{t('common:status.pending')}</option>
               <option value="rejected" className="dark:bg-navy-800">{t('common:status.rejected')}</option>
-              <option value="archived" className="dark:bg-navy-800">{t('dashboard:filters.archived')}</option>
             </select>
 
             {/* Sort Dropdown */}
@@ -1189,13 +1295,18 @@ export default function AdminDashboardView() {
                   </tr>
                 ) : filteredFiles.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-16 text-center">
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                        {t('dashboard:states.noRecords')}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {t('dashboard:states.noRecordsHint')}
-                      </p>
+                    <td colSpan={10} className="py-14 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F4F2FF] text-[#4318FF] dark:bg-brand-900/40 dark:text-brand-300">
+                          <FiFileText className="h-6 w-6" />
+                        </div>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                          {t('dashboard:states.noRecords')}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {t('dashboard:states.noRecordsHint')}
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -1206,7 +1317,7 @@ export default function AdminDashboardView() {
                       rowNo={String(idx + 1).padStart(2, '0')}
                       onView={setViewingFile}
                       onEdit={setEditingFile}
-                      onDelete={setDeletingFile}
+                      onDelete={handleDeleteRequest}
                       onApprove={setApprovingFile}
                       onReject={setRejectingFile}
                     />
@@ -1235,8 +1346,14 @@ export default function AdminDashboardView() {
         <ConfirmDeleteModal
           file={deletingFile}
           loading={isDeleting}
+          dependents={deleteDependents}
+          loadingDependents={isLoadingDependents}
+          reason={deleteReason}
+          onReasonChange={setDeleteReason}
+          confirmText={deleteConfirmText}
+          onConfirmTextChange={setDeleteConfirmText}
           onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeletingFile(null)}
+          onCancel={handleDeleteCancel}
         />
       )}
 

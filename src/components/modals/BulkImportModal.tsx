@@ -28,6 +28,8 @@ interface BulkImportModalProps {
   onSuccess: (importedCount: number) => void;
   activeSections?: SectionOption[];
   includeLocationFields?: boolean; // If true, includes Locker No, Shelf Name, Shelf Position (Admin)
+  /** Optional i18n key prefix (e.g. "staff.") for role-scoped labels. */
+  i18nKeyPrefix?: string;
 }
 
 type ImportStage =
@@ -55,8 +57,13 @@ export default function BulkImportModal({
   onSuccess,
   activeSections = [],
   includeLocationFields = true,
+  i18nKeyPrefix = '',
 }: BulkImportModalProps) {
-  const { t } = useTranslation('files');
+  const { t, i18n } = useTranslation('files');
+  const tt = (key: string, options?: Record<string, unknown>) => {
+    const prefixed = `${i18nKeyPrefix}${key}`;
+    return i18n.exists(prefixed) ? t(prefixed, options) : t(key, options);
+  };
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [stage, setStage] = useState<ImportStage>('idle');
   const [progressPct, setProgressPct] = useState(0);
@@ -144,15 +151,15 @@ export default function BulkImportModal({
     const hasValidExt = validExtensions.some((ext) => fileNameLower.endsWith(ext));
 
     if (!hasValidExt) {
-      setClientError(t('bulkImport.errExtension'));
+      setClientError(tt('bulkImport.errExtension'));
       return;
     }
     if (file.size <= 0) {
-      setClientError(t('bulkImport.errEmpty'));
+      setClientError(tt('bulkImport.errEmpty'));
       return;
     }
     if (file.size > MAX_IMPORT_BYTES) {
-      setClientError(t('bulkImport.errTooLarge'));
+      setClientError(tt('bulkImport.errTooLarge'));
       return;
     }
 
@@ -160,7 +167,7 @@ export default function BulkImportModal({
     setSelectedFile(file);
     setStage('idle');
     setProgressPct(0);
-    setStatusMessage(t('bulkImport.readyToUpload'));
+    setStatusMessage(tt('bulkImport.readyToUpload'));
     setScanState('pending');
     setSecurityNotice(null);
     resetOutcome();
@@ -205,7 +212,7 @@ export default function BulkImportModal({
     setScanState('pending');
     setStage('uploading');
     setProgressPct(12);
-    setStatusMessage(t('bulkImport.uploading'));
+    setStatusMessage(tt('bulkImport.uploading'));
 
     // The API performs upload → scan → validation → import in one request;
     // these markers reflect the server-side phases while it is in flight.
@@ -214,12 +221,12 @@ export default function BulkImportModal({
         setStage('scanning');
         setScanState('scanning');
         setProgressPct(40);
-        setStatusMessage(t('bulkImport.scanningFile'));
+        setStatusMessage(tt('bulkImport.scanningFile'));
       }, 900),
       setTimeout(() => {
         setStage('importing');
         setProgressPct(72);
-        setStatusMessage(t('bulkImport.validating'));
+        setStatusMessage(tt('bulkImport.validating'));
       }, 4500),
     );
 
@@ -240,27 +247,27 @@ export default function BulkImportModal({
 
         if (json?.code === 'MALWARE_DETECTED') {
           setScanState('infected');
-          setStatusMessage(t('bulkImport.blockedByScanner'));
+          setStatusMessage(tt('bulkImport.blockedByScanner'));
           setSecurityNotice({
             type: 'error',
-            title: t('bulkImport.malwareTitle'),
-            message: t('bulkImport.malwareMessage'),
+            title: tt('bulkImport.malwareTitle'),
+            message: tt('bulkImport.malwareMessage'),
           });
         } else if (json?.code === 'SCANNER_UNAVAILABLE') {
           setScanState('failed');
-          setStatusMessage(t('bulkImport.scanUnavailableStatus'));
+          setStatusMessage(tt('bulkImport.scanUnavailableStatus'));
           setSecurityNotice({
             type: 'error',
-            title: t('bulkImport.scannerUnavailableTitle'),
-            message: t('bulkImport.scannerUnavailableMessage'),
+            title: tt('bulkImport.scannerUnavailableTitle'),
+            message: tt('bulkImport.scannerUnavailableMessage'),
           });
         } else {
           setScanState('idle');
-          setStatusMessage(t('bulkImport.importFailedStatus'));
+          setStatusMessage(tt('bulkImport.importFailedStatus'));
           setSecurityNotice({
             type: 'error',
-            title: t('bulkImport.importFailedTitle'),
-            message: json?.message || t('bulkImport.importFailedMessage'),
+            title: tt('bulkImport.importFailedTitle'),
+            message: json?.message || tt('bulkImport.importFailedMessage'),
           });
         }
         return;
@@ -283,22 +290,22 @@ export default function BulkImportModal({
         setStage('completed');
         setStatusMessage(
           data.pending
-            ? t('bulkImport.completedSubmitted', { count: imported })
-            : t('bulkImport.completedRegistered', { count: imported }),
+            ? tt('bulkImport.completedSubmitted', { count: imported })
+            : tt('bulkImport.completedRegistered', { count: imported }),
         );
         setSecurityNotice({
           type: 'success',
-          title: t('bulkImport.scanPassedTitle'),
-          message: data.scan?.message || t('bulkImport.scanPassedMessage'),
+          title: tt('bulkImport.scanPassedTitle'),
+          message: data.scan?.message || tt('bulkImport.scanPassedMessage'),
         });
         onSuccess(imported);
       } else {
         setStage('failed');
-        setStatusMessage(t('bulkImport.noRecordsStatus'));
+        setStatusMessage(tt('bulkImport.noRecordsStatus'));
         setSecurityNotice({
           type: 'error',
-          title: t('bulkImport.noRecordsTitle'),
-          message: data.message || t('bulkImport.noRecordsMessage'),
+          title: tt('bulkImport.noRecordsTitle'),
+          message: data.message || tt('bulkImport.noRecordsMessage'),
         });
       }
     } catch {
@@ -306,24 +313,24 @@ export default function BulkImportModal({
       setStage('failed');
       setScanState('failed');
       setProgressPct(100);
-      setStatusMessage(t('bulkImport.networkStatus'));
+      setStatusMessage(tt('bulkImport.networkStatus'));
       setSecurityNotice({
         type: 'error',
-        title: t('bulkImport.interruptedTitle'),
-        message: t('bulkImport.interruptedMessage'),
+        title: tt('bulkImport.interruptedTitle'),
+        message: tt('bulkImport.interruptedMessage'),
       });
     }
   };
 
   const scanLabel =
     scanState === 'clean'
-      ? t('bulkImport.scanClean')
+      ? tt('bulkImport.scanClean')
       : scanState === 'scanning' || scanState === 'pending'
-      ? t('bulkImport.scanScanning')
+      ? tt('bulkImport.scanScanning')
       : scanState === 'infected'
-      ? t('bulkImport.scanBlocked')
+      ? tt('bulkImport.scanBlocked')
       : scanState === 'failed'
-      ? t('bulkImport.scanFailed')
+      ? tt('bulkImport.scanFailed')
       : null;
 
   return (
@@ -339,10 +346,10 @@ export default function BulkImportModal({
         <div className="flex items-start justify-between pb-3 border-b border-slate-100 dark:border-navy-700">
           <div>
             <h3 className="text-xl font-bold text-navy-800 dark:text-white">
-              {t('bulkImport.title')}
+              {tt('bulkImport.title')}
             </h3>
             <p className="text-xs text-slate-400 dark:text-slate-400 mt-0.5">
-              {t('bulkImport.subtitle')}
+              {tt('bulkImport.subtitle')}
             </p>
           </div>
           <button
@@ -360,7 +367,7 @@ export default function BulkImportModal({
           {/* STEP 1: DOWNLOAD TEMPLATE */}
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-              {t('bulkImport.step1')}
+              {tt('bulkImport.step1')}
             </div>
             <button
               type="button"
@@ -369,14 +376,14 @@ export default function BulkImportModal({
               className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#F4F2FF] hover:bg-[#ece8ff] text-[#4318FF] dark:bg-brand-900/30 dark:hover:bg-brand-900/40 dark:text-brand-300 border border-[#4318FF]/20 text-xs font-bold transition-all shadow-xs active:scale-[0.99] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <FiDownload className="h-4 w-4" />
-              <span>{t('bulkImport.downloadSample')}</span>
+              <span>{tt('bulkImport.downloadSample')}</span>
             </button>
           </div>
 
           {/* STEP 2: UPLOAD COMPLETED FILE */}
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
-              {t('bulkImport.step2')}
+              {tt('bulkImport.step2')}
             </div>
 
             {/* Hidden Input */}
@@ -411,10 +418,10 @@ export default function BulkImportModal({
                   <FiUploadCloud className="h-6 w-6 stroke-[2]" />
                 </div>
                 <p className="text-xs font-bold text-navy-800 dark:text-white">
-                  {t('bulkImport.dropzoneTitle')}
+                  {tt('bulkImport.dropzoneTitle')}
                 </p>
                 <p className="text-[11px] text-slate-400 dark:text-slate-400 mt-1">
-                  {t('bulkImport.dropzoneHint')}
+                  {tt('bulkImport.dropzoneHint')}
                 </p>
               </div>
             ) : (
@@ -431,8 +438,8 @@ export default function BulkImportModal({
                     <p className="text-[10px] text-slate-400">
                       {(selectedFile.size / 1024).toFixed(1)} KB •{' '}
                       {selectedFile.name.toLowerCase().endsWith('.csv')
-                        ? t('bulkImport.fileTypeCsv')
-                        : t('bulkImport.fileTypeExcel')}
+                        ? tt('bulkImport.fileTypeCsv')
+                        : tt('bulkImport.fileTypeExcel')}
                     </p>
                   </div>
                 </div>
@@ -442,7 +449,7 @@ export default function BulkImportModal({
                     type="button"
                     onClick={handleRemoveFile}
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                    title={t('bulkImport.removeFile')}
+                    title={tt('bulkImport.removeFile')}
                   >
                     <FiTrash2 className="h-4 w-4" />
                   </button>
@@ -460,7 +467,7 @@ export default function BulkImportModal({
             {/* Scan-first assurance */}
             <div className="mt-2 flex items-start gap-2 rounded-xl bg-slate-50 dark:bg-navy-900/50 border border-slate-100 dark:border-navy-700 p-2.5 text-[11px] text-slate-500 dark:text-slate-400">
               <FiLock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#4318FF] dark:text-brand-300" />
-              <span>{t('bulkImport.scanAssurance')}</span>
+              <span>{tt('bulkImport.scanAssurance')}</span>
             </div>
           </div>
 
@@ -523,7 +530,7 @@ export default function BulkImportModal({
                     <span className="h-2 w-2 rounded-full bg-[#4318FF] animate-pulse" />
                   )}
                   <span className="truncate font-semibold text-slate-700 dark:text-slate-200">
-                    {statusMessage || t('bulkImport.processing')}
+                    {statusMessage || tt('bulkImport.processing')}
                   </span>
                 </div>
                 <span className="font-bold text-[#4318FF] dark:text-brand-300 shrink-0">
@@ -548,12 +555,12 @@ export default function BulkImportModal({
               <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 dark:text-slate-400 pt-1 gap-2">
                 <span className="flex items-center gap-1.5">
                   <FiShield className="h-3.5 w-3.5" />
-                  <span>{t('bulkImport.securityScan', { status: scanLabel || t('bulkImport.scanQueued') })}</span>
+                  <span>{tt('bulkImport.securityScan', { status: scanLabel || tt('bulkImport.scanQueued') })}</span>
                 </span>
                 <span className="truncate">
                   {stage === 'completed'
-                    ? t('bulkImport.rowsImported', { imported: importedCount, total: totalRows })
-                    : t('bulkImport.waiting')}
+                    ? tt('bulkImport.rowsImported', { imported: importedCount, total: totalRows })
+                    : tt('bulkImport.waiting')}
                 </span>
               </div>
             </div>
@@ -563,10 +570,10 @@ export default function BulkImportModal({
           {stage === 'completed' && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { label: t('bulkImport.resultTotal'), value: totalRows, tone: 'text-slate-700 dark:text-slate-200' },
-                { label: t('bulkImport.resultImported'), value: importedCount, tone: 'text-emerald-600 dark:text-emerald-400' },
-                { label: t('bulkImport.resultDuplicates'), value: duplicateCount, tone: 'text-amber-600 dark:text-amber-400' },
-                { label: t('bulkImport.resultFailed'), value: failedCount, tone: 'text-red-600 dark:text-red-400' },
+                { label: tt('bulkImport.resultTotal'), value: totalRows, tone: 'text-slate-700 dark:text-slate-200' },
+                { label: tt('bulkImport.resultImported'), value: importedCount, tone: 'text-emerald-600 dark:text-emerald-400' },
+                { label: tt('bulkImport.resultDuplicates'), value: duplicateCount, tone: 'text-amber-600 dark:text-amber-400' },
+                { label: tt('bulkImport.resultFailed'), value: failedCount, tone: 'text-red-600 dark:text-red-400' },
               ].map((item) => (
                 <div
                   key={item.label}
@@ -589,11 +596,11 @@ export default function BulkImportModal({
                   <FiAlertCircle className="h-4 w-4 shrink-0" />
                   <span>
                     {validationErrorCount > 0
-                      ? t('bulkImport.issuesWithInvalid', {
+                      ? tt('bulkImport.issuesWithInvalid', {
                           count: serverErrors.length,
                           invalid: validationErrorCount,
                         })
-                      : t('bulkImport.issues', { count: serverErrors.length })}
+                      : tt('bulkImport.issues', { count: serverErrors.length })}
                   </span>
                 </div>
                 <button
@@ -603,7 +610,7 @@ export default function BulkImportModal({
                 >
                   <span>
                     {showErrorDetails
-                      ? t('bulkImport.hideDetails')
+                      ? tt('bulkImport.hideDetails')
                       : t('common:buttons.viewDetails')}
                   </span>
                   {showErrorDetails ? (
@@ -622,10 +629,10 @@ export default function BulkImportModal({
                       className="rounded-lg bg-white/80 dark:bg-navy-900/80 p-2 text-[11px] text-slate-700 dark:text-slate-300 border border-amber-200/60 dark:border-navy-700 flex items-start gap-2"
                     >
                       <span className="font-bold text-amber-700 dark:text-amber-400 shrink-0">
-                        {t('bulkImport.rowLabel', { row: err.row })}
+                        {tt('bulkImport.rowLabel', { row: err.row })}
                       </span>
                       <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-                        {err.file_name ? t('bulkImport.rowFile', { name: err.file_name }) : ''}
+                        {err.file_name ? tt('bulkImport.rowFile', { name: err.file_name }) : ''}
                         {err.reason}
                       </span>
                     </div>
@@ -655,7 +662,7 @@ export default function BulkImportModal({
               onClick={onClose}
               className="flex-1 rounded-xl bg-[#05CD99] py-2.5 text-xs font-bold text-white shadow-md shadow-[#05CD99]/20 hover:bg-[#04B787] transition-all cursor-pointer text-center"
             >
-              {t('bulkImport.done')}
+              {tt('bulkImport.done')}
             </button>
           ) : (
             <button
@@ -688,16 +695,16 @@ export default function BulkImportModal({
                   </svg>
                   <span>
                     {stage === 'scanning'
-                      ? t('bulkImport.scanningBtn')
+                      ? tt('bulkImport.scanningBtn')
                       : stage === 'importing'
-                      ? t('bulkImport.importingBtn')
-                      : t('bulkImport.uploadingBtn')}
+                      ? tt('bulkImport.importingBtn')
+                      : tt('bulkImport.uploadingBtn')}
                   </span>
                 </>
               ) : stage === 'failed' ? (
-                t('bulkImport.retryImport')
+                tt('bulkImport.retryImport')
               ) : (
-                t('bulkImport.importRecords')
+                tt('bulkImport.importRecords')
               )}
             </button>
           )}

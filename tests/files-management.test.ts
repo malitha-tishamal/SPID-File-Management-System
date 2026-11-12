@@ -44,6 +44,33 @@ let nextId = 100;
 
 vi.mock('config/supabase/server', () => ({
   getSupabaseAdminClient: () => ({
+    rpc: (name: string, args: Record<string, any>) => {
+      if (name !== 'delete_file_with_dependents') {
+        return Promise.resolve({ data: null, error: { message: `Unknown rpc: ${name}` } });
+      }
+      const index = mockFilesStore.findIndex((row) => row.id === Number(args?.p_file_id));
+      if (index === -1) {
+        return Promise.resolve({ data: { outcome: 'not_found' }, error: null });
+      }
+      const [file] = mockFilesStore.splice(index, 1);
+      mockAuditLog({
+        actor_id: args?.p_actor_id ?? null,
+        action: 'file.deleted',
+        details: { file_id: file.id, file_no: file.file_no },
+      });
+      return Promise.resolve({
+        data: {
+          outcome: 'deleted',
+          file_id: file.id,
+          file_no: file.file_no,
+          file_name: file.file_name,
+          deleted_file_requests: 0,
+          deleted_file_request_extensions: 0,
+          audit_id: 1,
+        },
+        error: null,
+      });
+    },
     from: (table: string) => {
       if (table === 'files') {
         return {
@@ -205,26 +232,44 @@ vi.mock('config/supabase/server', () => ({
             }
             return Promise.resolve({ error: null });
           },
-          select: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: () => ({
-                  maybeSingle: () => {
-                    return Promise.resolve({
-                      data: { details: { require_approval: mockSettingsStore.require_approval } },
-                      error: null,
-                    });
-                  },
+          select: () => {
+            const auditChain: any = {
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: () => {
+                      return Promise.resolve({
+                        data: { details: { require_approval: mockSettingsStore.require_approval } },
+                        error: null,
+                      });
+                    },
+                  }),
                 }),
               }),
-            }),
-          }),
+              or: () => auditChain,
+              then: (resolve: (val: any) => any) =>
+                Promise.resolve({ data: [], count: 0, error: null }).then(resolve),
+            };
+            return auditChain;
+          },
         };
       }
 
-      return {
-        select: () => Promise.resolve({ data: [], error: null }),
+      const defaultChain: any = {
+        select: () => defaultChain,
+        update: () => defaultChain,
+        eq: () => defaultChain,
+        neq: () => defaultChain,
+        not: () => defaultChain,
+        is: () => defaultChain,
+        in: () => defaultChain,
+        or: () => defaultChain,
+        order: () => defaultChain,
+        range: () => defaultChain,
+        then: (resolve: (val: any) => any, reject?: (err: any) => any) =>
+          Promise.resolve({ data: [], count: 0, error: null }).then(resolve, reject),
       };
+      return defaultChain;
     },
   }),
 }));

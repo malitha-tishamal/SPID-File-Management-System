@@ -7,7 +7,7 @@ import { RiMoonFill, RiSunFill } from 'react-icons/ri';
 import { useProfile } from 'contexts/ProfileContext';
 import NotificationBell from 'components/notifications/NotificationBell';
 import LanguageSwitcher from 'components/navbar/LanguageSwitcher';
-import { currentLocaleTag } from 'i18n/config';
+import { formatSriLankaDate, formatSriLankaTime } from 'lib/datetime';
 
 export interface NavbarProps {
   onOpenSidenav: () => void;
@@ -25,22 +25,9 @@ function SriLankaClock() {
   useEffect(() => {
     const update = () => {
       const now = new Date();
-      // Same instant, same zone — only the locale of the labels changes.
-      const locale = currentLocaleTag();
       setTime({
-        time: now.toLocaleTimeString(locale, {
-          timeZone: 'Asia/Colombo',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: true,
-        }),
-        date: now.toLocaleDateString(locale, {
-          timeZone: 'Asia/Colombo',
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }),
+        time: formatSriLankaTime(now, true),
+        date: formatSriLankaDate(now),
       });
     };
     update();

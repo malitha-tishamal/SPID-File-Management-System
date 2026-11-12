@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -18,6 +18,7 @@ import {
   FiX,
   FiAlertCircle,
   FiBell,
+  FiTrash2,
 } from 'react-icons/fi';
 import { useTranslation } from 'react-i18next';
 import { useToast } from 'components/toast/ToastContext';
@@ -33,11 +34,13 @@ import {
 import FileRequestsTable from './FileRequestsTable';
 import RejectedFilesTable from './RejectedFilesTable';
 import AllFilesTable from './AllFilesTable';
+import DeletedFilesTable from './DeletedFilesTable';
 import ViewFileModal from './ViewFileModal';
 import ConfirmApproveModal from './ConfirmApproveModal';
 import ConfirmRejectModal from './ConfirmRejectModal';
 import EditFileModal from './EditFileModal';
 import ConfirmDeleteModal from './ConfirmDeleteModal';
+import PermanentDeleteModal from './PermanentDeleteModal';
 import TableLoadingProgressBar from './TableLoadingProgressBar';
 import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
 import { attributedNameText } from 'utils/userDisplay';
@@ -48,7 +51,7 @@ interface SectionItem {
   name: string;
 }
 
-type TabKey = 'requests' | 'all' | 'rejected';
+type TabKey = 'requests' | 'all' | 'rejected' | 'deleted';
 type SortKey = 'newest' | 'oldest' | 'file_no' | 'file_name';
 
 const DEFAULT_LIMIT = 15;
@@ -105,6 +108,21 @@ export default function ManageSystemFilesPage() {
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
   const [deletingFile, setDeletingFile] = useState<FileRecordRow | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [deleteDependents, setDeleteDependents] = useState<{
+    fileRequests: number;
+    fileRequestExtensions: number;
+    activeCheckouts?: number;
+    returnedCheckouts?: number;
+    auditLogs?: number;
+    canDelete?: boolean;
+  } | null>(null);
+  const [isLoadingDependents, setIsLoadingDependents] = useState<boolean>(false);
+  const [deleteReason, setDeleteReason] = useState<string>('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState<string>('');
+
+  const [permanentDeletingFile, setPermanentDeletingFile] = useState<FileRecordRow | null>(null);
+  const [isPermanentDeleting, setIsPermanentDeleting] = useState<boolean>(false);
+  const [isRestoring, setIsRestoring] = useState<boolean>(false);
 
   // Realtime notification state
   const [newFileNotification, setNewFileNotification] = useState<{
@@ -266,7 +284,11 @@ export default function ManageSystemFilesPage() {
   // ── Realtime Subscription for Files Table ───────────────────────────────────
   useEffect(() => {
     let refreshTimer: number | undefined;
+    let retryTimer: number | undefined;
     let channel: any = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
+    let destroyed = false;
 
     const scheduleRefresh = () => {
       window.clearTimeout(refreshTimer);
@@ -302,32 +324,60 @@ export default function ManageSystemFilesPage() {
       scheduleRefresh();
     };
 
-    try {
-      const supabase = getSupabaseBrowserClient();
-      channel = supabase
-        .channel('manage-system-files-realtime')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'files' },
-          handleFileChange,
-        )
-        .subscribe((status) => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('Realtime subscription error for files table:', status);
-          }
-        });
-    } catch (error) {
-      console.error('Failed to setup realtime subscription:', error);
-      // Realtime is optional; keep the manual refresh fallback
-    }
+    const subscribe = () => {
+      if (destroyed) return;
+      try {
+        const supabase = getSupabaseBrowserClient();
+
+        // Remove previous channel if retrying
+        if (channel) {
+          try { supabase.removeChannel(channel); } catch { /* ignore */ }
+          channel = null;
+        }
+
+        channel = supabase
+          .channel('manage-system-files-realtime-' + retryCount)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'files' },
+            handleFileChange,
+          )
+          .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              // Warn instead of error — this is a transient connectivity issue
+              console.warn(
+                'Realtime subscription for files table: ' + status + '.',
+                retryCount < MAX_RETRIES
+                  ? 'Retrying (' + (retryCount + 1) + '/' + MAX_RETRIES + ')...'
+                  : 'Max retries reached; falling back to manual refresh.',
+              );
+              if (retryCount < MAX_RETRIES) {
+                // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                const delay = Math.min(2000 * Math.pow(2, retryCount), 32000);
+                retryCount += 1;
+                retryTimer = window.setTimeout(subscribe, delay);
+              }
+            } else if (status === 'SUBSCRIBED') {
+              retryCount = 0; // reset on successful connection
+            }
+          });
+      } catch (error) {
+        console.warn('Failed to setup realtime subscription:', error);
+        // Realtime is optional; keep the manual refresh fallback
+      }
+    };
+
+    subscribe();
 
     return () => {
+      destroyed = true;
       window.clearTimeout(refreshTimer);
+      window.clearTimeout(retryTimer);
       if (channel) {
         try {
           getSupabaseBrowserClient().removeChannel(channel);
         } catch (error) {
-          console.error('Error removing realtime channel:', error);
+          console.warn('Error removing realtime channel:', error);
         }
       }
     };
@@ -384,9 +434,62 @@ export default function ManageSystemFilesPage() {
     setEditingFile(file);
   }, []);
 
-  const handleDeleteRequest = useCallback((file: FileRecordRow) => {
-    setDeletingFile(file);
-  }, []);
+  const handleDeleteRequest = useCallback(
+    async (file: FileRecordRow) => {
+      setDeletingFile(file);
+      setDeleteDependents(null);
+      setDeleteReason('');
+      setDeleteConfirmText('');
+      setIsLoadingDependents(true);
+
+      try {
+        const res = await fetch(
+          `/api/admin/files/${encodeURIComponent(file.file_no)}/dependents`,
+          { cache: 'no-store' },
+        );
+        const json = await res.json().catch(() => null);
+
+        if (!res.ok || !json?.ok) {
+          setDeletingFile(null);
+          showToast({
+            type: 'error',
+            title: t('feedback.deleteFailedTitle'),
+            message: json?.message || t('feedback.couldNotLoadDependents'),
+          });
+          return;
+        }
+
+        setDeleteDependents({
+          fileRequests: Number(json.data?.file_requests ?? 0),
+          fileRequestExtensions: Number(
+            json.data?.file_request_extensions ?? 0,
+          ),
+          activeCheckouts: Number(json.data?.active_checkouts ?? 0),
+          returnedCheckouts: Number(json.data?.returned_checkouts ?? 0),
+          auditLogs: Number(json.data?.audit_logs ?? 0),
+          canDelete: Boolean(json.data?.can_delete ?? true),
+        });
+      } catch {
+        setDeletingFile(null);
+        showToast({
+          type: 'error',
+          title: t('feedback.connectionErrorTitle'),
+          message: t('feedback.deleteConnectionMessage'),
+        });
+      } finally {
+        setIsLoadingDependents(false);
+      }
+    },
+    [showToast, t],
+  );
+
+  const handleDeleteCancel = useCallback(() => {
+    if (isDeleting) return;
+    setDeletingFile(null);
+    setDeleteDependents(null);
+    setDeleteReason('');
+    setDeleteConfirmText('');
+  }, [isDeleting]);
 
   const handleApproveRequest = useCallback((file: FileRecordRow) => {
     setApprovingFile(file);
@@ -459,10 +562,9 @@ export default function ManageSystemFilesPage() {
               f.locker_no,
               f.shelf_name,
               f.shelf_position ? `Position: ${f.shelf_position}` : null,
-              !f.locker_no && !f.shelf_name ? f.archive_repository : null,
             ]
               .filter(Boolean)
-              .join(' / ') || 'Central Record Room';
+              .join(' / ');
           return [
             f.file_no,
             f.file_name,
@@ -497,10 +599,9 @@ export default function ManageSystemFilesPage() {
               f.locker_no,
               f.shelf_name,
               f.shelf_position ? `Position: ${f.shelf_position}` : null,
-              !f.locker_no && !f.shelf_name ? f.archive_repository : null,
             ]
               .filter(Boolean)
-              .join(' / ') || 'Central Record Room';
+              .join(' / ');
 
           const adminName =
             f.approved_by_name ||
@@ -715,25 +816,49 @@ export default function ManageSystemFilesPage() {
     return null;
   };
 
-  // ── Delete File Action ─────────────────────────────────────────────────────
+  // ── Soft Delete File Action ────────────────────────────────────────────────
   const handleDeleteConfirm = async () => {
-    if (!deletingFile || isDeleting) return;
+    if (!deletingFile || isDeleting || isLoadingDependents) return;
+
+    if ((deleteDependents?.activeCheckouts ?? 0) > 0) {
+      showToast({
+        type: 'error',
+        title: t('feedback.deleteFailedTitle'),
+        message: t('modals.blockedActiveCheckouts', {
+          count: deleteDependents?.activeCheckouts ?? 0,
+        }),
+      });
+      return;
+    }
+
     setIsDeleting(true);
 
     try {
       const res = await fetch(
         `/api/admin/files/${encodeURIComponent(deletingFile.file_no)}`,
-        { method: 'DELETE' },
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: deleteReason.trim() || undefined }),
+        },
       );
       const json = await res.json().catch(() => null);
 
       if (res.ok && json?.ok) {
         showToast({
           type: 'success',
-          title: t('feedback.deletedTitle'),
-          message: t('feedback.deletedMessage'),
+          title: t('feedback.deletedTitle', 'File Deleted'),
+          message:
+            json?.message ||
+            t(
+              'feedback.softDeletedMessage',
+              'File record moved to Deleted Files. Historical requests and records are preserved.',
+            ),
         });
         setDeletingFile(null);
+        setDeleteDependents(null);
+        setDeleteReason('');
+        setDeleteConfirmText('');
         refreshFilesView();
       } else {
         showToast({
@@ -752,6 +877,100 @@ export default function ManageSystemFilesPage() {
       setIsDeleting(false);
     }
   };
+
+  // ── Restore File Action ───────────────────────────────────────────────────
+  const handleRestoreFile = useCallback(
+    async (file: FileRecordRow) => {
+      if (isRestoring) return;
+      setIsRestoring(true);
+
+      try {
+        const res = await fetch(
+          `/api/admin/files/${encodeURIComponent(file.file_no)}/restore`,
+          { method: 'POST' },
+        );
+        const json = await res.json().catch(() => null);
+
+        if (res.ok && json?.ok) {
+          showToast({
+            type: 'success',
+            title: t('feedback.restoredTitle', 'File Restored'),
+            message:
+              json?.message ||
+              t(
+                'feedback.restoredMessage',
+                'File record restored to active repository.',
+              ),
+          });
+          refreshFilesView();
+        } else {
+          showToast({
+            type: 'error',
+            title: t('feedback.restoreFailedTitle', 'Restore Failed'),
+            message:
+              json?.message ||
+              t('feedback.couldNotRestore', 'Could not restore file record.'),
+          });
+        }
+      } catch {
+        showToast({
+          type: 'error',
+          title: t('feedback.connectionErrorTitle'),
+          message: t('feedback.deleteConnectionMessage'),
+        });
+      } finally {
+        setIsRestoring(false);
+      }
+    },
+    [isRestoring, refreshFilesView, showToast, t],
+  );
+
+  // ── Permanent Delete File Action ──────────────────────────────────────────
+  const handlePermanentDeleteRequest = useCallback((file: FileRecordRow) => {
+    setPermanentDeletingFile(file);
+  }, []);
+
+  const handlePermanentDeleteConfirm = useCallback(async () => {
+    if (!permanentDeletingFile || isPermanentDeleting) return;
+    setIsPermanentDeleting(true);
+
+    try {
+      const res = await fetch(
+        `/api/admin/files/${encodeURIComponent(permanentDeletingFile.file_no)}/permanent`,
+        { method: 'DELETE' },
+      );
+      const json = await res.json().catch(() => null);
+
+      if (res.ok && json?.ok) {
+        showToast({
+          type: 'success',
+          title: t('feedback.permanentDeletedTitle', 'Permanently Deleted'),
+          message:
+            json?.message ||
+            t(
+              'feedback.permanentDeletedMessage',
+              'File and all linked records permanently deleted.',
+            ),
+        });
+        setPermanentDeletingFile(null);
+        refreshFilesView();
+      } else {
+        showToast({
+          type: 'error',
+          title: t('feedback.deleteFailedTitle'),
+          message: json?.message || t('feedback.couldNotDelete'),
+        });
+      }
+    } catch {
+      showToast({
+        type: 'error',
+        title: t('feedback.connectionErrorTitle'),
+        message: t('feedback.deleteConnectionMessage'),
+      });
+    } finally {
+      setIsPermanentDeleting(false);
+    }
+  }, [isPermanentDeleting, permanentDeletingFile, refreshFilesView, showToast, t]);
 
   const format4Digit = (n: number) => String(n).padStart(4, '0');
 
@@ -1160,6 +1379,32 @@ export default function ManageSystemFilesPage() {
               {counts.rejectedCount ?? 0}
             </span>
           </button>
+
+          <button
+            type="button"
+            role="tab"
+            id="files-tab-deleted"
+            aria-selected={activeTab === 'deleted'}
+            aria-controls="files-tab-panel"
+            onClick={() => handleTabChange('deleted')}
+            className={`flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4318FF]/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-navy-900 ${
+              activeTab === 'deleted'
+                ? 'bg-[#4318FF] text-white shadow-md shadow-[#4318FF]/25'
+                : 'bg-white dark:bg-navy-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 border border-slate-200/60 dark:border-navy-700'
+            }`}
+          >
+            <FiTrash2 className="h-3.5 w-3.5" />
+            <span>{t('page.tabDeleted', 'Deleted Files')}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                activeTab === 'deleted'
+                  ? 'bg-[#3311CC] text-white'
+                  : 'bg-slate-100 text-slate-600 dark:bg-navy-700 dark:text-slate-300'
+              }`}
+            >
+              {counts.deletedCount ?? 0}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1198,6 +1443,40 @@ export default function ManageSystemFilesPage() {
                 value={sortBy}
                 onChange={(event) => handleSortChange(event.target.value as SortKey)}
                 aria-label={t('page.sortAriaRejected')}
+                className="appearance-none rounded-lg bg-white dark:bg-navy-800 border border-slate-200 dark:border-navy-700 px-2.5 py-1 pr-6 font-bold text-slate-700 dark:text-white outline-none cursor-pointer text-xs"
+              >
+                <option value="newest">{t('sort.newest')}</option>
+                <option value="oldest">{t('sort.oldest')}</option>
+                <option value="file_no">{t('sort.fileNumber')}</option>
+                <option value="file_name">{t('sort.fileName')}</option>
+              </select>
+              <FiChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 h-3 w-3" />
+            </div>
+          </div>
+        </div>
+      ) : activeTab === 'deleted' ? (
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200">
+              {t('page.deletedHeading', 'Deleted File Records')}
+            </h2>
+            <span className="rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 px-2.5 py-0.5 text-[10px] font-bold">
+              {t('page.deletedBadge', {
+                count: counts.deletedCount ?? 0,
+                defaultValue: `${counts.deletedCount ?? 0} Deleted`,
+              })}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="font-semibold text-slate-400">
+              {t('page.sortedBy')}
+            </span>
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(event) => handleSortChange(event.target.value as SortKey)}
+                aria-label={t('page.sortAriaDeleted', 'Sort deleted files')}
                 className="appearance-none rounded-lg bg-white dark:bg-navy-800 border border-slate-200 dark:border-navy-700 px-2.5 py-1 pr-6 font-bold text-slate-700 dark:text-white outline-none cursor-pointer text-xs"
               >
                 <option value="newest">{t('sort.newest')}</option>
@@ -1255,7 +1534,9 @@ export default function ManageSystemFilesPage() {
             ? t('page.refreshRequests')
             : activeTab === 'rejected'
               ? t('page.refreshRejected')
-              : t('page.refreshAll')
+              : activeTab === 'deleted'
+                ? t('page.refreshDeleted', 'Refreshing deleted files…')
+                : t('page.refreshAll')
         }
       />
 
@@ -1311,6 +1592,23 @@ export default function ManageSystemFilesPage() {
           onView={setViewingFile}
           onRetry={refreshFilesView}
         />
+      ) : activeTab === 'deleted' ? (
+        <DeletedFilesTable
+          files={files}
+          loading={showSkeleton}
+          refreshing={showRefresh}
+          error={loadError}
+          total={total}
+          page={page}
+          limit={DEFAULT_LIMIT}
+          totalPages={totalPages}
+          isFiltered={isFiltered}
+          onPageChange={setPage}
+          onView={setViewingFile}
+          onRestore={handleRestoreFile}
+          onPermanentDelete={handlePermanentDeleteRequest}
+          onRetry={refreshFilesView}
+        />
       ) : (
         <AllFilesTable
           files={files}
@@ -1325,7 +1623,7 @@ export default function ManageSystemFilesPage() {
           onPageChange={setPage}
           onView={setViewingFile}
           onEdit={setEditingFile}
-          onDelete={setDeletingFile}
+          onDelete={handleDeleteRequest}
           onApprove={setApprovingFile}
           onReject={setRejectingFile}
           onRetry={refreshFilesView}
@@ -1357,12 +1655,29 @@ export default function ManageSystemFilesPage() {
         onCancel={() => setEditingFile(null)}
       />
 
-      <ConfirmDeleteModal
-        file={deletingFile}
-        loading={isDeleting}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeletingFile(null)}
-      />
+      {deletingFile && (
+        <ConfirmDeleteModal
+          file={deletingFile}
+          loading={isDeleting}
+          dependents={deleteDependents}
+          loadingDependents={isLoadingDependents}
+          reason={deleteReason}
+          onReasonChange={setDeleteReason}
+          confirmText={deleteConfirmText}
+          onConfirmTextChange={setDeleteConfirmText}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
+        />
+      )}
+
+      {permanentDeletingFile && (
+        <PermanentDeleteModal
+          file={permanentDeletingFile}
+          loading={isPermanentDeleting}
+          onConfirm={handlePermanentDeleteConfirm}
+          onCancel={() => setPermanentDeletingFile(null)}
+        />
+      )}
     </div>
   );
 }

@@ -49,14 +49,17 @@ export interface FileRecordRow {
   /** The registrar/approver account was soft-deleted; their name is kept. */
   registrar_is_deleted?: boolean;
   approver_is_deleted?: boolean;
-  archive_repository?: string;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deletion_reason?: string | null;
   status?: FileStatus;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface FileFilterOptions {
-  tab?: 'requests' | 'all' | 'rejected' | 'recent';
+  tab?: 'requests' | 'all' | 'rejected' | 'recent' | 'deleted';
   status?: string;
   search?: string;
   section?: string;
@@ -77,12 +80,33 @@ export interface FileCountsSummary {
   allFilesCount: number;
   pendingCount: number;
   rejectedCount?: number;
+  deletedCount?: number;
   totalPageNumbers?: number;
+}
+
+export interface FileDependentCounts {
+  fileRequests: number;
+  fileRequestExtensions: number;
+  activeCheckouts?: number;
+  returnedCheckouts?: number;
+  auditLogs?: number;
+  canDelete?: boolean;
+}
+
+export interface DeletedFileResult extends FileDependentCounts {
+  outcome: 'deleted' | 'not_found';
+  fileId: number;
+  fileNo: string;
+  fileName: string;
+  auditId: number | null;
 }
 
 /** Columns required for list/table views (avoids select * on large rows). */
 export const FILE_LIST_SELECT =
-  'id,file_no,file_name,section_name,start_date,end_date,locker_no,shelf_name,shelf_position,page_numbers,minute_sheets_count,registrar_name,registrar_role,registered_by,created_by,approved_by,approved_by_name,reject_reason,rejected_at,rejected_by_name,approved_at,archive_repository,status,created_at,updated_at';
+  'id,file_no,file_name,section_name,start_date,end_date,locker_no,shelf_name,shelf_position,page_numbers,minute_sheets_count,registrar_name,registrar_role,registered_by,created_by,approved_by,approved_by_name,reject_reason,rejected_at,rejected_by_name,approved_at,status,created_at,updated_at';
+
+export const FILE_LIST_SELECT_WITH_DELETED =
+  `${FILE_LIST_SELECT},is_deleted,deleted_at,deleted_by,deletion_reason`;
 
 /**
  * Strip characters that carry grammar meaning inside PostgREST `or=(...)`
@@ -109,6 +133,20 @@ export function isUniqueViolation(err: unknown): boolean {
   };
   if (code === '23505') return true;
   return /duplicate key value|unique constraint|uq_files_file_no_live/i.test(
+    `${message ?? ''} ${details ?? ''}`,
+  );
+}
+
+/** True when Postgres refused a delete because another row still references it. */
+export function isForeignKeyViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const { code, message, details } = err as {
+    code?: string;
+    message?: string;
+    details?: string;
+  };
+  if (code === '23503') return true;
+  return /violates foreign key constraint|foreign_key_violation/i.test(
     `${message ?? ''} ${details ?? ''}`,
   );
 }
@@ -177,28 +215,44 @@ export class FileRepository {
 
   /** Every row sharing this file number, case-insensitive. */
   private async selectByFileNo(fileNo: string): Promise<FileRecordRow[]> {
-    const { data, error } = await this.client
+    let res = await this.client
       .from('files')
-      .select(FILE_LIST_SELECT)
+      .select(FILE_LIST_SELECT_WITH_DELETED)
       .ilike('file_no', fileNo.trim());
 
-    if (error) {
-      console.error('FileRepository.selectByFileNo error:', error);
+    if (
+      res.error &&
+      ((res.error as { code?: string }).code === '42703' ||
+        res.error.message?.includes('is_deleted'))
+    ) {
+      res = (await this.client
+        .from('files')
+        .select(FILE_LIST_SELECT)
+        .ilike('file_no', fileNo.trim())) as typeof res;
+    }
+
+    if (res.error) {
+      console.error('FileRepository.selectByFileNo error:', res.error);
       return [];
     }
-    return (data as FileRecordRow[]) ?? [];
+    return (res.data as unknown as FileRecordRow[]) ?? [];
   }
 
   /** The live record that owns this file number, if any. */
   async findLiveByFileNo(fileNo: string): Promise<FileRecordRow | null> {
     const rows = await this.selectByFileNo(fileNo);
-    return rows.find((row) => row.status !== 'REJECTED') ?? null;
+    return rows.find((row) => row.status !== 'REJECTED' && !row.is_deleted) ?? null;
   }
 
-  /** Look up a file by its file_no, preferring the live record over rejected ones */
+  /** Look up a file by its file_no, preferring the live record over rejected or deleted ones */
   async findByFileNo(fileNo: string): Promise<FileRecordRow | null> {
     const rows = await this.selectByFileNo(fileNo);
-    return rows.find((row) => row.status !== 'REJECTED') ?? rows[0] ?? null;
+    return (
+      rows.find((row) => row.status !== 'REJECTED' && !row.is_deleted) ??
+      rows.find((row) => !row.is_deleted) ??
+      rows[0] ??
+      null
+    );
   }
 
   /** Create a new file record */
@@ -230,7 +284,7 @@ export class FileRepository {
     if (error) {
       throw error;
     }
-    return (data as FileRecordRow[]) ?? [];
+    return (data as unknown as FileRecordRow[]) ?? [];
   }
 
   /** Live file numbers that already exist, lower-cased for comparison. */
@@ -266,7 +320,7 @@ export class FileRepository {
       console.error('FileRepository.list error:', error);
       return [];
     }
-    return (data as FileRecordRow[]) ?? [];
+    return (data as unknown as FileRecordRow[]) ?? [];
   }
 
   async searchRequestableFiles(
@@ -279,7 +333,7 @@ export class FileRepository {
     const { data, error } = await this.client
       .from('files')
       .select(
-        'id, file_no, file_name, section_name, locker_no, shelf_name, shelf_position, archive_repository, status',
+        'id, file_no, file_name, section_name, locker_no, shelf_name, shelf_position, status',
       )
       .in('status', ['APPROVED', 'active', 'archived'])
       .or(
@@ -292,7 +346,7 @@ export class FileRepository {
       console.error('FileRepository.searchRequestableFiles error:', error);
       throw error;
     }
-    return (data as FileRecordRow[]) ?? [];
+    return (data as unknown as FileRecordRow[]) ?? [];
   }
 
   /** Filtered and paginated list for the two tabs */
@@ -319,106 +373,137 @@ export class FileRepository {
       limit = 15,
     } = options;
 
-    let query = this.client.from('files').select(FILE_LIST_SELECT, { count: 'exact' });
+    const buildQuery = (selectCols: string, filterDeleted: boolean) => {
+      let q = this.client.from('files').select(selectCols, { count: 'exact' });
 
-    // Tab-level filtering:
-    // File Requests tab shows strictly pending submissions
-    // Rejected Files tab shows strictly rejected submissions
-    // Recent tab shows all recently added files across statuses (Dashboard)
-    // All Files tab shows approved / active repository files (excludes pending & rejected)
-    if (tab === 'requests') {
-      query = query.eq('status', 'PENDING');
-    } else if (tab === 'rejected') {
-      query = query.eq('status', 'REJECTED');
-    } else if (tab === 'recent') {
-      if (status && status !== 'all') {
-        query = query.eq('status', status);
-      }
-    } else {
-      if (status) {
-        query =
-          status === 'requestable'
-            ? query.in('status', ['APPROVED', 'active', 'archived'])
-            : query.eq('status', status);
+      // Tab-level filtering:
+      // File Requests tab shows strictly pending submissions
+      // Rejected Files tab shows strictly rejected submissions
+      // Recent tab shows all recently added files across statuses (Dashboard)
+      // Deleted tab shows soft-deleted files
+      // All Files tab shows approved / active repository files (excludes pending & rejected)
+      if (tab === 'requests') {
+        q = q.eq('status', 'PENDING');
+        if (filterDeleted) q = q.or('is_deleted.is.null,is_deleted.eq.false');
+      } else if (tab === 'rejected') {
+        q = q.eq('status', 'REJECTED');
+        if (filterDeleted) q = q.or('is_deleted.is.null,is_deleted.eq.false');
+      } else if (tab === 'deleted') {
+        if (filterDeleted) q = q.eq('is_deleted', true);
+      } else if (tab === 'recent') {
+        if (filterDeleted) q = q.or('is_deleted.is.null,is_deleted.eq.false');
+        if (status && status !== 'all') {
+          q = q.eq('status', status);
+        }
       } else {
-        query = query.in('status', [
-          'APPROVED',
-          'active',
-          'archived',
-          'issued',
-        ]);
+        if (filterDeleted) q = q.or('is_deleted.is.null,is_deleted.eq.false');
+        if (status) {
+          q =
+            status === 'requestable'
+              ? q.in('status', ['APPROVED', 'active', 'archived'])
+              : q.eq('status', status);
+        } else {
+          q = q.in('status', [
+            'APPROVED',
+            'active',
+            'archived',
+            'issued',
+          ]);
+        }
       }
-    }
 
-    // Registered By filter (e.g. for staff viewing their own submitted files)
-    if (registered_by) {
-      query = query.eq('registered_by', registered_by);
-    }
-
-    // Search filter across file_no, file_name, registrar_name
-    const searchTerm = search ? sanitizeFilterTerm(search) : '';
-    if (searchTerm) {
-      query = query.or(
-        `file_no.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%,registrar_name.ilike.%${searchTerm}%`,
-      );
-    }
-
-    // Section filter
-    if (section && section !== 'all' && section !== 'All Sections') {
-      query = query.ilike('section_name', `%${section.trim()}%`);
-    }
-
-    // Storage unit / location filter
-    if (storage && storage !== 'all' && storage !== 'All Storage Units') {
-      const term = sanitizeFilterTerm(storage);
-      if (term) {
-        query = query.or(`locker_no.ilike.%${term}%,shelf_name.ilike.%${term}%`);
+      // Registered By filter (e.g. for staff viewing their own submitted files)
+      if (registered_by) {
+        q = q.eq('registered_by', registered_by);
       }
-    }
 
-    // Officer filter
-    if (officer && officer !== 'all' && officer !== 'All Officers') {
-      query = query.ilike('registrar_name', `%${officer.trim()}%`);
-    }
+      // Search filter across file_no, file_name, registrar_name
+      const searchTerm = search ? sanitizeFilterTerm(search) : '';
+      if (searchTerm) {
+        q = q.or(
+          `file_no.ilike.%${searchTerm}%,file_name.ilike.%${searchTerm}%,registrar_name.ilike.%${searchTerm}%`,
+        );
+      }
 
-    // Inclusive calendar-day filter in Sri Lanka time (created_at stored as UTC).
-    const fromDay = (dateFrom && isValidYmd(dateFrom) ? dateFrom.trim() : '') ||
-      (date && isValidYmd(date) ? date.trim() : '');
-    const toDay = (dateTo && isValidYmd(dateTo) ? dateTo.trim() : '') ||
-      (date && isValidYmd(date) ? date.trim() : '');
-    if (fromDay) {
-      query = query.gte('created_at', sriLankaDayStartIso(fromDay));
-    }
-    if (toDay) {
-      query = query.lte('created_at', sriLankaDayEndIso(toDay));
-    }
+      // Section filter
+      if (section && section !== 'all' && section !== 'All Sections') {
+        q = q.ilike('section_name', `%${section.trim()}%`);
+      }
 
-    // Sorting
-    switch (sort) {
-      case 'oldest':
-        query = query.order('created_at', { ascending: true });
-        break;
-      case 'file_no':
-        query = query.order('file_no', { ascending: true });
-        break;
-      case 'file_name':
-        query = query.order('file_name', { ascending: true });
-        break;
-      case 'newest':
-      default:
-        query = query.order('created_at', { ascending: false });
-        break;
-    }
+      // Storage unit / location filter
+      if (storage && storage !== 'all' && storage !== 'All Storage Units') {
+        const term = sanitizeFilterTerm(storage);
+        if (term) {
+          q = q.or(`locker_no.ilike.%${term}%,shelf_name.ilike.%${term}%`);
+        }
+      }
 
-    // Pagination
+      // Officer filter
+      if (officer && officer !== 'all' && officer !== 'All Officers') {
+        q = q.ilike('registrar_name', `%${officer.trim()}%`);
+      }
+
+      // Inclusive calendar-day filter in Sri Lanka time (created_at stored as UTC).
+      const fromDay = (dateFrom && isValidYmd(dateFrom) ? dateFrom.trim() : '') ||
+        (date && isValidYmd(date) ? date.trim() : '');
+      const toDay = (dateTo && isValidYmd(dateTo) ? dateTo.trim() : '') ||
+        (date && isValidYmd(date) ? date.trim() : '');
+      if (fromDay) {
+        q = q.gte('created_at', sriLankaDayStartIso(fromDay));
+      }
+      if (toDay) {
+        q = q.lte('created_at', sriLankaDayEndIso(toDay));
+      }
+
+      // Sorting
+      if (tab === 'deleted' && sort === 'newest') {
+        q = q.order('deleted_at', { ascending: false, nullsFirst: false });
+      } else {
+        switch (sort) {
+          case 'oldest':
+            q = q.order('created_at', { ascending: true });
+            break;
+          case 'file_no':
+            q = q.order('file_no', { ascending: true });
+            break;
+          case 'file_name':
+            q = q.order('file_name', { ascending: true });
+            break;
+          case 'newest':
+          default:
+            q = q.order('created_at', { ascending: false });
+            break;
+        }
+      }
+
+      const offset = (safePage - 1) * safeLimit;
+      q = q.range(offset, offset + safeLimit - 1);
+      return q;
+    };
+
     const safePage = Math.max(1, page);
     // Allow larger batches for explicit exports while keeping normal queries paginated.
     const safeLimit = Math.max(1, Math.min(10000, limit));
-    const offset = (safePage - 1) * safeLimit;
 
-    query = query.range(offset, offset + safeLimit - 1);
+    let res = await buildQuery(FILE_LIST_SELECT_WITH_DELETED, true);
+    if (
+      res.error &&
+      ((res.error as { code?: string }).code === '42703' ||
+        res.error.message?.includes('is_deleted'))
+    ) {
+      if (tab === 'deleted') {
+        return {
+          files: [],
+          total: 0,
+          page: safePage,
+          limit: safeLimit,
+          totalPages: 1,
+        };
+      }
+      res = await buildQuery(FILE_LIST_SELECT, false);
+    }
 
-    const { data, count, error } = await query;
+    const { data, count, error } = res;
 
     if (error) {
       console.error('FileRepository.listFiltered error:', error);
@@ -434,7 +519,7 @@ export class FileRepository {
     const total = count ?? (data?.length || 0);
     const totalPages = Math.max(1, Math.ceil(total / safeLimit));
     const files: FileRecordRow[] = await this.markDeletedAuthors(
-      ((data as FileRecordRow[]) ?? []).map((f) => ({ ...f })),
+      ((data as unknown as FileRecordRow[]) ?? []).map((f) => ({ ...f })),
     );
 
     // Resolve approver display names from profiles table for any records where approved_by_name is missing
@@ -506,13 +591,186 @@ export class FileRepository {
     return data as FileRecordRow;
   }
 
-  /** Delete a file record by id */
-  async delete(id: number): Promise<void> {
-    const { error } = await this.client.from('files').delete().eq('id', id);
+  /** Count rows that would be removed with the file or kept during soft delete. */
+  async countDependents(id: number, fileNo?: string): Promise<FileDependentCounts> {
+    const cleanFileNo = (fileNo || '').trim();
+    const auditLogsPromise = cleanFileNo
+      ? Promise.resolve(
+          this.client
+            .from('audit_logs')
+            .select('id', { count: 'exact', head: true })
+            .or(`details->>file_no.eq.${cleanFileNo},details->>file_id.eq.${id}`)
+        ).catch(() => ({ count: 0, error: null }))
+      : Promise.resolve({ count: 0, error: null });
+
+    const [requests, extensions, activeCheckouts, returnedCheckouts, auditLogs] = await Promise.all([
+      this.client
+        .from('staff_file_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('file_id', id),
+      this.client
+        .from('file_request_extensions')
+        .select('id, staff_file_requests!inner(file_id)', {
+          count: 'exact',
+          head: true,
+        })
+        .eq('staff_file_requests.file_id', id),
+      this.client
+        .from('staff_file_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('file_id', id)
+        .eq('status', 'APPROVED')
+        .is('returned_at', null),
+      this.client
+        .from('staff_file_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('file_id', id)
+        .eq('status', 'APPROVED')
+        .not('returned_at', 'is', null),
+      auditLogsPromise,
+    ]);
+
+    if (requests.error) {
+      throw new Error(
+        `FileRepository.countDependents error: ${requests.error.message}`,
+      );
+    }
+    if (extensions.error) {
+      throw new Error(
+        `FileRepository.countDependents error: ${extensions.error.message}`,
+      );
+    }
+
+    const activeCount = activeCheckouts.count ?? 0;
+    return {
+      fileRequests: requests.count ?? 0,
+      fileRequestExtensions: extensions.count ?? 0,
+      activeCheckouts: activeCount,
+      returnedCheckouts: returnedCheckouts.count ?? 0,
+      auditLogs: auditLogs.count ?? 0,
+      canDelete: activeCount === 0,
+    };
+  }
+
+  /** Soft-delete file record */
+  async softDelete(
+    id: number,
+    actorId: string,
+    reason?: string | null,
+  ): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      is_deleted: true,
+      deleted_at: now,
+      deleted_by: actorId,
+      deletion_reason: reason || null,
+      updated_at: now,
+    };
+
+    const { data, error } = await this.client
+      .from('files')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single();
 
     if (error) {
-      throw new Error(`FileRepository.delete error: ${error.message}`);
+      if ((error as { code?: string }).code === '42703' || error.message?.includes('is_deleted')) {
+        throw new Error(
+          'Please apply migration 0036_soft_delete_files.sql in Supabase SQL Editor to enable soft delete for files.',
+        );
+      }
+      throw new Error(`FileRepository.softDelete error: ${error.message}`);
     }
+    return data as FileRecordRow;
+  }
+
+  /** Restore soft-deleted file record */
+  async restore(id: number): Promise<FileRecordRow> {
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      is_deleted: false,
+      deleted_at: null,
+      deleted_by: null,
+      deletion_reason: null,
+      updated_at: now,
+    };
+
+    const { data, error } = await this.client
+      .from('files')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      if ((error as { code?: string }).code === '42703' || error.message?.includes('is_deleted')) {
+        throw new Error(
+          'Please apply migration 0036_soft_delete_files.sql in Supabase SQL Editor to enable soft delete for files.',
+        );
+      }
+      throw new Error(`FileRepository.restore error: ${error.message}`);
+    }
+    return data as FileRecordRow;
+  }
+
+  /**
+   * Delete the file and its dependent rows through the 0035 RPC. The function
+   * runs in one Postgres transaction, so a failure leaves nothing half-deleted.
+   */
+  async deleteWithDependents(
+    id: number,
+    actorId: string,
+    actorName: string,
+  ): Promise<DeletedFileResult> {
+    const { data, error } = await this.client.rpc(
+      'delete_file_with_dependents',
+      {
+        p_file_id: id,
+        p_actor_id: actorId,
+        p_actor_name: actorName,
+      },
+    );
+
+    if (error) {
+      const wrapped = new Error(
+        `FileRepository.deleteWithDependents error: ${error.message}`,
+      );
+      // Keep the Postgres code so the controller can map 23503 precisely.
+      Object.assign(wrapped, {
+        code: (error as { code?: string }).code,
+        details: (error as { details?: string }).details,
+      });
+      throw wrapped;
+    }
+
+    const result = (data ?? {}) as Record<string, unknown>;
+    if (result.outcome !== 'deleted') {
+      return {
+        outcome: 'not_found',
+        fileId: id,
+        fileNo: '',
+        fileName: '',
+        fileRequests: 0,
+        fileRequestExtensions: 0,
+        auditId: null,
+      };
+    }
+
+    return {
+      outcome: 'deleted',
+      fileId: Number(result.file_id ?? id),
+      fileNo: String(result.file_no ?? ''),
+      fileName: String(result.file_name ?? ''),
+      fileRequests: Number(result.deleted_file_requests ?? 0),
+      fileRequestExtensions: Number(
+        result.deleted_file_request_extensions ?? 0,
+      ),
+      auditId:
+        result.audit_id === null || result.audit_id === undefined
+          ? null
+          : Number(result.audit_id),
+    };
   }
 
   /** Approve a pending file submission */
@@ -622,6 +880,7 @@ export class FileRepository {
             allFilesCount: Number(row.allFilesCount) || 0,
             pendingCount: Number(row.pendingCount) || 0,
             rejectedCount: Number(row.rejectedCount) || 0,
+            deletedCount: Number(row.deletedCount) || 0,
             totalPageNumbers:
               row.totalPageNumbers !== undefined && row.totalPageNumbers !== null
                 ? Number(row.totalPageNumbers)
@@ -634,32 +893,88 @@ export class FileRepository {
     try {
       // Day boundary in Sri Lanka time so "today" matches what users see.
       const todayStartIso = sriLankaTodayStart().toISOString();
-      const [pending, allFiles, archives, rejected, today] = await Promise.all([
-        this.client
-          .from('files')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'PENDING'),
-        this.client
-          .from('files')
-          .select('*', { count: 'exact', head: true })
-          .in('status', ['APPROVED', 'active', 'archived', 'issued']),
-        this.client.from('files').select('*', { count: 'exact', head: true }),
-        this.client
-          .from('files')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'REJECTED'),
-        this.client
-          .from('files')
-          .select('*', { count: 'exact', head: true })
-          .gte('created_at', todayStartIso),
-      ]);
+      let pendingCount = 0;
+      let allFilesCount = 0;
+      let archivesCount = 0;
+      let rejectedCount = 0;
+      let todayCount = 0;
+      let deletedCount = 0;
+
+      // Try queries with is_deleted column awareness
+      try {
+        const [pending, allFiles, archives, rejected, today, deleted] = await Promise.all([
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'PENDING')
+            .or('is_deleted.is.null,is_deleted.eq.false'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .in('status', ['APPROVED', 'active', 'archived', 'issued'])
+            .or('is_deleted.is.null,is_deleted.eq.false'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .or('is_deleted.is.null,is_deleted.eq.false'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'REJECTED')
+            .or('is_deleted.is.null,is_deleted.eq.false'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', todayStartIso)
+            .or('is_deleted.is.null,is_deleted.eq.false'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_deleted', true),
+        ]);
+
+        if (pending.error) throw pending.error;
+        pendingCount = pending.count ?? 0;
+        allFilesCount = allFiles.count ?? 0;
+        archivesCount = archives.count ?? 0;
+        rejectedCount = rejected.count ?? 0;
+        todayCount = today.count ?? 0;
+        deletedCount = deleted.count ?? 0;
+      } catch {
+        // Fallback for when is_deleted column is not yet migrated
+        const [pending, allFiles, archives, rejected, today] = await Promise.all([
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'PENDING'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .in('status', ['APPROVED', 'active', 'archived', 'issued']),
+          this.client.from('files').select('*', { count: 'exact', head: true }),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'REJECTED'),
+          this.client
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', todayStartIso),
+        ]);
+        pendingCount = pending.count ?? 0;
+        allFilesCount = allFiles.count ?? 0;
+        archivesCount = archives.count ?? 0;
+        rejectedCount = rejected.count ?? 0;
+        todayCount = today.count ?? 0;
+      }
 
       return {
-        totalArchives: archives.count ?? 0,
-        todayCount: today.count ?? 0,
-        allFilesCount: allFiles.count ?? 0,
-        pendingCount: pending.count ?? 0,
-        rejectedCount: rejected.count ?? 0,
+        totalArchives: archivesCount,
+        todayCount: todayCount,
+        allFilesCount: allFilesCount,
+        pendingCount: pendingCount,
+        rejectedCount: rejectedCount,
+        deletedCount: deletedCount,
       };
     } catch (err) {
       console.error('FileRepository.getSummaryCounts error:', err);
@@ -669,6 +984,7 @@ export class FileRepository {
         allFilesCount: 0,
         pendingCount: 0,
         rejectedCount: 0,
+        deletedCount: 0,
       };
     }
   }
@@ -690,11 +1006,27 @@ export class FileRepository {
     let total = 0;
 
     for (let batch = 0; batch < 100; batch += 1) {
-      const { data, error } = await this.client
+      let query = this.client
         .from('files')
         .select('page_numbers')
+        .neq('status', 'REJECTED')
+        .or('is_deleted.is.null,is_deleted.eq.false')
         .order('id', { ascending: true })
         .range(from, from + size - 1);
+
+      let { data, error } = await query;
+
+      if (error && (error as { code?: string }).code === '42703') {
+        // Fallback without is_deleted if column does not exist yet
+        const fallback = await this.client
+          .from('files')
+          .select('page_numbers')
+          .neq('status', 'REJECTED')
+          .order('id', { ascending: true })
+          .range(from, from + size - 1);
+        data = fallback.data;
+        error = fallback.error;
+      }
 
       if (error) {
         console.error('FileRepository.getTotalPageNumbers error:', error);

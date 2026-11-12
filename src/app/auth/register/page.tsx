@@ -303,8 +303,8 @@ function RegisterPageContent() {
                       id: registeredPendingInfo.id,
                     }}
                     components={{
-                      name: <span className="font-semibold" />,
-                      role: <span className="font-semibold" />,
+                      name: <span key="name" className="font-semibold" />,
+                      role: <span key="role" className="font-semibold" />,
                     }}
                   />
                 </p>
@@ -316,7 +316,7 @@ function RegisterPageContent() {
                       t={t}
                       i18nKey="register.verifyText"
                       values={{ email: registeredPendingInfo.email }}
-                      components={{ email: <span className="font-medium underline" /> }}
+                      components={{ email: <span key="email" className="font-medium underline" /> }}
                     />
                   </p>
                 </div>

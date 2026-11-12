@@ -15,6 +15,7 @@ import { MdAdminPanelSettings, MdSave } from 'react-icons/md';
 import type { AccountStatus, AdminUserRow, UserRole } from 'types/auth';
 import type { SectionRow } from 'models/SectionRepository';
 import Button from 'components/ui/Button';
+import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
 
 function statusBadgeClass(status: AccountStatus): string {
   if (status === 'approved') return 'bg-emerald-600 text-white shadow-sm';
@@ -65,6 +66,7 @@ export default function EditUserModal({
   const { t } = useTranslation('accounts');
   const [fullName, setFullName] = useState(user.full_name);
   const [sectionId, setSectionId] = useState<number | null>(user.section_id);
+  useLocalizedFields(sections.map((s) => s.name));
   const [role, setRole] = useState<UserRole>(user.role);
 
   // Strip non-digits and leading 94 or 0
@@ -255,7 +257,7 @@ export default function EditUserModal({
               <option value="">{t('modals.edit.selectDepartment')}</option>
               {sections.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {localizeField(s.name)}
                 </option>
               ))}
             </select>

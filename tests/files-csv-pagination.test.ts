@@ -116,6 +116,10 @@ describe('FileRepository Pagination & Filtering Logic', () => {
               return chain;
             },
             or: (clause: string) => {
+              if (clause.includes('is_deleted')) {
+                current = current.filter((r: any) => !r.is_deleted);
+                return chain;
+              }
               // Parse simple OR clauses for search or storage
               const terms = clause.split(',').map((part) => {
                 const match = part.match(/([a-zA-Z_]+)\.ilike\.%(.*)%/);

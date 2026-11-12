@@ -12,7 +12,7 @@ import {
   FiRefreshCw,
   FiX,
 } from 'react-icons/fi';
-import { formatSriLankaDate } from 'lib/datetime';
+import { formatStaffSriLankaDate } from 'lib/datetime';
 import { localiseReturnStatusLabel } from 'i18n/uiText';
 import { localizeField, useLocalizedFields } from 'lib/useLocalizedFields';
 import CompetingBadge from 'components/requests/CompetingBadge';
@@ -86,20 +86,20 @@ const statusStyle: Record<StaffRequestStatus, { label: string; className: string
  * same table, so the widths are the single source of truth for the layout.
  */
 const COLUMNS = [
-  { key: 'file_no', label: 'table.fileNo', className: 'w-[135px]' },
-  { key: 'file_name', label: 'table.fileName', className: 'w-[195px]' },
-  { key: 'section', label: 'table.sectionLocation', className: 'w-[185px]' },
-  { key: 'access_date', label: 'table.accessDate', className: 'w-[100px]' },
-  { key: 'duration', label: 'table.duration', className: 'w-[80px]' },
-  { key: 'return_status', label: 'table.returnStatus', className: 'w-[130px]' },
-  { key: 'priority', label: 'common:labels.priority', className: 'w-[85px]' },
-  { key: 'status', label: 'common:labels.status', className: 'w-[90px]' },
-  { key: 'action', label: 'common:labels.action', className: 'w-[285px]' },
+  { key: 'file_no', label: 'table.fileNo', className: 'w-[8%]' },
+  { key: 'file_name', label: 'table.fileName', className: 'w-[16%]' },
+  { key: 'section', label: 'table.sectionLocation', className: 'w-[12%]' },
+  { key: 'access_date', label: 'table.accessDate', className: 'w-[7%]' },
+  { key: 'duration', label: 'table.duration', className: 'w-[6%]' },
+  { key: 'return_status', label: 'table.returnStatus', className: 'w-[12%]' },
+  { key: 'priority', label: 'common:labels.priority', className: 'w-[8%]' },
+  { key: 'status', label: 'common:labels.status', className: 'w-[8%]' },
+  { key: 'action', label: 'common:labels.action', className: 'w-[23%]' },
 ] as const;
 
 /** Two buttons must never wrap onto a second line inside the Action column. */
 const ACTION_BTN_CLASS =
-  'inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex min-h-8 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-normal rounded-lg px-2 py-1 text-center text-[11px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60';
 
 function getLocationParts(location: string): string[] {
   return String(location || '')
@@ -206,7 +206,7 @@ export default function RequestsTable({
         </div>
       ) : (
         <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent dark:scrollbar-thumb-navy-600">
-          <table className="w-full min-w-[1285px] table-auto text-left">
+          <table className="w-full table-fixed text-left">
             <thead className="bg-slate-50 text-[10px] font-extrabold uppercase tracking-wider text-slate-600 dark:bg-navy-900/50 dark:text-slate-300">
               <tr>
                 {COLUMNS.map((column) => (
@@ -288,11 +288,11 @@ export default function RequestsTable({
                         <p
                           className="mt-0.5 truncate text-[10px] leading-tight text-muted"
                           title={t('table.submitted', {
-                            date: formatSriLankaDate(request.created_at),
+                            date: formatStaffSriLankaDate(request.created_at),
                           })}
                         >
                           {t('table.submitted', {
-                            date: formatSriLankaDate(request.created_at),
+                            date: formatStaffSriLankaDate(request.created_at),
                           })}
                         </p>
                         {request.competing?.isCompeting && (
@@ -327,7 +327,7 @@ export default function RequestsTable({
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 align-middle text-[11px] tabular-nums row-text-secondary">
-                        {formatSriLankaDate(`${ymd(request.request_date)}T00:00:00Z`)}
+                        {formatStaffSriLankaDate(`${ymd(request.request_date)}T00:00:00Z`)}
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 align-middle text-[11px] tabular-nums row-text-secondary">
@@ -345,7 +345,7 @@ export default function RequestsTable({
                             {isExtended && (
                               <span
                                 title={t('table.extendedTo', {
-                                  date: formatSriLankaDate(
+                                  date: formatStaffSriLankaDate(
                                     `${ymd(request.expected_return_date)}T00:00:00Z`,
                                   ),
                                 })}
@@ -354,7 +354,7 @@ export default function RequestsTable({
                                 <FiCalendar className="h-2.5 w-2.5 shrink-0" />
                                 <span className="min-w-0">
                                   {t('table.extendedTo', {
-                                    date: formatSriLankaDate(
+                                    date: formatStaffSriLankaDate(
                                       `${ymd(request.expected_return_date)}T00:00:00Z`,
                                     ),
                                   })}
@@ -364,7 +364,7 @@ export default function RequestsTable({
                             {request.pending_extension && (
                               <span
                                 title={t('table.extensionPending', {
-                                  date: formatSriLankaDate(
+                                  date: formatStaffSriLankaDate(
                                     `${ymd(
                                       request.pending_extension.new_return_date,
                                     )}T00:00:00Z`,
@@ -373,7 +373,7 @@ export default function RequestsTable({
                                 className="line-clamp-2 text-[9px] font-bold leading-tight text-amber-700 dark:text-amber-300"
                               >
                                 {t('table.extensionPending', {
-                                  date: formatSriLankaDate(
+                                  date: formatStaffSriLankaDate(
                                     `${ymd(
                                       request.pending_extension.new_return_date,
                                     )}T00:00:00Z`,
@@ -451,7 +451,7 @@ export default function RequestsTable({
                               <span
                                 className="min-w-0 truncate text-[10px] font-bold leading-tight text-amber-600 dark:text-amber-400"
                                 title={t('table.extensionPending', {
-                                  date: formatSriLankaDate(
+                                  date: formatStaffSriLankaDate(
                                     `${ymd(
                                       request.pending_extension.new_return_date,
                                     )}T00:00:00Z`,

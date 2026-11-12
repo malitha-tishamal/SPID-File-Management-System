@@ -25,31 +25,26 @@ export default function LocationDetailsButton({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
 
-  // Record-room and shelf wording is officer content; locker/shelf identifiers are not.
-  const [localizedRepository, localizedFileName, localizedShelf, localizedPosition] =
+  // Shelf wording is officer content; locker/shelf identifiers are not.
+  const [localizedFileName, localizedShelf, localizedPosition] =
     useLocalizedFields([
-      file.archive_repository,
       file.file_name,
       file.shelf_name,
       file.shelf_position,
     ]);
-  const repository = localizedRepository || file.archive_repository;
   const shelfName = localizedShelf || file.shelf_name;
   const shelfPosition = localizedPosition || file.shelf_position;
   // A record room on its own is NOT an assignment — only locker + shelf +
-  // position (plus the room) make a file fully located.
+  // position make a file fully located.
   const locationStatus = getLocationStatus({
-    archive_repository: repository,
     locker_no: file.locker_no,
     shelf_name: shelfName,
     shelf_position: shelfPosition,
   });
-  const roomName = repository || null;
 
   const locationSummary =
     locationStatus.status === 'ASSIGNED'
       ? formatLocation({
-          archive_repository: repository,
           locker_no: file.locker_no,
           shelf_name: shelfName,
           shelf_position: shelfPosition,
@@ -57,7 +52,6 @@ export default function LocationDetailsButton({
       : '';
 
   const locationDetails = [
-    [t('detail.recordRoom'), roomName || t('detail.notAssigned')],
     [t('detail.locker'), file.locker_no || t('detail.notAssigned')],
     [t('detail.shelf'), shelfName || t('detail.notAssigned')],
     [t('detail.filePosition'), shelfPosition || t('detail.notAssigned')],

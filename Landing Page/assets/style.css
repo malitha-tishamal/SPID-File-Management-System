@@ -1416,16 +1416,17 @@ img {
   border-radius: var(--radius-xl);
   padding: 2.25rem 2rem;
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.04);
   transition: all var(--transition-normal);
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .feature-card:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--shadow-xl);
-  border-color: var(--brand-primary);
+  transform: translateY(-5px);
+  box-shadow: 0 20px 30px -10px rgba(67, 24, 255, 0.12), 0 8px 16px -6px rgba(15, 23, 42, 0.04);
+  border-color: rgba(67, 24, 255, 0.35);
 }
 
 .feature-icon-wrapper {
@@ -1474,48 +1475,54 @@ img {
 }
 
 .feature-title {
-  font-size: 1.25rem;
-  font-weight: 800;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 0.85rem;
-  letter-spacing: -0.025em;
-  line-height: 1.35;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+  line-height: 1.4;
 }
 
 .feature-description {
-  font-size: 0.9375rem;
-  color: #334155;
-  line-height: 1.72;
-  letter-spacing: -0.005em;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 0.925rem;
+  color: #475569;
+  line-height: 1.68;
+  letter-spacing: -0.01em;
   margin-bottom: 1.5rem;
   flex-grow: 1;
-  font-weight: 450;
+  font-weight: 400;
 }
 
 [data-theme="dark"] .feature-description {
-  color: #CBD5E1;
+  color: #94A3B8;
 }
 
 /* Technical Keyword Chips inside descriptions */
 .tech-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.785rem;
-  font-weight: 700;
-  padding: 0.12rem 0.45rem;
-  border-radius: 5px;
-  background-color: rgba(67, 24, 255, 0.08);
-  color: var(--brand-primary);
-  border: 1px solid rgba(67, 24, 255, 0.15);
-  line-height: 1.25;
-  vertical-align: baseline;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.12rem 0.48rem;
+  border-radius: 6px;
+  background-color: #EEF2FF;
+  color: #4318FF;
+  border: 1px solid #D5DAFF;
+  line-height: 1.35;
+  vertical-align: middle;
   letter-spacing: -0.01em;
+  margin: 0 0.15rem;
+  box-shadow: 0 1px 2px rgba(67, 24, 255, 0.05);
 }
 
 [data-theme="dark"] .tech-chip {
-  background-color: rgba(117, 81, 255, 0.16);
+  background-color: rgba(117, 81, 255, 0.18);
   color: #C0B8FE;
-  border-color: rgba(117, 81, 255, 0.3);
+  border-color: rgba(117, 81, 255, 0.35);
+  box-shadow: none;
 }
 
 .feature-footer-tags {
@@ -1530,7 +1537,7 @@ img {
 
 .feature-tag {
   font-size: 0.725rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.01em;
   padding: 0.25rem 0.65rem;
   border-radius: var(--radius-full);

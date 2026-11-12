@@ -1,6 +1,12 @@
 import { ApiError, jsonOk, requireServerEnv } from 'lib/apiResponse';
 import { getSupabaseAdminClient } from 'config/supabase/server';
-import { FileRepository, FileRecordRow, isUniqueViolation } from 'models/FileRepository';
+import {
+  FileRepository,
+  FileRecordRow,
+  type DeletedFileResult,
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from 'models/FileRepository';
 import { SectionRepository, isActiveSection } from 'models/SectionRepository';
 import { parseAndValidateImportBuffer } from 'utils/fileImport';
 import { AuthorizationService } from 'services/AuthorizationService';
@@ -63,6 +69,48 @@ async function approveGuardingFileNo(
         409,
         'VALIDATION_ERROR',
         `File No "${fileNo}" is already used by another live record. Reject this request or remove the conflicting record first.`,
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Permanent delete through the 0035 RPC. The function removes nested child
+ * rows before the file inside one transaction; failures are mapped here so the
+ * UI never sees a raw foreign-key message.
+ */
+async function deleteFileWithDependents(
+  repo: FileRepository,
+  fileId: number,
+  actorId: string,
+  actorName: string,
+): Promise<DeletedFileResult> {
+  try {
+    const result = await repo.deleteWithDependents(fileId, actorId, actorName);
+    if (result.outcome === 'not_found') {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    return result;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (isForeignKeyViolation(err)) {
+      throw new ApiError(
+        409,
+        'REQUEST_CONFLICT',
+        'This file still has linked records that prevent deletion. Refresh the list and try again.',
+        { reason: 'FOREIGN_KEY_VIOLATION' },
+      );
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      /delete_file_with_dependents/i.test(message) &&
+      /schema cache|does not exist|could not find/i.test(message)
+    ) {
+      throw new ApiError(
+        500,
+        'CONFIG_ERROR',
+        'Permanent delete is not configured. Apply migration 0035_delete_file_with_dependents.sql, then retry.',
       );
     }
     throw err;
@@ -259,11 +307,18 @@ export class FileController {
       );
     }
 
-    // Storage location is no longer included in staff submissions
-    // It will be set by admin during approval
-    const lockerNo = null;
-    const shelfName = null;
-    const shelfPosition = null;
+    // Determine actor role early so storage location can be set for admins.
+    const isAdmin = actor.role === 'Administrator';
+
+    // Admins can set the storage location immediately when creating a file.
+    // Staff submissions have no location yet — it is assigned during approval.
+    const lockerNo = isAdmin && body.locker_no ? String(body.locker_no).trim() || null : null;
+    const shelfName = isAdmin && body.shelf_name ? String(body.shelf_name).trim() || null : null;
+    const rawShelfPos = isAdmin && body.shelf_position ? String(body.shelf_position).trim() : null;
+    const validPositions = ['Front', 'Middle', 'Back'];
+    const shelfPosition = rawShelfPos && validPositions.includes(rawShelfPos)
+      ? (rawShelfPos as 'Front' | 'Middle' | 'Back')
+      : null;
 
     const pageNumbers = Math.max(
       0,
@@ -289,7 +344,6 @@ export class FileController {
     const registrarRole = actor.role || 'Staff';
 
     // ── Enforce Approval Workflow based on Role & System Setting ──────────────
-    const isAdmin = actor.role === 'Administrator';
     let fileStatus: 'APPROVED' | 'PENDING' = 'APPROVED';
     let approvedBy: string | null = null;
     let approvedAt: string | null = null;
@@ -332,7 +386,6 @@ export class FileController {
       approved_by: approvedBy,
       approved_by_name: approvedByName,
       approved_at: approvedAt,
-      archive_repository: 'Central Record Room (B-02)',
       status: fileStatus,
     };
 
@@ -399,7 +452,6 @@ export class FileController {
     void new TranslationService(admin).warm([
       file.file_name,
       file.section_name,
-      file.archive_repository,
     ]);
 
     return jsonOk(
@@ -516,14 +568,13 @@ export class FileController {
     void new TranslationService(admin).warm([
       updated.file_name,
       updated.section_name,
-      updated.archive_repository,
     ]);
 
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[id] — admin delete of a file record */
-  static async deleteFile(id: number) {
+  /** DELETE /api/admin/files/[id] — admin soft delete of a file record by id */
+  static async deleteFile(id: number, req?: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
 
@@ -534,22 +585,7 @@ export class FileController {
     if (!existing) {
       throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
     }
-
-    await repo.delete(id);
-
-    try {
-      await new AuditLogRepository(admin).log({
-        actorId: actor.id,
-        action: 'file.deleted',
-        details: {
-          file_id: id,
-          file_no: existing.file_no,
-          file_name: existing.file_name,
-        },
-      });
-    } catch {}
-
-    return jsonOk({ message: 'File deleted successfully.' });
+    return FileController.deleteFileByFileNo(existing.file_no, req);
   }
 
   /** POST /api/admin/files/[id]/approve — approve pending submission */
@@ -1044,7 +1080,6 @@ export class FileController {
         approved_by: bulkApprovedBy,
         approved_by_name: bulkApprovedByName,
         approved_at: bulkApprovedAt,
-        archive_repository: 'Central Record Room (B-02)',
         status: staffBulkStatus,
       });
       payloadRows.push(rowNum);
@@ -1251,8 +1286,38 @@ export class FileController {
     return jsonOk({ file: updated, message: 'File updated successfully.' });
   }
 
-  /** DELETE /api/admin/files/[file_no] — admin delete of a file record by file_no */
-  static async deleteFileByFileNo(fileNo: string) {
+  /** GET /api/admin/files/[file_no]/dependents — counts kept or affected by deleting the file */
+  static async getFileDependents(fileNo: string) {
+    requireServerEnv();
+    await AuthorizationService.requireAdminProfile();
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const existing = await repo.findByFileNo(fileNo);
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+
+    const counts = await repo.countDependents(existing.id, existing.file_no);
+    return jsonOk({
+      file_id: existing.id,
+      file_no: existing.file_no,
+      file_name: existing.file_name,
+      file_requests: counts.fileRequests,
+      file_request_extensions: counts.fileRequestExtensions,
+      active_checkouts: counts.activeCheckouts ?? 0,
+      returned_checkouts: counts.returnedCheckouts ?? 0,
+      audit_logs: counts.auditLogs ?? 0,
+      can_delete: (counts.activeCheckouts ?? 0) === 0,
+    });
+  }
+
+  /** DELETE /api/admin/files/[file_no] — admin soft delete of a file record by file_no */
+  static async deleteFileByFileNo(fileNo: string, req?: Request) {
     requireServerEnv();
     const actor = await AuthorizationService.requireAdminProfile();
 
@@ -1266,18 +1331,187 @@ export class FileController {
     if (existing.id === undefined) {
       throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
     }
+    if (existing.is_deleted) {
+      throw new ApiError(409, 'FILE_ALREADY_DELETED', 'This file record is already in Deleted Files.');
+    }
 
-    await repo.delete(existing.id);
+    const counts = await repo.countDependents(existing.id, existing.file_no);
+    if ((counts.activeCheckouts ?? 0) > 0) {
+      throw new ApiError(
+        409,
+        'FILE_HAS_ACTIVE_CHECKOUTS',
+        `This file is currently issued to a staff member (${counts.activeCheckouts} active checkout). Mark it as returned before deleting the record.`,
+        { checkouts: counts.activeCheckouts },
+      );
+    }
+
+    let reason: string | null = null;
+    if (req) {
+      try {
+        const body = await req.json().catch(() => ({}));
+        if (body && typeof body.reason === 'string') {
+          reason = body.reason.trim().slice(0, 500) || null;
+        }
+      } catch {}
+    }
+
+    const actorName = actor.full_name || actor.email || 'Administrator';
+    const now = new Date().toISOString();
 
     try {
-      await new AuditLogRepository(admin).log({
-        actorId: actor.id,
-        action: 'file.deleted',
-        details: { file_no: existing.file_no, file_name: existing.file_name },
-      });
-    } catch {}
+      await repo.softDelete(existing.id, actor.id, reason);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('0036_soft_delete_files.sql')) {
+        throw new ApiError(500, 'CONFIG_ERROR', msg);
+      }
+      throw err;
+    }
 
-    return jsonOk({ message: 'File deleted successfully.' });
+    try {
+      await admin.from('audit_logs').insert([
+        {
+          actor_id: actor.id,
+          action: 'file.soft_deleted',
+          details: {
+            file_id: existing.id,
+            file_no: existing.file_no,
+            file_name: existing.file_name,
+            section: existing.section_name,
+            deleted_by: actorName,
+            deleted_at: now,
+            reason,
+            kept_requests: counts.fileRequests,
+            kept_extensions: counts.fileRequestExtensions,
+          },
+        },
+      ]);
+    } catch (err) {
+      console.warn('[files] audit log error on soft delete:', err);
+    }
+
+    return jsonOk({
+      message: 'File moved to Deleted Files successfully. Related requests and history are preserved.',
+      file_id: existing.id,
+      file_no: existing.file_no,
+      kept: {
+        file_requests: counts.fileRequests,
+        file_request_extensions: counts.fileRequestExtensions,
+        returned_checkouts: counts.returnedCheckouts ?? 0,
+        audit_logs: counts.auditLogs ?? 0,
+      },
+    });
+  }
+
+  /** POST /api/admin/files/[file_no]/restore — restore soft-deleted file record */
+  static async restoreFile(fileNoOrId: string) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const id = Number(fileNoOrId);
+    const existing =
+      !Number.isNaN(id) && String(id) === fileNoOrId.trim()
+        ? await repo.findById(id)
+        : await repo.findByFileNo(fileNoOrId);
+
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+
+    // Check if another live file already has this file number
+    const liveConflict = await repo.findLiveByFileNo(existing.file_no);
+    if (liveConflict && liveConflict.id !== existing.id) {
+      throw new ApiError(
+        409,
+        'FILE_NO_CONFLICT',
+        `A live file with File No "${existing.file_no}" already exists. Resolve the duplicate before restoring this file.`,
+      );
+    }
+
+    const actorName = actor.full_name || actor.email || 'Administrator';
+    const now = new Date().toISOString();
+
+    try {
+      await repo.restore(existing.id);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('0036_soft_delete_files.sql')) {
+        throw new ApiError(500, 'CONFIG_ERROR', msg);
+      }
+      throw err;
+    }
+
+    try {
+      await admin.from('audit_logs').insert([
+        {
+          actor_id: actor.id,
+          action: 'file.restored',
+          details: {
+            file_id: existing.id,
+            file_no: existing.file_no,
+            file_name: existing.file_name,
+            restored_by: actorName,
+            restored_at: now,
+          },
+        },
+      ]);
+    } catch (err) {
+      console.warn('[files] audit log error on restore:', err);
+    }
+
+    return jsonOk({
+      message: `File "${existing.file_no}" restored successfully.`,
+      file_id: existing.id,
+      file_no: existing.file_no,
+    });
+  }
+
+  /** DELETE /api/admin/files/[file_no]/permanent — permanently delete file record */
+  static async permanentDeleteFile(fileNoOrId: string) {
+    requireServerEnv();
+    const actor = await AuthorizationService.requireAdminProfile();
+
+    const admin = getSupabaseAdminClient();
+    const repo = new FileRepository(admin);
+
+    const id = Number(fileNoOrId);
+    const existing =
+      !Number.isNaN(id) && String(id) === fileNoOrId.trim()
+        ? await repo.findById(id)
+        : await repo.findByFileNo(fileNoOrId);
+
+    if (!existing) {
+      throw new ApiError(404, 'NOT_FOUND', 'File record not found.');
+    }
+    if (existing.id === undefined) {
+      throw new ApiError(500, 'AUTH_ERROR', 'File record has no internal ID.');
+    }
+
+    const actorName = actor.full_name || actor.email || 'Administrator';
+    const deleted = await deleteFileWithDependents(
+      repo,
+      existing.id,
+      actor.id,
+      actorName,
+    );
+
+    return jsonOk({
+      message:
+        deleted.fileRequests || deleted.fileRequestExtensions
+          ? `File permanently deleted. ${deleted.fileRequests} file request(s) and ${deleted.fileRequestExtensions} extension request(s) were removed too.`
+          : 'File permanently deleted.',
+      deleted: {
+        file_requests: deleted.fileRequests,
+        file_request_extensions: deleted.fileRequestExtensions,
+        audit_id: deleted.auditId,
+      },
+    });
   }
 
   /** POST /api/admin/files/[file_no]/approve — approve pending submission by file_no */

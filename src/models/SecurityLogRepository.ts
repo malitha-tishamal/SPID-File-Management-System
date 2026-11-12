@@ -65,7 +65,6 @@ export class SecurityLogRepository {
     const effectiveCategory: SecurityLogCategory =
       category === 'deleted' ? 'all' : category;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let request: any = this.adminClient
       .from('audit_logs')
       .select(LOG_COLUMNS, { count: 'exact' });

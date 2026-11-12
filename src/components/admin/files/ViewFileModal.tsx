@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAppLanguage } from 'i18n/LanguageProvider';
 import { formatSriLankaDate, formatSriLankaDateTime } from 'lib/datetime';
 import { useProfile } from 'contexts/ProfileContext';
 import {
@@ -32,8 +33,23 @@ export default function ViewFileModal({
   isStaffView?: boolean;
 }) {
   const { t } = useTranslation('files');
+  // Subscribe to language changes so formatSriLankaDate/Time re-renders correctly
+  useAppLanguage();
   const { profile } = useProfile();
-  useLocalizedFields([file?.file_name, file?.section_name, file?.reject_reason]);
+  const [
+    localizedFileName,
+    localizedSectionName,
+    localizedRejectReason,
+    localizedShelfName,
+    localizedShelfPosition,
+  ] = useLocalizedFields([
+    file?.file_name,
+    file?.section_name,
+    file?.reject_reason,
+    file?.shelf_name,
+    file?.shelf_position,
+  ]);
+
   const isViewerStaff = isStaffView ?? profile?.role === 'Staff';
 
   if (!file) return null;
@@ -105,7 +121,7 @@ export default function ViewFileModal({
 
   return (
     <FileModalShell
-      title={localizeField(file.file_name)}
+      title={localizedFileName || file.file_name || ''}
       subtitle={
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           <span className="font-mono text-xs font-bold text-[#4318FF] dark:text-brand-300">
@@ -136,7 +152,7 @@ export default function ViewFileModal({
             <FiFolder className="h-3.5 w-3.5" /> {t('detail.departmentSection')}
           </span>
           <p className="break-words font-bold text-slate-800 dark:text-white">
-            {localizeField(file.section_name) || '—'}
+            {localizedSectionName || file.section_name || '—'}
           </p>
         </div>
 
@@ -205,7 +221,7 @@ export default function ViewFileModal({
           </span>
           {file.locker_no || file.shelf_name ? (
             <p className="break-words font-bold text-slate-800 dark:text-white">
-              {[file.locker_no, file.shelf_name, file.shelf_position].filter(Boolean).join(' / ')}
+              {[file.locker_no, localizeField(file.shelf_name) || file.shelf_name, localizeField(file.shelf_position) || file.shelf_position].filter(Boolean).join(' / ')}
             </p>
           ) : (
             <p className="italic text-slate-400">{t('common:misc.notSpecified')}</p>
@@ -252,7 +268,7 @@ export default function ViewFileModal({
               </p>
               {file.reject_reason ? (
                 <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                  {localizeField(file.reject_reason)}
+                  {localizedRejectReason || file.reject_reason || ''}
                 </p>
               ) : (
                 <p className="text-xs italic text-rose-400 dark:text-rose-500">
